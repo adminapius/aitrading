@@ -7,6 +7,7 @@ export const tradingConfig = {
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
   alpacaBaseUrl: process.env.ALPACA_BASE_URL ?? 'https://paper-api.alpaca.markets',
   alpacaDataFeed: process.env.ALPACA_DATA_FEED ?? 'iex',
+  railwayServiceUrl: process.env.RAILWAY_SERVICE_URL,
 } as const
 
 export function assertServerConfig() {

@@ -13,6 +13,20 @@ async function checkSupabase() {
   return rows[0] ?? null
 }
 
+async function checkRailway() {
+  if (!tradingConfig.railwayServiceUrl) {
+    return { configured: false, reachable: false }
+  }
+
+  const response = await fetch(`${tradingConfig.railwayServiceUrl.replace(/\/$/, '')}/health`, {
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(5000),
+    cache: 'no-store',
+  })
+  if (!response.ok) throw new Error(`Railway returned ${response.status}`)
+  return { configured: true, reachable: true, status: response.status }
+}
+
 async function checkAlpaca() {
   const response = await fetch(`${tradingConfig.alpacaBaseUrl}/v2/account`, {
     headers: {
@@ -27,11 +41,17 @@ async function checkAlpaca() {
 }
 
 export async function GET() {
-  const [supabase, alpaca] = await Promise.allSettled([checkSupabase(), checkAlpaca()])
+  const [supabase, alpaca, railway] = await Promise.allSettled([
+    checkSupabase(),
+    checkAlpaca(),
+    checkRailway(),
+  ])
+  const requiredHealthy = supabase.status === 'fulfilled' && alpaca.status === 'fulfilled'
   return NextResponse.json({
-    ok: supabase.status === 'fulfilled' && alpaca.status === 'fulfilled',
+    ok: requiredHealthy,
     checkedAt: new Date().toISOString(),
-    supabase: supabase.status === 'fulfilled' ? { connected: true, account: supabase.value } : { connected: false, error: supabase.reason.message },
-    alpaca: alpaca.status === 'fulfilled' ? { connected: true, account: alpaca.value } : { connected: false, error: alpaca.reason.message },
-  }, { status: supabase.status === 'fulfilled' && alpaca.status === 'fulfilled' ? 200 : 503 })
+    supabase: supabase.status === 'fulfilled' ? { connected: true, account: supabase.value } : { connected: false, error: supabase.reason instanceof Error ? supabase.reason.message : 'Unavailable' },
+    alpaca: alpaca.status === 'fulfilled' ? { connected: true, account: alpaca.value } : { connected: false, error: alpaca.reason instanceof Error ? alpaca.reason.message : 'Unavailable' },
+    railway: railway.status === 'fulfilled' ? railway.value : { configured: true, reachable: false, error: railway.reason instanceof Error ? railway.reason.message : 'Unavailable' },
+  }, { status: requiredHealthy ? 200 : 503 })
 }
