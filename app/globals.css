@@ -54,8 +54,11 @@ html, body { overflow-x: hidden; }
 .watchlist { max-height: 34dvh; }
 .events { max-height: 39dvh; }
 .brand small { font-size: 12px; }
+.balance-panel .balance { font-size: 27px; }
+.balance-panel .metric-row { font-size: 12px; }
+.balance-panel .balance-meta { font-size: 11px; }
 .clock { font-size: 13px; }
-.section-kicker, .panel-title { font-size: 16px; }
+.section-kicker, .panel-title { font-size: 15px; }
 .event, .event p, .event-time, .event-type { font-size: 13px !important; }
 .empty-position { padding-top: 17px; }
 .index-row { grid-template-columns: 1fr 1fr 1fr; }
@@ -75,8 +78,14 @@ html, body { overflow-x: hidden; }
 .health-bad { color: #fb7185; }
 .scanner-title { white-space: nowrap; gap: 6px; }
 .scanner-title > span:first-child { min-width: 0; }
-.scan-status { white-space: nowrap; font-size: 11px !important; }
+.scan-status { white-space: nowrap; font-size: 10px !important; }
+.search-box input { font-size: 11px !important; }
+.clock { margin-right: -3px; }
+.health-values { gap: 3px; }
+.top-status { gap: 8px; }
 .watchlist-panel, .events-panel { flex: 1 1 0; min-height: 0; }
+.watchlist-panel { min-height: 0; }
+.signal-main small { display: block; margin-top: 3px; color: #7f91a6; font-size: 11px; }
 
 .event-time, .event-type, .event-count, .scan-status, .view-all, .search-box input { font-size: 12px !important; }
 .chart-nav { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 5px; color: #7890a6; font: 12px monospace; }
