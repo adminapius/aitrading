@@ -58,6 +58,7 @@ html, body { overflow-x: hidden; }
 .balance-panel .balance { font-size: 27px; }
 .balance-panel .metric-row { font-size: 12px; }
 .balance-panel .balance-meta { font-size: 11px; }
+.empty-position { font-size: 14px; }
 .clock { font-size: 13px; }
 .section-kicker, .panel-title { font-size: 14px; }
 .event, .event p, .event-time, .event-type { font-size: 13px !important; }
@@ -73,14 +74,14 @@ html, body { overflow-x: hidden; }
 .lightweight-chart { height: 500px; padding: 0; }
 .center-workspace { display: flex; flex-direction: column; min-height: 0; gap: 13px; }
 .signal-strip { flex: 0 0 auto; }
-.signal-context { min-width: 190px; max-width: 259px; flex: 1 1 259px; text-align: center; }
+.signal-context { min-width: 190px; max-width: 691px; flex: 1 1 691px; text-align: center; width: 691px; }
 .signal-context strong { white-space: normal; line-height: 1.25; }
 
-.terminal-foot { font-size: 12px; white-space: nowrap; display: flex; gap: 1px; align-items: center; }
+.terminal-foot { font-size: 14px; white-space: nowrap; display: flex; gap: 1px; align-items: center; }
 .health-values { display: inline-flex; gap: 5px; min-width: 0; }
 .health-values strong { font-weight: 700; }
-.health-good { color: #34d399; }
-.health-bad { color: #fb7185; }
+.health-good { color: #34d399; margin-right: 11px; }
+.health-bad { color: #fb7185; margin-right: 11px; }
 .scanner-title { white-space: nowrap; gap: 6px; }
 .scanner-title > span:first-child { min-width: 0; }
 .scan-status { white-space: nowrap; font-size: 11px !important; }
