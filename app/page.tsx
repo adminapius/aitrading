@@ -1,7 +1,7 @@
 'use client'
 
 import useSWR from 'swr'
-import { CandlestickSeries, createChart, type UTCTimestamp } from 'lightweight-charts'
+import { CandlestickSeries, createChart, HistogramSeries, type UTCTimestamp } from 'lightweight-charts'
 import { useEffect, useRef, useState } from 'react'
 import { Activity, Bell, Crosshair, Minus, Search, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, TrendingUp } from 'lucide-react'
 
@@ -46,8 +46,12 @@ function Chart({ symbol }: { symbol: string }) {
     if (!containerRef.current) return
     const chart = createChart(containerRef.current, { autoSize: true, layout: { background: { color: 'transparent' }, textColor: '#718096' }, grid: { vertLines: { color: '#182433' }, horzLines: { color: '#182433' } }, timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#1a2837' }, rightPriceScale: { borderColor: '#1a2837' } })
     const series = chart.addSeries(CandlestickSeries, { upColor: '#34d399', downColor: '#fb7185', borderVisible: false, wickUpColor: '#34d399', wickDownColor: '#fb7185' })
+    const volume = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: '', color: '#2dd4bf', priceLineVisible: false, lastValueVisible: false })
+    chart.priceScale('').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
     const start = Math.floor(Date.now() / 1000) - 24 * 300
-    series.setData(Array.from({ length: 48 }, (_, index) => { const base = 4.35 + index * 0.012 + Math.sin(index * 0.7) * 0.08; return { time: (start + index * 300) as UTCTimestamp, open: base, high: base + 0.08, low: base - 0.05, close: base + (index % 4 === 0 ? -0.03 : 0.04) } }))
+    const candles = Array.from({ length: 48 }, (_, index) => { const base = 4.35 + index * 0.012 + Math.sin(index * 0.7) * 0.08; const close = base + (index % 4 === 0 ? -0.03 : 0.04); return { time: (start + index * 300) as UTCTimestamp, open: base, high: base + 0.08, low: base - 0.05, close } })
+    series.setData(candles)
+    volume.setData(candles.map((candle, index) => ({ time: candle.time, value: 20 + ((index * 17) % 80), color: candle.close >= candle.open ? '#2dd4bf99' : '#fb718599' })))
     chart.timeScale().fitContent()
     return () => chart.remove()
   }, [symbol])
@@ -100,7 +104,7 @@ export default function Home() {
         <section className="center-workspace">
           <div className="center-header"><div><div className="symbol-heading"><h1>{selected.symbol}</h1><span className="company-name">{selected.name}</span><span className="market-tag">NASDAQ</span></div><div className="quote"><strong>${selected.price}</strong><span className="positive"><TrendingUp /> {selected.change}</span><span className="quote-muted">+$0.11 today</span></div></div><div className="chart-actions"><button className="tool-button"><Crosshair /> Crosshair</button><button className="tool-button"><Minus /> Compare</button></div></div>
           <div className="timeframes">{['10s', '1m', '5m', '1h', '4h', 'D', '1Y'].map((item) => <button key={item} className={timeframe === item ? 'active' : ''} onClick={() => setTimeframe(item)}>{item}</button>)}<span className="timeframe-spacer" /><button className="tool-button"><SlidersHorizontal /> Indicators</button></div>
-          <div className="chart-card"><div className="chart-topline"><div><span className="chart-label">{selected.symbol} · {timeframe} · NASDAQ</span><span className="ohlc">O 4.71&nbsp;&nbsp; H 4.89&nbsp;&nbsp; L 4.68&nbsp;&nbsp; C 4.82</span></div><span className="streaming"><i /> {paused ? 'STREAM PAUSED' : 'LIVE STREAMING'}</span></div><Chart symbol={selected.symbol} /><div className="volume"><span className="volume-title">VOLUME</span>{[24, 34, 20, 40, 27, 38, 51, 35, 48, 58, 45, 68, 55, 80, 63, 74, 68, 92, 77, 100, 86, 95, 82, 100].map((h, i) => <i key={i} style={{ height: `${h}%`, background: i % 5 === 2 ? '#fb7185' : '#2dd4bf' }} />)}</div></div>
+          <div className="chart-card"><div className="chart-topline"><div><span className="chart-label">{selected.symbol} · {timeframe} · NASDAQ</span><span className="ohlc">O 4.71&nbsp;&nbsp; H 4.89&nbsp;&nbsp; L 4.68&nbsp;&nbsp; C 4.82</span></div><span className="streaming"><i /> {paused ? 'STREAM PAUSED' : 'LIVE STREAMING'}</span></div><Chart symbol={selected.symbol} /></div>
           <div className="signal-strip"><div className="signal-main"><Sparkles /><div><span>AI SIGNAL · HIGH CONVICTION</span><strong>Momentum continuation setup</strong></div></div><div className="signal-stat signal-context"><span>Why</span><strong>{selected.catalyst} · {selected.volume} volume · technical momentum confirmed</strong></div><div className="signal-stat"><span>Score</span><strong className="positive">94 / 100</strong></div><div className="signal-stat"><span>RVOL</span><strong>4.2x</strong></div><div className="signal-stat"><span>Float</span><strong>8.4M</strong></div><div className="signal-stat"><span>VWAP</span><strong className="positive">Above</strong></div></div>
         </section>
         <aside className="right-rail">
