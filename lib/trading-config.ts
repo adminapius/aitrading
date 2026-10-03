@@ -13,7 +13,21 @@ export const tradingConfig = {
   alpacaDataFeed: process.env.ALPACA_DATA_FEED?.trim() || 'iex',
   railwayServiceUrl: process.env.RAILWAY_SERVICE_URL?.trim().replace(/\/+$/, ''),
   mode: 'paper' as const,
+  liveTradingEnabled: false as const,
 } as const
+
+export function configuredServices() {
+  return {
+    supabase: Boolean(tradingConfig.supabaseUrl && tradingConfig.supabaseKey),
+    alpaca: Boolean(process.env.ALPACA_API_KEY?.trim() && process.env.ALPACA_API_SECRET?.trim()),
+    marketData: Boolean(process.env.ALPACA_API_KEY?.trim() && process.env.ALPACA_API_SECRET?.trim()),
+    railway: Boolean(tradingConfig.railwayServiceUrl),
+    telegram: Boolean(process.env.TELEGRAM_BOT_TOKEN?.trim() && process.env.TELEGRAM_CHAT_ID?.trim()),
+    ntfy: Boolean(process.env.NTFY_TOPIC_URL?.trim()),
+    aiPrimary: Boolean(process.env.GEMINI_API_KEY?.trim()),
+    aiFallback: Boolean(process.env.ANTHROPIC_API_KEY?.trim()),
+  }
+}
 
 export function alpacaHeaders() {
   return {

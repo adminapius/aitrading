@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { supabaseHeaders, tradingConfig } from '@/lib/trading-config'
+import { configuredServices, supabaseHeaders, tradingConfig } from '@/lib/trading-config'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,6 +33,7 @@ async function checkAlpaca() {
       'APCA-API-KEY-ID': process.env.ALPACA_API_KEY ?? '',
       'APCA-API-SECRET-KEY': process.env.ALPACA_API_SECRET ?? '',
     },
+    signal: AbortSignal.timeout(5000),
     cache: 'no-store',
   })
   if (!response.ok) throw new Error(`Alpaca returned ${response.status}`)
@@ -50,6 +51,9 @@ export async function GET() {
   return NextResponse.json({
     ok: requiredHealthy,
     checkedAt: new Date().toISOString(),
+    mode: tradingConfig.mode,
+    liveTradingEnabled: tradingConfig.liveTradingEnabled,
+    services: configuredServices(),
     supabase: supabase.status === 'fulfilled' ? { connected: true, account: supabase.value } : { connected: false, error: supabase.reason instanceof Error ? supabase.reason.message : 'Unavailable' },
     alpaca: alpaca.status === 'fulfilled' ? { connected: true, account: alpaca.value } : { connected: false, error: alpaca.reason instanceof Error ? alpaca.reason.message : 'Unavailable' },
     railway: railway.status === 'fulfilled' ? railway.value : { configured: true, reachable: false, error: railway.reason instanceof Error ? railway.reason.message : 'Unavailable' },
