@@ -104,6 +104,9 @@ html, body { overflow-x: hidden; }
 .drawing-tools button { border-left: 1px solid #1d2c3c; }
 .full-chart { flex: 1 1 auto; height: 560px; min-height: 560px; background: #0c131e; border: 1px solid #1a2837; border-radius: 0 0 5px 5px; overflow: hidden; }
 .full-chart .chart-shell { width: 100%; height: 560px; min-height: 560px; padding: 0; }
+.tradingview-widget-container { width: 100%; height: 100%; }
+.tradingview-widget-container__widget { width: 100%; height: calc(100% - 32px); }
+.tradingview-widget-container iframe { width: 100% !important; height: 100% !important; border: 0; }
 .signal-main small { display: block; margin-top: 3px; color: #7f91a6; font-size: 11px; }
 
 .event-time, .event-type, .event-count, .scan-status, .view-all, .search-box input { font-size: 12px !important; }

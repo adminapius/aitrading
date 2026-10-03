@@ -1,7 +1,6 @@
 'use client'
 
 import useSWR from 'swr'
-import { CandlestickSeries, createChart, HistogramSeries, type UTCTimestamp } from 'lightweight-charts'
 import { useEffect, useRef, useState } from 'react'
 import { Activity, Bell, Search, Settings2, ShieldCheck, Sparkles, TrendingUp } from 'lucide-react'
 
@@ -40,34 +39,28 @@ const events = [
   ['07:00:00', 'SYSTEM', 'AItrading App is awake, let’s make this GREEN DAY', 'purple'],
 ]
 
-function Chart({ symbol, interval }: { symbol: string; interval: string }) {
+function Chart({ symbol }: { symbol: string }) {
   const containerRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    if (!containerRef.current) return
     const container = containerRef.current
-    const chart = createChart(container, { width: container.clientWidth || 800, height: container.clientHeight || 560, layout: { background: { color: '#0c131e' }, textColor: '#a1afbf' }, grid: { vertLines: { color: '#182433' }, horzLines: { color: '#182433' } }, timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#1a2837' }, rightPriceScale: { borderColor: '#1a2837' } })
-    const resizeObserver = new ResizeObserver(() => chart.applyOptions({ width: container.clientWidth, height: container.clientHeight }))
-    resizeObserver.observe(container)
-    const series = chart.addSeries(CandlestickSeries, { upColor: '#34d399', downColor: '#fb7185', borderVisible: false, wickUpColor: '#34d399', wickDownColor: '#fb7185' })
-    const volume = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: '', color: '#2dd4bf', priceLineVisible: false, lastValueVisible: false })
-    chart.priceScale('').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
-    const intervalSeconds = interval === '10s' ? 10 : interval === '1m' ? 60 : interval === '5m' ? 300 : interval === '1h' ? 3600 : interval === '4h' ? 14400 : interval === '1D' ? 86400 : interval === '1M' ? 2592000 : 86400
-    const start = Math.floor(Date.now() / 1000) - 48 * intervalSeconds
-    const candles = Array.from({ length: 48 }, (_, index) => { const base = 4.35 + index * 0.012 + Math.sin(index * 0.7) * 0.08; const close = base + (index % 4 === 0 ? -0.03 : 0.04); return { time: (start + index * intervalSeconds) as UTCTimestamp, open: base, high: base + 0.08, low: base - 0.05, close } })
-    series.setData(candles)
-    volume.setData(candles.map((candle, index) => ({ time: candle.time, value: 20 + ((index * 17) % 80), color: candle.close >= candle.open ? '#2dd4bf99' : '#fb718599' })))
-    chart.timeScale().fitContent()
-    return () => {
-      resizeObserver.disconnect()
-      chart.remove()
-    }
+    if (!container) return
+    container.replaceChildren()
+    const widget = document.createElement('div')
+    widget.className = 'tradingview-widget-container__widget'
+    widget.style.cssText = 'height:calc(100% - 32px);width:100%'
+    const script = document.createElement('script')
+    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js'
+    script.type = 'text/javascript'
+    script.async = true
+    script.text = JSON.stringify({ allow_symbol_change: true, calendar: false, details: false, hide_side_toolbar: false, hide_top_toolbar: false, hide_legend: false, hide_volume: false, hotlist: false, interval: '5', locale: 'en', save_image: true, style: '1', symbol: `NASDAQ:${symbol}`, theme: 'dark', timezone: 'America/New_York', backgroundColor: '#0c131e', gridColor: 'rgba(242, 242, 242, 0.08)', watchlist: [], withdateranges: true, compareSymbols: [], support_host: 'https://www.tradingview.com', studies: ['Volume@tv-basicstudies'], autosize: true })
+    container.append(widget, script)
+    return () => container.replaceChildren()
   }, [symbol])
-  return <div className="chart-shell lightweight-chart" ref={containerRef} role="img" aria-label={`${symbol} intraday candlestick chart`} />
+  return <div className="chart-shell tradingview-widget-container" ref={containerRef} aria-label={`${symbol} TradingView advanced chart`} />
 }
 
 export default function Home() {
   const [selected, setSelected] = useState(stocks[0])
-  const [timeframe, setTimeframe] = useState('5m')
   const [now, setNow] = useState<Date | null>(null)
   const [filter, setFilter] = useState('')
   const { data: indexData } = useSWR<IndexData>('/api/indices', fetcher, { refreshInterval: 1000, revalidateOnFocus: true })
@@ -108,8 +101,7 @@ export default function Home() {
           <div className="terminal-foot"><span>App Health:</span><span className="health-values">{(latencyData?.providers ?? []).map((provider) => <strong key={provider.name} className={provider.ok ? 'health-good' : 'health-bad'}>{provider.name[0]}:{provider.ok ? `${provider.ms}ms` : 'ERR'}</strong>)}</span></div>
         </aside>
         <section className="center-workspace">
-          <div className="chart-toolbar"><div className="timeframes">{['10s', '1m', '5m', '1h', '4h', '1D', '1M', '1Y'].map((item) => <button key={item} className={timeframe === item ? 'active' : ''} onClick={() => setTimeframe(item)}>{item}</button>)}</div><div className="drawing-tools"><button aria-label="Crosshair">＋</button><button aria-label="Trend line">╱</button><button aria-label="Horizontal line">—</button><button aria-label="Indicators">ƒx Indicators</button></div></div>
-          <div className="full-chart"><Chart symbol={selected.symbol} interval={timeframe} /></div>
+          <div className="full-chart"><Chart symbol={selected.symbol} /></div>
           <div className="signal-strip"><div className="signal-main"><Sparkles /><div><span>AI SIGNAL · HIGH CONVICTION</span><strong>Momentum continuation setup</strong></div></div><div className="signal-stat signal-context"><span>HEADLINES</span><strong>{selected.catalyst} · {selected.volume} volume · technical momentum confirmed</strong></div><div className="signal-stat"><span>Score</span><strong className="positive">{selected.score} / 100</strong></div><div className="signal-stat"><span>RVOL</span><strong>4.2x</strong></div><div className="signal-stat"><span>Float</span><strong>8.4M</strong></div><div className="signal-stat"><span>VWAP</span><strong className="positive">Above</strong></div></div>
         </section>
         <aside className="right-rail">
