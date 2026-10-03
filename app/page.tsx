@@ -96,7 +96,7 @@ export default function Home() {
   return (
     <main className="terminal">
       <header className="topbar">
-        <div className="brand"><div className="brand-mark"><Activity /></div><div><strong>AI<span>trading</span></strong><small>FIND.TRADE.WIN.</small></div></div>
+        <div className="brand"><div className="brand-mark"><Activity /></div><div><strong>AI<span> trading</span></strong><small>FIND.TRADE.WIN.</small></div></div>
         <div className="top-status"><span className="live-pill"><i /> PAPER MODE</span><span className={`session-pill ${isMarketOpen ? 'market-open' : 'market-closed'}`}><span className="pulse" /> MARKET {isMarketOpen ? 'OPEN' : 'CLOSED'}</span><span className="clock">{etDate} · {etTime} ET</span></div>
         <div className="top-actions"><button className="icon-button" aria-label="Notifications"><Bell /></button><button className="icon-button" aria-label="Settings"><Settings2 /></button><div className="avatar">TR</div></div>
       </header>
