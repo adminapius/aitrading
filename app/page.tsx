@@ -1,9 +1,21 @@
 'use client'
 
+import useSWR from 'swr'
 import { useMemo, useState } from 'react'
 import { Activity, Bell, ChevronDown, CircleHelp, Crosshair, Minus, Moon, Pause, Play, Power, Radio, Search, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, TrendingDown, TrendingUp, Wifi } from 'lucide-react'
 
 type Stock = { symbol: string; name: string; price: string; change: string; score: number; volume: string; catalyst: string; tone: 'green' | 'amber' | 'red' }
+type AccountData = { account?: { equity?: number; cash_balance?: number; realized_pnl?: number; unrealized_pnl?: number } | null }
+type EventData = { events?: Array<{ id: string; level: string; event_type: string; message: string; created_at: string }> }
+
+const fetcher = (url: string) => fetch(url).then((response) => {
+  if (!response.ok) throw new Error(`Request failed: ${response.status}`)
+  return response.json()
+})
+
+function formatMoney(value: number | undefined, fallback: string) {
+  return typeof value === 'number' ? value.toLocaleString('en-US', { style: 'currency', currency: 'USD' }) : fallback
+}
 
 const stocks: Stock[] = [
   { symbol: 'MIRA', name: 'Mirasol Resources', price: '4.82', change: '+18.24%', score: 94, volume: '3.8M', catalyst: 'News + RVOL', tone: 'green' },
@@ -48,6 +60,12 @@ function Chart({ symbol }: { symbol: string }) {
 export default function Home() {
   const [selected, setSelected] = useState(stocks[0])
   const [timeframe, setTimeframe] = useState('1m')
+  const { data: accountData } = useSWR<AccountData>('/api/account', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
+  const { data: eventData } = useSWR<EventData>('/api/events?limit=8', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
+  const liveAccount = accountData?.account
+  const liveEvents = eventData?.events
+  const displayedEvents = liveEvents?.length ? liveEvents.map((event) => [new Date(event.created_at).toLocaleTimeString('en-US', { hour12: false }), event.event_type, event.message, event.level.toLowerCase()] as const) : events
+
   const [paused, setPaused] = useState(false)
   return (
     <main className="terminal">
@@ -58,7 +76,7 @@ export default function Home() {
       </header>
       <div className="workspace">
         <aside className="left-rail">
-          <section className="panel balance-panel"><div className="section-kicker"><span>ACCOUNT EQUITY</span><ShieldCheck /></div><div className="balance">$2,184<span>.62</span></div><div className="balance-meta"><span className="positive">+$184.62</span><span>+9.23% all time</span></div><div className="sparkline"><svg viewBox="0 0 220 42" preserveAspectRatio="none"><path d="M0 35 L20 32 L40 34 L60 25 L80 29 L100 20 L120 24 L140 15 L160 18 L180 8 L220 4" fill="none" stroke="#2dd4bf" strokeWidth="2"/></svg></div><div className="metric-row"><span>Buying power</span><strong>$1,322.40</strong></div><div className="metric-row"><span>Day P&amp;L</span><strong className="positive">+$184.62</strong></div></section>
+          <section className="panel balance-panel"><div className="section-kicker"><span>ACCOUNT EQUITY</span><ShieldCheck /></div><div className="balance">{formatMoney(liveAccount?.equity, '$2,000.00')}</div><div className="balance-meta"><span className="positive">{formatMoney((liveAccount?.realized_pnl ?? 0) + (liveAccount?.unrealized_pnl ?? 0), '+$0.00')}</span><span>paper account</span></div><div className="sparkline"><svg viewBox="0 0 220 42" preserveAspectRatio="none"><path d="M0 35 L20 32 L40 34 L60 25 L80 29 L100 20 L120 24 L140 15 L160 18 L180 8 L220 4" fill="none" stroke="#2dd4bf" strokeWidth="2"/></svg></div><div className="metric-row"><span>Cash balance</span><strong>{formatMoney(liveAccount?.cash_balance, '$2,000.00')}</strong></div><div className="metric-row"><span>Realized P&amp;L</span><strong className="positive">{formatMoney(liveAccount?.realized_pnl, '+$0.00')}</strong></div></section>
           <section className="panel"><div className="panel-title"><span>OPEN POSITION</span><span className="count-badge">1</span></div><div className="position-card"><div className="position-head"><div><strong>MIRA</strong><small>LONG · 180 SHARES</small></div><span className="positive">+$19.80</span></div><div className="position-stats"><div><span>Entry</span><b>$4.71</b></div><div><span>Mark</span><b>$4.82</b></div><div><span>Risk</span><b>1.2%</b></div></div><div className="risk-bar"><span /></div><div className="risk-label"><span>Stop $4.53</span><span>Target $5.14</span></div></div></section>
           <section className="panel controls"><div className="panel-title"><span>SESSION CONTROLS</span><CircleHelp /></div><div className="control-row"><span><Radio /> Auto-execution</span><button className="toggle on"><i /></button></div><div className="control-row"><span><Wifi /> Live data stream</span><button className="toggle on"><i /></button></div><div className="control-row"><span><SlidersHorizontal /> Strategy</span><strong className="control-value">Momentum v1.2 <ChevronDown /></strong></div><button className="pause-button" onClick={() => setPaused(!paused)}>{paused ? <Play /> : <Pause />}{paused ? 'RESUME STREAM' : 'PAUSE STREAM'}</button></section>
           <div className="terminal-foot"><span><i className="green-dot" /> WORKER HEALTHY</span><span>v0.1.0-paper</span></div>
@@ -71,7 +89,7 @@ export default function Home() {
         </section>
         <aside className="right-rail">
           <section className="panel watchlist-panel"><div className="panel-title"><span>SCANNED STOCKS</span><span className="scan-status"><i /> SCANNING</span></div><div className="search-box"><Search /><input placeholder="Filter symbols..." aria-label="Filter symbols" /></div><div className="watchlist">{stocks.map((stock) => <button key={stock.symbol} onClick={() => setSelected(stock)} className={`stock-row ${selected.symbol === stock.symbol ? 'selected' : ''}`}><div className="stock-left"><span className={`score ${stock.tone}`}>{stock.score}</span><div><strong>{stock.symbol}</strong><small>{stock.catalyst} · {stock.volume}</small></div></div><div className="stock-price"><strong>${stock.price}</strong><span className={stock.tone === 'red' ? 'negative' : 'positive'}>{stock.change}</span></div></button>)}</div><button className="view-all">VIEW ALL 23 SCANNED <ChevronDown /></button></section>
-          <section className="panel events-panel"><div className="panel-title"><span>LIVE EVENT LOG</span><span className="event-count">{events.length} EVENTS</span></div><div className="event-filters"><button className="active">ALL</button><button>TRADES</button><button>SYSTEM</button><button>AI</button></div><div className="events">{events.map(([time, type, message, tone]) => <div className="event" key={`${time}-${type}`}><span className="event-time">{time}</span><span className={`event-type ${tone}`}>{type}</span><p>{message}</p></div>)}</div><div className="sleep-line"><i /> Scheduled sleep at <strong>16:00 ET</strong></div></section>
+          <section className="panel events-panel"><div className="panel-title"><span>LIVE EVENT LOG</span><span className="event-count">{events.length} EVENTS</span></div><div className="event-filters"><button className="active">ALL</button><button>TRADES</button><button>SYSTEM</button><button>AI</button></div><div className="events">{displayedEvents.map(([time, type, message, tone], index) => <div className="event" key={`${time}-${type}-${index}`}><span className="event-time">{time}</span><span className={`event-type ${tone}`}>{type}</span><p>{message}</p></div>)}</div><div className="sleep-line"><i /> Scheduled sleep at <strong>16:00 ET</strong></div></section>
         </aside>
       </div>
     </main>
