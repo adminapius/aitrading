@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { tradingConfig } from '@/lib/trading-config'
+import { alpacaHeaders, tradingConfig } from '@/lib/trading-config'
 
 export const dynamic = 'force-dynamic'
 
@@ -8,9 +8,9 @@ const symbols = ['MIRA', 'CETX', 'KAVL', 'SINT', 'HUBC']
 export async function GET(request: NextRequest) {
   const requested = request.nextUrl.searchParams.get('symbols')?.split(',').map((value) => value.toUpperCase().replace(/[^A-Z.]/g, '')).filter(Boolean)
   const watchSymbols = requested?.length ? requested.slice(0, 25) : symbols
-  const headers = { 'APCA-API-KEY-ID': process.env.ALPACA_API_KEY ?? '', 'APCA-API-SECRET-KEY': process.env.ALPACA_API_SECRET ?? '' }
+  const headers = alpacaHeaders()
   const results = await Promise.allSettled(watchSymbols.map(async (symbol) => {
-    const response = await fetch(`${tradingConfig.alpacaBaseUrl}/v2/stocks/${symbol}/quotes/latest?feed=${tradingConfig.alpacaDataFeed}`, { headers, cache: 'no-store' })
+    const response = await fetch(`${tradingConfig.alpacaDataUrl}/v2/stocks/${symbol}/quotes/latest?feed=${tradingConfig.alpacaDataFeed}`, { headers, cache: 'no-store' })
     if (!response.ok) throw new Error(`${symbol}: Alpaca returned ${response.status}`)
     const data = await response.json()
     const quote = data.quote ?? data
