@@ -2,12 +2,13 @@
 
 import useSWR from 'swr'
 import { useEffect, useMemo, useState } from 'react'
-import { Activity, Bell, ChevronDown, CircleHelp, Crosshair, Minus, Moon, Pause, Play, Radio, Search, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, TrendingDown, TrendingUp, Wifi } from 'lucide-react'
+import { Activity, Bell, Crosshair, Minus, Search, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, TrendingUp } from 'lucide-react'
 
 type Stock = { symbol: string; name: string; price: string; change: string; score: number; volume: string; catalyst: string; tone: 'green' | 'amber' | 'red' }
 type AccountData = { account?: { equity?: number; cash_balance?: number; realized_pnl?: number; unrealized_pnl?: number } | null }
 type EventData = { events?: Array<{ id: string; level: string; event_type: string; message: string; created_at: string }> }
 type PositionData = { positions?: Array<{ id: string; symbol: string; side: string; quantity: number; entry_price: number; current_price?: number; stop_price?: number; target_price?: number; unrealized_pnl?: number }> }
+type IndexData = { indices?: Array<{ symbol: string; name: string; price: number; changePercent: number }> }
 
 const fetcher = (url: string) => fetch(url).then((response) => {
   if (!response.ok) throw new Error(`Request failed: ${response.status}`)
@@ -66,11 +67,13 @@ export default function Home() {
   const [chartZoom, setChartZoom] = useState(1)
   const [chartPan, setChartPan] = useState(0)
   const [now, setNow] = useState(() => new Date())
+  const [filter, setFilter] = useState('')
+  const { data: indexData } = useSWR<IndexData>('/api/indices', fetcher, { refreshInterval: 1000, revalidateOnFocus: true })
   const { data: accountData } = useSWR<AccountData>('/api/account', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
   const { data: eventData } = useSWR<EventData>('/api/events?limit=8', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
   const { data: positionData } = useSWR<PositionData>('/api/positions', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
   const liveAccount = accountData?.account
-  const livePosition = positionData?.positions?.[0]
+  const livePositions = positionData?.positions ?? []
   const liveEvents = eventData?.events
   const displayedEvents = liveEvents?.length ? liveEvents.map((event) => [new Date(event.created_at).toLocaleTimeString('en-US', { hour12: false }), event.event_type, event.message, event.level.toLowerCase()] as const) : events
 
@@ -84,18 +87,21 @@ export default function Home() {
   const etParts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: 'numeric', hour12: false }).formatToParts(now)
   const etHour = Number(etParts.find((part) => part.type === 'hour')?.value ?? 0)
   const isMarketOpen = now.getDay() > 0 && now.getDay() < 6 && etHour >= 9 && (etHour < 16 || (etHour === 16 && now.getMinutes() === 0))
+  const filteredStocks = stocks.filter((stock) => `${stock.symbol} ${stock.name}`.toLowerCase().includes(filter.toLowerCase()))
+  const scannerActive = isMarketOpen && now.getSeconds() < 15
+  const nextScanMinutes = 28 - (now.getMinutes() % 29)
   return (
     <main className="terminal">
       <header className="topbar">
-        <div className="brand"><div className="brand-mark"><Activity /></div><div><strong>AI<span>trading</span></strong><small>INTELLIGENT EXECUTION TERMINAL</small></div></div>
+        <div className="brand"><div className="brand-mark"><Activity /></div><div><strong>AI<span>trading</span></strong><small>FIND. TRADE. WIN.</small></div></div>
         <div className="top-status"><span className="live-pill"><i /> PAPER MODE</span><span className={`session-pill ${isMarketOpen ? 'market-open' : 'market-closed'}`}><span className="pulse" /> MARKET {isMarketOpen ? 'OPEN' : 'CLOSED'}</span><span className="clock">{etDate} · {etTime} ET</span></div>
         <div className="top-actions"><button className="icon-button" aria-label="Notifications"><Bell /></button><button className="icon-button" aria-label="Settings"><Settings2 /></button><div className="avatar">TR</div></div>
       </header>
       <div className="workspace">
         <aside className="left-rail">
           <section className="panel balance-panel"><div className="section-kicker"><span>ACCOUNT EQUITY</span><ShieldCheck /></div><div className="balance">{formatMoney(liveAccount?.equity, '$2,000.00')}</div><div className="balance-meta"><span className="positive">{formatMoney((liveAccount?.realized_pnl ?? 0) + (liveAccount?.unrealized_pnl ?? 0), '+$0.00')}</span><span>paper account</span></div><div className="sparkline"><svg viewBox="0 0 220 42" preserveAspectRatio="none"><path d="M0 35 L20 32 L40 34 L60 25 L80 29 L100 20 L120 24 L140 15 L160 18 L180 8 L220 4" fill="none" stroke="#2dd4bf" strokeWidth="2"/></svg></div><div className="metric-row"><span>Cash balance</span><strong>{formatMoney(liveAccount?.cash_balance, '$2,000.00')}</strong></div><div className="metric-row"><span>Realized P&amp;L</span><strong className="positive">{formatMoney(liveAccount?.realized_pnl, '+$0.00')}</strong></div></section>
-          <section className="panel"><div className="panel-title"><span>OPEN POSITION</span><span className="count-badge">{positionData?.positions?.length ?? 0}</span></div>{livePosition ? <div className="position-card"><div className="position-head"><div><strong>{livePosition.symbol}</strong><small>{livePosition.side.toUpperCase()} · {Number(livePosition.quantity).toLocaleString()} SHARES</small></div><span className={Number(livePosition.unrealized_pnl ?? 0) >= 0 ? 'positive' : 'negative'}>{formatMoney(livePosition.unrealized_pnl, '$0.00')}</span></div><div className="position-stats"><div><span>Entry</span><b>${Number(livePosition.entry_price).toFixed(2)}</b></div><div><span>Mark</span><b>${Number(livePosition.current_price ?? livePosition.entry_price).toFixed(2)}</b></div><div><span>Risk</span><b>guarded</b></div></div><div className="risk-bar"><span /></div><div className="risk-label"><span>Stop ${Number(livePosition.stop_price ?? 0).toFixed(2)}</span><span>Target ${Number(livePosition.target_price ?? 0).toFixed(2)}</span></div></div> : <div className="empty-position">No open paper positions</div>}</section>
-          <section className="panel controls"><div className="panel-title"><span>SESSION CONTROLS</span><CircleHelp /></div><div className="control-row"><span><Radio /> Auto-execution</span><button className="toggle on"><i /></button></div><div className="control-row"><span><Wifi /> Live data stream</span><button className="toggle on"><i /></button></div><div className="control-row"><span><SlidersHorizontal /> Strategy</span><strong className="control-value">Momentum v1.2 <ChevronDown /></strong></div><button className="pause-button" onClick={() => setPaused(!paused)}>{paused ? <Play /> : <Pause />}{paused ? 'RESUME STREAM' : 'PAUSE STREAM'}</button></section>
+          <section className="panel"><div className="panel-title"><span>OPEN POSITION</span><span className="count-badge">{positionData?.positions?.length ?? 0}</span></div>{livePositions.length ? <div className="positions-scroll">{livePositions.map((position) => <div className="position-card" key={position.id}><div className="position-head"><div><strong>{position.symbol}</strong><small>{position.side.toUpperCase()} · {Number(position.quantity).toLocaleString()} SHARES</small></div><span className={Number(position.unrealized_pnl ?? 0) >= 0 ? 'positive' : 'negative'}>{formatMoney(position.unrealized_pnl, '$0.00')}</span></div><div className="position-stats"><div><span>Entry</span><b>${Number(position.entry_price).toFixed(2)}</b></div><div><span>Mark</span><b>${Number(position.current_price ?? position.entry_price).toFixed(2)}</b></div><div><span>Risk</span><b>guarded</b></div></div><div className="risk-bar"><span /></div><div className="risk-label"><span>Stop ${Number(position.stop_price ?? 0).toFixed(2)}</span><span>Target ${Number(position.target_price ?? 0).toFixed(2)}</span></div></div>)}</div> : <div className="empty-position">No open paper positions</div>}</section>
+          <section className="panel indices-panel"><div className="panel-title"><span>U.S. MARKET INDICES</span><span className="live-label">LIVE</span></div><div className="indices-list">{(indexData?.indices ?? []).map((index) => <div className="index-row" key={index.symbol}><span>{index.name}</span><strong>{index.price ? index.price.toFixed(2) : '—'}</strong><em className={index.changePercent >= 0 ? 'positive' : 'negative'}>{index.changePercent >= 0 ? '+' : ''}{index.changePercent.toFixed(2)}%</em></div>)}</div></section>
           <div className="terminal-foot"><span><i className="green-dot" /> WORKER HEALTHY</span><span>v0.1.0-paper</span></div>
         </aside>
         <section className="center-workspace">
@@ -105,8 +111,8 @@ export default function Home() {
           <div className="signal-strip"><div className="signal-main"><Sparkles /><div><span>AI SIGNAL · HIGH CONVICTION</span><strong>Momentum continuation setup</strong></div></div><div className="signal-stat"><span>Score</span><strong className="positive">94 / 100</strong></div><div className="signal-stat"><span>RVOL</span><strong>4.2x</strong></div><div className="signal-stat"><span>Float</span><strong>8.4M</strong></div><div className="signal-stat"><span>VWAP</span><strong className="positive">Above</strong></div></div>
         </section>
         <aside className="right-rail">
-          <section className="panel watchlist-panel"><div className="panel-title"><span>SCANNED STOCKS</span><span className="scan-status"><i /> SCANNING</span></div><div className="search-box"><Search /><input placeholder="Filter symbols..." aria-label="Filter symbols" /></div><div className="watchlist">{stocks.map((stock) => <button key={stock.symbol} onClick={() => setSelected(stock)} className={`stock-row ${selected.symbol === stock.symbol ? 'selected' : ''}`}><div className="stock-left"><span className={`score ${stock.tone}`}>{stock.score}</span><div><strong>{stock.symbol}</strong><small>{stock.catalyst} · {stock.volume}</small></div></div><div className="stock-price"><strong>${stock.price}</strong><span className={stock.tone === 'red' ? 'negative' : 'positive'}>{stock.change}</span></div></button>)}</div><button className="view-all">VIEW ALL 23 SCANNED <ChevronDown /></button></section>
-          <section className="panel events-panel"><div className="panel-title"><span>LIVE EVENT LOG</span><span className="event-count">{liveEvents?.length ?? events.length} EVENTS</span></div><div className="event-filters"><button className="active">ALL</button><button>TRADES</button><button>SYSTEM</button><button>AI</button></div><div className="events">{displayedEvents.map(([time, type, message, tone], index) => <div className="event" key={`${time}-${type}-${index}`}><span className="event-time">{time}</span><span className={`event-type ${tone}`}>{type}</span><p>{message}</p></div>)}</div><div className="sleep-line"><i /> Scheduled sleep at <strong>16:00 ET</strong></div></section>
+          <section className="panel watchlist-panel"><div className="panel-title"><span>SCANNED STOCKS ({filteredStocks.length})</span><span className="scan-status"><i /> {scannerActive ? 'SCANNING' : `${nextScanMinutes}min NEXT SCAN`}</span></div><div className="search-box"><Search /><input placeholder="Filter symbols..." aria-label="Filter symbols" value={filter} onChange={(event) => setFilter(event.target.value)} /></div><div className="watchlist">{filteredStocks.map((stock) => <button key={stock.symbol} onClick={() => setSelected(stock)} className={`stock-row ${selected.symbol === stock.symbol ? 'selected' : ''}`}><div className="stock-left"><span className={`score ${stock.tone}`}>{stock.score}</span><div><strong>{stock.symbol}</strong><small>{stock.catalyst} · {stock.volume}</small></div></div><div className="stock-price"><strong>${stock.price}</strong><span className={stock.tone === 'red' ? 'negative' : 'positive'}>{stock.change}</span></div></button>)}</div></section>
+          <section className="panel events-panel"><div className="panel-title"><span>LIVE EVENT LOG</span></div><div className="event-filters"><button className="active">ALL</button><button>TRADES</button><button>SYSTEM</button><button>AI</button></div><div className="events">{displayedEvents.map(([time, type, message, tone], index) => <div className="event" key={`${time}-${type}-${index}`}><span className="event-time">{time}</span><span className={`event-type ${type.toLowerCase().replace(/\s+/g, '-')}-${message.toLowerCase().includes('buy') ? 'buy' : message.toLowerCase().includes('sell') ? (message.toLowerCase().includes('loss') ? 'loss' : 'win') : tone}`}>{type}</span><p>{message}</p></div>)}</div><div className="sleep-line"><i /> Scheduled sleep at <strong>16:00 ET</strong></div></section>
         </aside>
       </div>
     </main>
