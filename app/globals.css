@@ -68,7 +68,15 @@ html, body { overflow-x: hidden; }
 .event p { font-size: 13px !important; min-width: 0; }
 .lightweight-chart { height: 430px; padding: 0; }
 .chart-card { min-height: 525px; }
-.terminal-foot { font-size: 12px; }
+.terminal-foot { font-size: 12px; white-space: nowrap; display: flex; gap: 6px; align-items: center; }
+.health-values { display: inline-flex; gap: 5px; min-width: 0; }
+.health-values strong { font-weight: 700; }
+.health-good { color: #34d399; }
+.health-bad { color: #fb7185; }
+.scanner-title { white-space: nowrap; gap: 6px; }
+.scanner-title > span:first-child { min-width: 0; }
+.scan-status { white-space: nowrap; font-size: 11px !important; }
+.watchlist-panel, .events-panel { flex: 1 1 0; min-height: 0; }
 
 .event-time, .event-type, .event-count, .scan-status, .view-all, .search-box input { font-size: 12px !important; }
 .chart-nav { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 5px; color: #7890a6; font: 12px monospace; }
