@@ -22,3 +22,21 @@ button { cursor: pointer; }
 @media (max-width: 560px) { .left-rail, .right-rail { display: block; }.left-rail .panel, .right-rail .panel { margin-bottom: 12px; }.center-header { display: block; }.timeframes { overflow-x: auto; }.signal-strip { gap: 13px; }.signal-main { flex-basis: 100%; }.signal-stat { padding-left: 10px; }.ohlc { display: none; }.brand small { display: none; }.flatten { padding: 7px; font-size: 0; }.flatten svg { width: 15px; } }
 
 @theme inline { --color-background: var(--background); --color-foreground: var(--foreground); --color-card: var(--card); --color-card-foreground: var(--card-foreground); --color-popover: var(--popover); --color-popover-foreground: var(--popover-foreground); --color-primary: var(--primary); --color-primary-foreground: var(--primary-foreground); --color-secondary: var(--secondary); --color-secondary-foreground: var(--secondary-foreground); --color-muted: var(--muted); --color-muted-foreground: var(--muted-foreground); --color-accent: var(--accent); --color-accent-foreground: var(--accent-foreground); --color-destructive: var(--destructive); --color-border: var(--border); --color-input: var(--input); --color-ring: var(--ring); }
+
+/* Dense terminal panels keep their own scroll regions so the page stays viewport-fit. */
+html, body { overflow-x: hidden; }
+.terminal { font-size: 15px; height: 100dvh; overflow: hidden; }
+.workspace { height: calc(100dvh - 68px); min-height: 0; }
+.left-rail, .right-rail { min-height: 0; overflow: hidden; }
+.watchlist, .events { overflow-y: auto; scrollbar-width: thin; scrollbar-color: #294052 transparent; }
+.watchlist { max-height: 34dvh; }
+.events { max-height: 39dvh; }
+.event p { font-size: 14px; }
+.event-time, .event-type, .event-count, .scan-status, .view-all, .search-box input { font-size: 12px !important; }
+.chart-nav { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 5px; color: #7890a6; font: 12px monospace; }
+.chart-nav button { min-width: 27px; border: 1px solid #223448; border-radius: 3px; background: #101a27; color: #b9c8d8; padding: 4px 8px; }
+.chart-nav button:hover { border-color: #2dd4bf; color: #2dd4bf; }
+.chart-nav .reset-chart { margin-left: 8px; color: #71869a; font: 10px monospace; }
+.market-closed { color: #fb7185; background: #321a24; border-color: #632c3d; }
+.market-closed .pulse { background: #fb7185; box-shadow: 0 0 0 3px #4b2532; }
+@media (max-width: 850px) { .terminal { height: auto; min-height: 100dvh; overflow: visible; } .workspace { height: auto; } .left-rail, .right-rail { overflow: visible; } .watchlist, .events { max-height: 320px; } }

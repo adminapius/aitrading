@@ -1,8 +1,8 @@
 'use client'
 
 import useSWR from 'swr'
-import { useMemo, useState } from 'react'
-import { Activity, Bell, ChevronDown, CircleHelp, Crosshair, Minus, Moon, Pause, Play, Power, Radio, Search, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, TrendingDown, TrendingUp, Wifi } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Activity, Bell, ChevronDown, CircleHelp, Crosshair, Minus, Moon, Pause, Play, Radio, Search, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, TrendingDown, TrendingUp, Wifi } from 'lucide-react'
 
 type Stock = { symbol: string; name: string; price: string; change: string; score: number; volume: string; catalyst: string; tone: 'green' | 'amber' | 'red' }
 type AccountData = { account?: { equity?: number; cash_balance?: number; realized_pnl?: number; unrealized_pnl?: number } | null }
@@ -37,7 +37,7 @@ const events = [
   ['07:00:00', 'SYSTEM', 'AItrading App is awake, let’s make this GREEN DAY', 'purple'],
 ]
 
-function Chart({ symbol }: { symbol: string }) {
+function Chart({ symbol, zoom, pan }: { symbol: string; zoom: number; pan: number }) {
   const candles = useMemo(() => [38, 45, 43, 51, 48, 58, 54, 62, 59, 68, 66, 74, 70, 78, 76, 83, 80, 88, 84, 91, 87, 96, 92, 100], [])
   return (
     <div className="chart-shell">
@@ -46,11 +46,13 @@ function Chart({ symbol }: { symbol: string }) {
         <defs><linearGradient id="area" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#2dd4bf" stopOpacity=".18"/><stop offset="1" stopColor="#2dd4bf" stopOpacity="0"/></linearGradient></defs>
         {[50, 115, 180, 245, 310].map((y) => <line key={y} x1="0" x2="820" y1={y} y2={y} className="chart-grid" />)}
         {[100, 220, 340, 460, 580, 700].map((x) => <line key={x} x1={x} x2={x} y1="0" y2="330" className="chart-grid" />)}
+        <g style={{ transform: `translate(${pan}px, 0) scale(${zoom}, 1)`, transformOrigin: '410px 165px' }}>
         <path d="M0 280 L40 270 L80 276 L120 245 L160 253 L200 220 L240 230 L280 190 L320 202 L360 168 L400 175 L440 142 L480 150 L520 112 L560 130 L600 88 L640 100 L680 72 L720 80 L760 48 L820 55 L820 330 L0 330Z" fill="url(#area)" />
         <path d="M0 280 L40 270 L80 276 L120 245 L160 253 L200 220 L240 230 L280 190 L320 202 L360 168 L400 175 L440 142 L480 150 L520 112 L560 130 L600 88 L640 100 L680 72 L720 80 L760 48 L820 55" fill="none" stroke="#2dd4bf" strokeWidth="2" />
         {candles.map((height, i) => { const x = 16 + i * 34; const top = 285 - height * 2.25; const green = i % 5 !== 2; return <g key={i}><line x1={x + 8} x2={x + 8} y1={top - 13} y2={top + 45} stroke={green ? '#34d399' : '#fb7185'} strokeWidth="1"/><rect x={x} y={top} width="16" height="34" rx="2" fill={green ? '#34d399' : '#fb7185'} opacity=".85"/></g> })}
         <line x1="0" x2="820" y1="118" y2="118" stroke="#fbbf24" strokeDasharray="5 5" opacity=".75" />
         <circle cx="760" cy="48" r="4" fill="#2dd4bf" stroke="#082f2b" strokeWidth="3" />
+        </g>
       </svg>
       <div className="chart-x-labels"><span>09:30</span><span>10:00</span><span>10:30</span><span>11:00</span><span>11:30</span><span>12:00</span></div>
       <div className="chart-legend"><span><i className="legend-dot teal" /> Price</span><span><i className="legend-line yellow" /> VWAP 4.61</span><span><i className="legend-dot violet" /> Entry 4.71</span></div>
@@ -60,7 +62,10 @@ function Chart({ symbol }: { symbol: string }) {
 
 export default function Home() {
   const [selected, setSelected] = useState(stocks[0])
-  const [timeframe, setTimeframe] = useState('1m')
+  const [timeframe, setTimeframe] = useState('5m')
+  const [chartZoom, setChartZoom] = useState(1)
+  const [chartPan, setChartPan] = useState(0)
+  const [now, setNow] = useState(() => new Date())
   const { data: accountData } = useSWR<AccountData>('/api/account', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
   const { data: eventData } = useSWR<EventData>('/api/events?limit=8', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
   const { data: positionData } = useSWR<PositionData>('/api/positions', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
@@ -70,12 +75,21 @@ export default function Home() {
   const displayedEvents = liveEvents?.length ? liveEvents.map((event) => [new Date(event.created_at).toLocaleTimeString('en-US', { hour12: false }), event.event_type, event.message, event.level.toLowerCase()] as const) : events
 
   const [paused, setPaused] = useState(false)
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+  const etTime = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }).format(now)
+  const etDate = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' }).format(now)
+  const etParts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: 'numeric', hour12: false }).formatToParts(now)
+  const etHour = Number(etParts.find((part) => part.type === 'hour')?.value ?? 0)
+  const isMarketOpen = now.getDay() > 0 && now.getDay() < 6 && etHour >= 9 && (etHour < 16 || (etHour === 16 && now.getMinutes() === 0))
   return (
     <main className="terminal">
       <header className="topbar">
         <div className="brand"><div className="brand-mark"><Activity /></div><div><strong>AI<span>trading</span></strong><small>INTELLIGENT EXECUTION TERMINAL</small></div></div>
-        <div className="top-status"><span className="live-pill"><i /> PAPER MODE</span><span className="session-pill"><span className="pulse" /> MARKET OPEN</span><span className="clock">10:42:18 AM ET</span></div>
-        <div className="top-actions"><button className="icon-button" aria-label="Notifications"><Bell /></button><button className="icon-button" aria-label="Settings"><Settings2 /></button><button className="flatten"><Power /> FLATTEN ALL</button><div className="avatar">TR</div></div>
+        <div className="top-status"><span className="live-pill"><i /> PAPER MODE</span><span className={`session-pill ${isMarketOpen ? 'market-open' : 'market-closed'}`}><span className="pulse" /> MARKET {isMarketOpen ? 'OPEN' : 'CLOSED'}</span><span className="clock">{etDate} · {etTime} ET</span></div>
+        <div className="top-actions"><button className="icon-button" aria-label="Notifications"><Bell /></button><button className="icon-button" aria-label="Settings"><Settings2 /></button><div className="avatar">TR</div></div>
       </header>
       <div className="workspace">
         <aside className="left-rail">
@@ -87,7 +101,7 @@ export default function Home() {
         <section className="center-workspace">
           <div className="center-header"><div><div className="symbol-heading"><h1>{selected.symbol}</h1><span className="company-name">{selected.name}</span><span className="market-tag">NASDAQ</span></div><div className="quote"><strong>${selected.price}</strong><span className="positive"><TrendingUp /> {selected.change}</span><span className="quote-muted">+$0.11 today</span></div></div><div className="chart-actions"><button className="tool-button"><Crosshair /> Crosshair</button><button className="tool-button"><Minus /> Compare</button></div></div>
           <div className="timeframes">{['10s', '1m', '5m', '1h', '4h', 'D', '1Y'].map((item) => <button key={item} className={timeframe === item ? 'active' : ''} onClick={() => setTimeframe(item)}>{item}</button>)}<span className="timeframe-spacer" /><button className="tool-button"><SlidersHorizontal /> Indicators</button></div>
-          <div className="chart-card"><div className="chart-topline"><div><span className="chart-label">{selected.symbol} · {timeframe} · NASDAQ</span><span className="ohlc">O 4.71&nbsp;&nbsp; H 4.89&nbsp;&nbsp; L 4.68&nbsp;&nbsp; C 4.82</span></div><span className="streaming"><i /> {paused ? 'STREAM PAUSED' : 'LIVE STREAMING'}</span></div><Chart symbol={selected.symbol} /><div className="volume"><span className="volume-title">VOLUME</span>{[24, 34, 20, 40, 27, 38, 51, 35, 48, 58, 45, 68, 55, 80, 63, 74, 68, 92, 77, 100, 86, 95, 82, 100].map((h, i) => <i key={i} style={{ height: `${h}%`, background: i % 5 === 2 ? '#fb7185' : '#2dd4bf' }} />)}</div></div>
+          <div className="chart-card"><div className="chart-topline"><div><span className="chart-label">{selected.symbol} · {timeframe} · NASDAQ</span><span className="ohlc">O 4.71&nbsp;&nbsp; H 4.89&nbsp;&nbsp; L 4.68&nbsp;&nbsp; C 4.82</span></div><span className="streaming"><i /> {paused ? 'STREAM PAUSED' : 'LIVE STREAMING'}</span></div><Chart symbol={selected.symbol} zoom={chartZoom} pan={chartPan} /><div className="chart-nav" aria-label="Chart navigation"><button onClick={() => setChartPan((value) => value + 35)} aria-label="Move chart right">←</button><button onClick={() => setChartZoom((value) => Math.max(1, value - 0.25))} aria-label="Zoom out">−</button><span>{Math.round(chartZoom * 100)}%</span><button onClick={() => setChartZoom((value) => Math.min(2.5, value + 0.25))} aria-label="Zoom in">+</button><button onClick={() => setChartPan((value) => value - 35)} aria-label="Move chart left">→</button><button className="reset-chart" onClick={() => { setChartZoom(1); setChartPan(0) }}>RESET VIEW</button></div><div className="volume"><span className="volume-title">VOLUME</span>{[24, 34, 20, 40, 27, 38, 51, 35, 48, 58, 45, 68, 55, 80, 63, 74, 68, 92, 77, 100, 86, 95, 82, 100].map((h, i) => <i key={i} style={{ height: `${h}%`, background: i % 5 === 2 ? '#fb7185' : '#2dd4bf' }} />)}</div></div>
           <div className="signal-strip"><div className="signal-main"><Sparkles /><div><span>AI SIGNAL · HIGH CONVICTION</span><strong>Momentum continuation setup</strong></div></div><div className="signal-stat"><span>Score</span><strong className="positive">94 / 100</strong></div><div className="signal-stat"><span>RVOL</span><strong>4.2x</strong></div><div className="signal-stat"><span>Float</span><strong>8.4M</strong></div><div className="signal-stat"><span>VWAP</span><strong className="positive">Above</strong></div></div>
         </section>
         <aside className="right-rail">
