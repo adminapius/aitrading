@@ -8,6 +8,7 @@ export const tradingConfig = {
   alpacaBaseUrl: process.env.ALPACA_BASE_URL ?? 'https://paper-api.alpaca.markets',
   alpacaDataFeed: process.env.ALPACA_DATA_FEED ?? 'iex',
   railwayServiceUrl: process.env.RAILWAY_SERVICE_URL,
+  mode: 'paper' as const,
 } as const
 
 export function assertServerConfig() {
