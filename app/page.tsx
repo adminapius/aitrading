@@ -1,7 +1,8 @@
 'use client'
 
 import useSWR from 'swr'
-import { useEffect, useMemo, useState } from 'react'
+import { CandlestickSeries, createChart, type UTCTimestamp } from 'lightweight-charts'
+import { useEffect, useRef, useState } from 'react'
 import { Activity, Bell, Crosshair, Minus, Search, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, TrendingUp } from 'lucide-react'
 
 type Stock = { symbol: string; name: string; price: string; change: string; score: number; volume: string; catalyst: string; tone: 'green' | 'amber' | 'red' }
@@ -9,6 +10,7 @@ type AccountData = { account?: { equity?: number; cash_balance?: number; realize
 type EventData = { events?: Array<{ id: string; level: string; event_type: string; message: string; created_at: string }> }
 type PositionData = { positions?: Array<{ id: string; symbol: string; side: string; quantity: number; entry_price: number; current_price?: number; stop_price?: number; target_price?: number; unrealized_pnl?: number }> }
 type IndexData = { indices?: Array<{ symbol: string; name: string; price: number; changePercent: number }> }
+type LatencyData = { providers?: Array<{ name: string; ok: boolean; ms: number }> }
 
 const fetcher = (url: string) => fetch(url).then((response) => {
   if (!response.ok) throw new Error(`Request failed: ${response.status}`)
@@ -38,27 +40,18 @@ const events = [
   ['07:00:00', 'SYSTEM', 'AItrading App is awake, let’s make this GREEN DAY', 'purple'],
 ]
 
-function Chart({ symbol, zoom, pan }: { symbol: string; zoom: number; pan: number }) {
-  const candles = useMemo(() => [38, 45, 43, 51, 48, 58, 54, 62, 59, 68, 66, 74, 70, 78, 76, 83, 80, 88, 84, 91, 87, 96, 92, 100], [])
-  return (
-    <div className="chart-shell">
-      <div className="chart-y-labels"><span>5.00</span><span>4.80</span><span>4.60</span><span>4.40</span><span>4.20</span></div>
-      <svg viewBox="0 0 820 330" preserveAspectRatio="none" className="chart-svg" role="img" aria-label={`${symbol} intraday candlestick chart`}>
-        <defs><linearGradient id="area" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#2dd4bf" stopOpacity=".18"/><stop offset="1" stopColor="#2dd4bf" stopOpacity="0"/></linearGradient></defs>
-        {[50, 115, 180, 245, 310].map((y) => <line key={y} x1="0" x2="820" y1={y} y2={y} className="chart-grid" />)}
-        {[100, 220, 340, 460, 580, 700].map((x) => <line key={x} x1={x} x2={x} y1="0" y2="330" className="chart-grid" />)}
-        <g style={{ transform: `translate(${pan}px, 0) scale(${zoom}, 1)`, transformOrigin: '410px 165px' }}>
-        <path d="M0 280 L40 270 L80 276 L120 245 L160 253 L200 220 L240 230 L280 190 L320 202 L360 168 L400 175 L440 142 L480 150 L520 112 L560 130 L600 88 L640 100 L680 72 L720 80 L760 48 L820 55 L820 330 L0 330Z" fill="url(#area)" />
-        <path d="M0 280 L40 270 L80 276 L120 245 L160 253 L200 220 L240 230 L280 190 L320 202 L360 168 L400 175 L440 142 L480 150 L520 112 L560 130 L600 88 L640 100 L680 72 L720 80 L760 48 L820 55" fill="none" stroke="#2dd4bf" strokeWidth="2" />
-        {candles.map((height, i) => { const x = 16 + i * 34; const top = 285 - height * 2.25; const green = i % 5 !== 2; return <g key={i}><line x1={x + 8} x2={x + 8} y1={top - 13} y2={top + 45} stroke={green ? '#34d399' : '#fb7185'} strokeWidth="1"/><rect x={x} y={top} width="16" height="34" rx="2" fill={green ? '#34d399' : '#fb7185'} opacity=".85"/></g> })}
-        <line x1="0" x2="820" y1="118" y2="118" stroke="#fbbf24" strokeDasharray="5 5" opacity=".75" />
-        <circle cx="760" cy="48" r="4" fill="#2dd4bf" stroke="#082f2b" strokeWidth="3" />
-        </g>
-      </svg>
-      <div className="chart-x-labels"><span>09:30</span><span>10:00</span><span>10:30</span><span>11:00</span><span>11:30</span><span>12:00</span></div>
-      <div className="chart-legend"><span><i className="legend-dot teal" /> Price</span><span><i className="legend-line yellow" /> VWAP 4.61</span><span><i className="legend-dot violet" /> Entry 4.71</span></div>
-    </div>
-  )
+function Chart({ symbol }: { symbol: string }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!containerRef.current) return
+    const chart = createChart(containerRef.current, { autoSize: true, layout: { background: { color: 'transparent' }, textColor: '#718096' }, grid: { vertLines: { color: '#182433' }, horzLines: { color: '#182433' } }, timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#1a2837' }, rightPriceScale: { borderColor: '#1a2837' } })
+    const series = chart.addSeries(CandlestickSeries, { upColor: '#34d399', downColor: '#fb7185', borderVisible: false, wickUpColor: '#34d399', wickDownColor: '#fb7185' })
+    const start = Math.floor(Date.now() / 1000) - 24 * 300
+    series.setData(Array.from({ length: 48 }, (_, index) => { const base = 4.35 + index * 0.012 + Math.sin(index * 0.7) * 0.08; return { time: (start + index * 300) as UTCTimestamp, open: base, high: base + 0.08, low: base - 0.05, close: base + (index % 4 === 0 ? -0.03 : 0.04) } }))
+    chart.timeScale().fitContent()
+    return () => chart.remove()
+  }, [symbol])
+  return <div className="chart-shell lightweight-chart" ref={containerRef} role="img" aria-label={`${symbol} intraday candlestick chart`} />
 }
 
 export default function Home() {
@@ -66,9 +59,10 @@ export default function Home() {
   const [timeframe, setTimeframe] = useState('5m')
   const [chartZoom, setChartZoom] = useState(1)
   const [chartPan, setChartPan] = useState(0)
-  const [now, setNow] = useState(() => new Date())
+  const [now, setNow] = useState<Date | null>(null)
   const [filter, setFilter] = useState('')
   const { data: indexData } = useSWR<IndexData>('/api/indices', fetcher, { refreshInterval: 1000, revalidateOnFocus: true })
+  const { data: latencyData } = useSWR<LatencyData>('/api/latency', fetcher, { refreshInterval: 1000, revalidateOnFocus: true })
   const { data: accountData } = useSWR<AccountData>('/api/account', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
   const { data: eventData } = useSWR<EventData>('/api/events?limit=8', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
   const { data: positionData } = useSWR<PositionData>('/api/positions', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
@@ -82,14 +76,15 @@ export default function Home() {
     const timer = window.setInterval(() => setNow(new Date()), 1000)
     return () => window.clearInterval(timer)
   }, [])
-  const etTime = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }).format(now)
-  const etDate = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' }).format(now)
-  const etParts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: 'numeric', hour12: false }).formatToParts(now)
+  const displayNow = now ?? new Date(0)
+  const etTime = now ? new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }).format(now) : '—'
+  const etDate = now ? new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' }).format(now) : '—'
+  const etParts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: 'numeric', hour12: false }).formatToParts(displayNow)
   const etHour = Number(etParts.find((part) => part.type === 'hour')?.value ?? 0)
-  const isMarketOpen = now.getDay() > 0 && now.getDay() < 6 && etHour >= 9 && (etHour < 16 || (etHour === 16 && now.getMinutes() === 0))
+  const isMarketOpen = Boolean(now && now.getDay() > 0 && now.getDay() < 6 && etHour >= 9 && (etHour < 16 || (etHour === 16 && now?.getMinutes() === 0)))
   const filteredStocks = stocks.filter((stock) => `${stock.symbol} ${stock.name}`.toLowerCase().includes(filter.toLowerCase()))
-  const scannerActive = isMarketOpen && now.getSeconds() < 15
-  const nextScanMinutes = 28 - (now.getMinutes() % 29)
+  const scannerActive = Boolean(now && isMarketOpen && now.getSeconds() < 15)
+  const nextScanMinutes = 28 - ((now?.getMinutes() ?? 0) % 29)
   return (
     <main className="terminal">
       <header className="topbar">
@@ -102,12 +97,12 @@ export default function Home() {
           <section className="panel balance-panel"><div className="section-kicker"><span>ACCOUNT EQUITY</span><ShieldCheck /></div><div className="balance">{formatMoney(liveAccount?.equity, '$2,000.00')}</div><div className="balance-meta"><span className="positive">{formatMoney((liveAccount?.realized_pnl ?? 0) + (liveAccount?.unrealized_pnl ?? 0), '+$0.00')}</span><span>paper account</span></div><div className="sparkline"><svg viewBox="0 0 220 42" preserveAspectRatio="none"><path d="M0 35 L20 32 L40 34 L60 25 L80 29 L100 20 L120 24 L140 15 L160 18 L180 8 L220 4" fill="none" stroke="#2dd4bf" strokeWidth="2"/></svg></div><div className="metric-row"><span>Cash balance</span><strong>{formatMoney(liveAccount?.cash_balance, '$2,000.00')}</strong></div><div className="metric-row"><span>Realized P&amp;L</span><strong className="positive">{formatMoney(liveAccount?.realized_pnl, '+$0.00')}</strong></div></section>
           <section className="panel"><div className="panel-title"><span>OPEN POSITION</span><span className="count-badge">{positionData?.positions?.length ?? 0}</span></div>{livePositions.length ? <div className="positions-scroll">{livePositions.map((position) => <div className="position-card" key={position.id}><div className="position-head"><div><strong>{position.symbol}</strong><small>{position.side.toUpperCase()} · {Number(position.quantity).toLocaleString()} SHARES</small></div><span className={Number(position.unrealized_pnl ?? 0) >= 0 ? 'positive' : 'negative'}>{formatMoney(position.unrealized_pnl, '$0.00')}</span></div><div className="position-stats"><div><span>Entry</span><b>${Number(position.entry_price).toFixed(2)}</b></div><div><span>Mark</span><b>${Number(position.current_price ?? position.entry_price).toFixed(2)}</b></div><div><span>Risk</span><b>guarded</b></div></div><div className="risk-bar"><span /></div><div className="risk-label"><span>Stop ${Number(position.stop_price ?? 0).toFixed(2)}</span><span>Target ${Number(position.target_price ?? 0).toFixed(2)}</span></div></div>)}</div> : <div className="empty-position">No open paper positions</div>}</section>
           <section className="panel indices-panel"><div className="panel-title"><span>U.S. MARKET INDICES</span><span className="live-label">LIVE</span></div><div className="indices-list">{(indexData?.indices ?? []).map((index) => <div className="index-row" key={index.symbol}><span>{index.name}</span><strong>{index.price ? index.price.toFixed(2) : '—'}</strong><em className={index.changePercent >= 0 ? 'positive' : 'negative'}>{index.changePercent >= 0 ? '+' : ''}{index.changePercent.toFixed(2)}%</em></div>)}</div></section>
-          <div className="terminal-foot"><span><i className="green-dot" /> WORKER HEALTHY</span><span>v0.1.0-paper</span></div>
+          <div className="terminal-foot"><span><i className="green-dot" /> FULL STACK HEALTH</span><span>{(latencyData?.providers ?? []).map((provider) => `${provider.name} ${provider.ok ? `${provider.ms}ms` : 'ERR'}`).join(' | ') || 'Checking providers…'}</span></div>
         </aside>
         <section className="center-workspace">
           <div className="center-header"><div><div className="symbol-heading"><h1>{selected.symbol}</h1><span className="company-name">{selected.name}</span><span className="market-tag">NASDAQ</span></div><div className="quote"><strong>${selected.price}</strong><span className="positive"><TrendingUp /> {selected.change}</span><span className="quote-muted">+$0.11 today</span></div></div><div className="chart-actions"><button className="tool-button"><Crosshair /> Crosshair</button><button className="tool-button"><Minus /> Compare</button></div></div>
           <div className="timeframes">{['10s', '1m', '5m', '1h', '4h', 'D', '1Y'].map((item) => <button key={item} className={timeframe === item ? 'active' : ''} onClick={() => setTimeframe(item)}>{item}</button>)}<span className="timeframe-spacer" /><button className="tool-button"><SlidersHorizontal /> Indicators</button></div>
-          <div className="chart-card"><div className="chart-topline"><div><span className="chart-label">{selected.symbol} · {timeframe} · NASDAQ</span><span className="ohlc">O 4.71&nbsp;&nbsp; H 4.89&nbsp;&nbsp; L 4.68&nbsp;&nbsp; C 4.82</span></div><span className="streaming"><i /> {paused ? 'STREAM PAUSED' : 'LIVE STREAMING'}</span></div><Chart symbol={selected.symbol} zoom={chartZoom} pan={chartPan} /><div className="chart-nav" aria-label="Chart navigation"><button onClick={() => setChartPan((value) => value + 35)} aria-label="Move chart right">←</button><button onClick={() => setChartZoom((value) => Math.max(1, value - 0.25))} aria-label="Zoom out">−</button><span>{Math.round(chartZoom * 100)}%</span><button onClick={() => setChartZoom((value) => Math.min(2.5, value + 0.25))} aria-label="Zoom in">+</button><button onClick={() => setChartPan((value) => value - 35)} aria-label="Move chart left">→</button><button className="reset-chart" onClick={() => { setChartZoom(1); setChartPan(0) }}>RESET VIEW</button></div><div className="volume"><span className="volume-title">VOLUME</span>{[24, 34, 20, 40, 27, 38, 51, 35, 48, 58, 45, 68, 55, 80, 63, 74, 68, 92, 77, 100, 86, 95, 82, 100].map((h, i) => <i key={i} style={{ height: `${h}%`, background: i % 5 === 2 ? '#fb7185' : '#2dd4bf' }} />)}</div></div>
+          <div className="chart-card"><div className="chart-topline"><div><span className="chart-label">{selected.symbol} · {timeframe} · NASDAQ</span><span className="ohlc">O 4.71&nbsp;&nbsp; H 4.89&nbsp;&nbsp; L 4.68&nbsp;&nbsp; C 4.82</span></div><span className="streaming"><i /> {paused ? 'STREAM PAUSED' : 'LIVE STREAMING'}</span></div><Chart symbol={selected.symbol} /><div className="chart-nav" aria-label="Chart navigation"><button onClick={() => setChartPan((value) => value + 35)} aria-label="Move chart right">←</button><button onClick={() => setChartZoom((value) => Math.max(1, value - 0.25))} aria-label="Zoom out">−</button><span>{Math.round(chartZoom * 100)}%</span><button onClick={() => setChartZoom((value) => Math.min(2.5, value + 0.25))} aria-label="Zoom in">+</button><button onClick={() => setChartPan((value) => value - 35)} aria-label="Move chart left">→</button><button className="reset-chart" onClick={() => { setChartZoom(1); setChartPan(0) }}>RESET VIEW</button></div><div className="volume"><span className="volume-title">VOLUME</span>{[24, 34, 20, 40, 27, 38, 51, 35, 48, 58, 45, 68, 55, 80, 63, 74, 68, 92, 77, 100, 86, 95, 82, 100].map((h, i) => <i key={i} style={{ height: `${h}%`, background: i % 5 === 2 ? '#fb7185' : '#2dd4bf' }} />)}</div></div>
           <div className="signal-strip"><div className="signal-main"><Sparkles /><div><span>AI SIGNAL · HIGH CONVICTION</span><strong>Momentum continuation setup</strong></div></div><div className="signal-stat"><span>Score</span><strong className="positive">94 / 100</strong></div><div className="signal-stat"><span>RVOL</span><strong>4.2x</strong></div><div className="signal-stat"><span>Float</span><strong>8.4M</strong></div><div className="signal-stat"><span>VWAP</span><strong className="positive">Above</strong></div></div>
         </section>
         <aside className="right-rail">

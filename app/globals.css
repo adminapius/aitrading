@@ -53,7 +53,23 @@ html, body { overflow-x: hidden; }
 .watchlist, .events { overflow-y: auto; scrollbar-width: thin; scrollbar-color: #294052 transparent; }
 .watchlist { max-height: 34dvh; }
 .events { max-height: 39dvh; }
-.event p { font-size: 14px; }
+.brand small { font-size: 12px; }
+.clock { font-size: 13px; }
+.section-kicker, .panel-title { font-size: 16px; }
+.event, .event p, .event-time, .event-type { font-size: 13px !important; }
+.empty-position { padding-top: 17px; }
+.index-row { grid-template-columns: 1fr 1fr 1fr; }
+.index-row strong { text-align: center; }
+.index-row em { text-align: right; }
+.stock-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.stock-price { text-align: center; }
+.stock-price strong, .stock-price span { text-align: center; }
+.event { display: grid; grid-template-columns: 76px 72px minmax(0, 1fr); gap: 8px; align-items: center; }
+.event p { font-size: 13px !important; min-width: 0; }
+.lightweight-chart { height: 430px; padding: 0; }
+.chart-card { min-height: 525px; }
+.terminal-foot { font-size: 12px; }
+
 .event-time, .event-type, .event-count, .scan-status, .view-all, .search-box input { font-size: 12px !important; }
 .chart-nav { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 5px; color: #7890a6; font: 12px monospace; }
 .chart-nav button { min-width: 27px; border: 1px solid #223448; border-radius: 3px; background: #101a27; color: #b9c8d8; padding: 4px 8px; }

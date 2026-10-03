@@ -1,5 +1,10 @@
-const configuredAlpacaUrl = process.env.ALPACA_BASE_URL?.trim().replace(/\/+$/, '')
-const configuredAlpacaDataUrl = process.env.ALPACA_DATA_URL?.trim().replace(/\/+$/, '')
+function normalizeUrl(value: string | undefined) {
+  const trimmed = value?.trim().replace(/\/+$/, '')
+  return trimmed ? (/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`) : undefined
+}
+
+const configuredAlpacaUrl = normalizeUrl(process.env.ALPACA_BASE_URL)
+const configuredAlpacaDataUrl = normalizeUrl(process.env.ALPACA_DATA_URL)
 
 export const tradingConfig = {
   supabaseUrl: (process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL)?.trim().replace(/\/+$/, ''),
