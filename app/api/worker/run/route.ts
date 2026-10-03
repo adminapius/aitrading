@@ -13,7 +13,9 @@ export async function POST(request: NextRequest) {
   if (isFlattenWindow(now)) return NextResponse.json({ status: 'flatten_required', mode: 'paper', action: 'close_all_positions', checkedAt: now.toISOString() })
   const candidates = Array.isArray(body.candidates) ? body.candidates : []
   const equity = Number(body.equity ?? 2000)
-  const decisions = candidates.map((candidate: ScanCandidate) => decideEntry(candidate, equity)).filter((decision: ReturnType<typeof decideEntry>) => decision.action !== 'hold')
+  const decisions: Array<ReturnType<typeof decideEntry>> = candidates
+    .map((candidate: ScanCandidate) => decideEntry(candidate, equity))
+    .filter((decision: ReturnType<typeof decideEntry>) => decision.action !== 'hold')
   const notificationResults = body.notify && decisions.length
     ? await sendTradingNotification({ title: 'AItrading paper scan', message: `${decisions.length} paper decision(s) ready: ${decisions.map((decision) => `${decision.action.toUpperCase()} ${decision.symbol}`).join(', ')}` })
     : []
