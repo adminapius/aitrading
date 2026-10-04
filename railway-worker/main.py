@@ -55,6 +55,22 @@ def in_scan_window() -> bool:
     return time(7, 0) <= now < time(15, 55)
 
 
+def scan_interval_seconds() -> int:
+    now = datetime.now(ET).time()
+    minutes = now.hour * 60 + now.minute
+    if minutes < 8 * 60:
+        return 300
+    if minutes < 9 * 60 + 30:
+        return 600
+    if minutes < 11 * 60:
+        return 300
+    if minutes < 13 * 60:
+        return 900
+    if minutes < 15 * 60 + 30:
+        return 600
+    return 30
+
+
 def scan_id(symbol_list: list[str]) -> str:
     bucket = int(datetime.now(timezone.utc).timestamp()) // 300
     return hashlib.sha256(f"{bucket}:{','.join(symbol_list)}".encode()).hexdigest()[:24]
@@ -135,7 +151,7 @@ async def send_scan() -> dict:
 async def health():
     required_names = ["ALPACA_API_KEY", "ALPACA_API_SECRET", "ALPACA_DATA_URL", "FMP_API_KEY", "FINNHUB_API_KEY", "VERCEL_WORKER_URL", "WORKER_RUN_SECRET"]
     missing = [name for name in required_names if not os.getenv(name, "").strip()]
-    return JSONResponse({"ok": not missing, "service": "aitrading-worker", "missing": missing, "scanWindow": "07:00-15:55 America/New_York", "intervalSeconds": 300}, status_code=200 if not missing else 503)
+    return JSONResponse({"ok": not missing, "service": "aitrading-worker", "missing": missing, "scanWindow": "07:00-15:55 America/New_York", "intervalSeconds": scan_interval_seconds(), "entryMonitorSeconds": 10}, status_code=200 if not missing else 503)
 
 
 @app.post("/api/run-once")
@@ -150,7 +166,7 @@ async def scheduler():
             log.info("scheduler result=%s", result)
         except Exception:
             log.exception("scheduler iteration failed")
-        await asyncio.sleep(300)
+        await asyncio.sleep(scan_interval_seconds())
 
 
 @app.on_event("startup")
