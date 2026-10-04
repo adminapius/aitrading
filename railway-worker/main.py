@@ -25,8 +25,29 @@ def required(name: str) -> str:
     return value
 
 
-def symbols() -> list[str]:
-    return sorted({s.strip().upper() for s in required("WATCHLIST_SYMBOLS").split(",") if s.strip()})
+def supplemental_symbols() -> list[str]:
+    return sorted({s.strip().upper() for s in os.getenv("WATCHLIST_SYMBOLS", "").split(",") if s.strip()})
+
+
+async def discover_symbols(client: httpx.AsyncClient) -> list[str]:
+    headers = {"APCA-API-KEY-ID": required("ALPACA_API_KEY"), "APCA-API-SECRET-KEY": required("ALPACA_API_SECRET")}
+    data_url = required("ALPACA_DATA_URL").rstrip("/")
+    try:
+        response = await client.get(f"{data_url}/v1beta1/screener/stocks/movers", params={"top": int(os.getenv("MOVER_TOP", "50"))}, headers=headers)
+        response.raise_for_status()
+        payload = response.json()
+        movers = payload.get("gainers", []) + payload.get("losers", [])
+        discovered = [item.get("symbol", "").strip().upper() for item in movers if item.get("symbol")]
+        combined = sorted(set(discovered + supplemental_symbols()))
+        if combined:
+            log.info("discovered=%d movers=%d supplemental=%d", len(combined), len(discovered), len(supplemental_symbols()))
+            return combined
+    except (httpx.HTTPError, ValueError) as exc:
+        log.warning("dynamic mover discovery failed; using supplemental watchlist: %s", exc)
+    fallback = supplemental_symbols()
+    if not fallback:
+        raise RuntimeError("Mover discovery failed and WATCHLIST_SYMBOLS is empty")
+    return fallback
 
 
 def in_scan_window() -> bool:
@@ -34,9 +55,9 @@ def in_scan_window() -> bool:
     return time(7, 0) <= now < time(15, 55)
 
 
-def scan_id() -> str:
+def scan_id(symbol_list: list[str]) -> str:
     bucket = int(datetime.now(timezone.utc).timestamp()) // 300
-    return hashlib.sha256(f"{bucket}:{','.join(symbols())}".encode()).hexdigest()[:24]
+    return hashlib.sha256(f"{bucket}:{','.join(symbol_list)}".encode()).hexdigest()[:24]
 
 
 async def get_float(client: httpx.AsyncClient, symbol: str) -> tuple[float | None, str | None]:
@@ -55,8 +76,8 @@ async def get_float(client: httpx.AsyncClient, symbol: str) -> tuple[float | Non
     return None, None
 
 
-async def build_candidates(client: httpx.AsyncClient) -> list[dict]:
-    symbol_list = symbols()
+async def build_candidates(client: httpx.AsyncClient) -> tuple[list[dict], list[str]]:
+    symbol_list = await discover_symbols(client)
     base = required("ALPACA_DATA_URL").rstrip("/")
     response = await client.get(f"{base}/v2/stocks/snapshots", params={"symbols": ",".join(symbol_list), "feed": os.getenv("ALPACA_DATA_FEED", "iex")}, headers={"APCA-API-KEY-ID": required("ALPACA_API_KEY"), "APCA-API-SECRET-KEY": required("ALPACA_API_SECRET")})
     response.raise_for_status()
@@ -75,7 +96,7 @@ async def build_candidates(client: httpx.AsyncClient) -> list[dict]:
         float_shares, float_source = await get_float(client, symbol)
         change = ((price - float(previous.get("c") or price)) / float(previous.get("c") or price)) * 100
         candidates.append({"symbol": symbol, "price": price, "bid": quote.get("bp"), "ask": quote.get("ap"), "volume": volume, "averageVolume": average_volume or None, "float": float_shares, "floatSource": float_source, "changePercent": change, "vwap": daily.get("vw"), "atr": None, "hasNews": False, "socialScore": 0})
-    return candidates
+    return candidates, symbol_list
 
 
 async def send_scan() -> dict:
@@ -84,9 +105,9 @@ async def send_scan() -> dict:
     if scan_lock.locked():
         return {"status": "overlap_skipped"}
     async with scan_lock:
-        current_scan = scan_id()
         async with httpx.AsyncClient(timeout=20) as client:
-            candidates = await build_candidates(client)
+            candidates, symbol_list = await build_candidates(client)
+            current_scan = scan_id(symbol_list)
             payload = {"candidates": candidates, "notify": True}
             url = required("VERCEL_WORKER_URL").rstrip("/") + "/api/worker/run"
             headers = {"Authorization": f"Bearer {required('WORKER_RUN_SECRET')}", "Content-Type": "application/json", "X-Scan-ID": current_scan}
@@ -112,7 +133,7 @@ async def send_scan() -> dict:
 
 @app.get("/api/health")
 async def health():
-    required_names = ["ALPACA_API_KEY", "ALPACA_API_SECRET", "ALPACA_DATA_URL", "FMP_API_KEY", "FINNHUB_API_KEY", "VERCEL_WORKER_URL", "WORKER_RUN_SECRET", "WATCHLIST_SYMBOLS"]
+    required_names = ["ALPACA_API_KEY", "ALPACA_API_SECRET", "ALPACA_DATA_URL", "FMP_API_KEY", "FINNHUB_API_KEY", "VERCEL_WORKER_URL", "WORKER_RUN_SECRET"]
     missing = [name for name in required_names if not os.getenv(name, "").strip()]
     return JSONResponse({"ok": not missing, "service": "aitrading-worker", "missing": missing, "scanWindow": "07:00-15:55 America/New_York", "intervalSeconds": 300}, status_code=200 if not missing else 503)
 
