@@ -54,7 +54,7 @@ function TradingViewWidget({ symbol }: { symbol: string }) {
     script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js'
     script.type = 'text/javascript'
     script.async = true
-    script.innerHTML = JSON.stringify({ allow_symbol_change: true, calendar: false, details: false, hide_side_toolbar: false, hide_top_toolbar: false, hide_legend: false, hide_volume: false, hotlist: false, interval: '5', locale: 'en', save_image: true, style: '1', symbol: `NASDAQ:${symbol}`, theme: 'dark', timezone: 'America/New_York', backgroundColor: '#0F0F0F', gridColor: 'rgba(242, 242, 242, 0.2)', watchlist: [], withdateranges: false, compareSymbols: [], support_host: 'https://www.tradingview.com', studies: ['STD;VWAP'], autosize: true })
+    script.innerHTML = JSON.stringify({ allow_symbol_change: true, calendar: false, details: false, hide_side_toolbar: false, hide_top_toolbar: false, hide_legend: false, hide_volume: false, hotlist: false, interval: '5', locale: 'en', save_image: true, style: '1', symbol: `NASDAQ:${symbol}`, theme: 'dark', timezone: 'America/New_York', backgroundColor: '#0F0F0F', gridColor: 'rgba(242, 242, 242, 0.2)', watchlist: [], withdateranges: false, compareSymbols: [], support_host: 'https://www.tradingview.com', studies: ['STD;VWAP', 'Volume@tv-basicstudies'], autosize: true })
     element.append(widget, script)
     return () => { element.innerHTML = '' }
   }, [symbol])
