@@ -1,7 +1,7 @@
 'use client'
 
 import useSWR from 'swr'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Activity, Bell, Search, Settings2, ShieldCheck, Sparkles, TrendingUp } from 'lucide-react'
 
 type Stock = { symbol: string; name: string; price: string; change: string; score: number; volume: string; catalyst: string; tone: 'green' | 'amber' | 'red' }
@@ -39,9 +39,40 @@ const events = [
   ['07:00:00', 'SYSTEM', 'AItrading App is awake, let’s make this GREEN DAY', 'purple'],
 ]
 
+const chartTimeframes = [
+  { label: '10 SEC', interval: '10S', range: '1D' },
+  { label: '5 MIN', interval: '5', range: '5D' },
+  { label: '4 HR', interval: '240', range: '3M' },
+  { label: '1D', interval: 'D', range: '12M' },
+  { label: '1Y', interval: 'W', range: '60M' },
+] as const
+
+function TradingViewWidget({ symbol, interval }: { symbol: string; interval: string }) {
+  const container = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const element = container.current
+    if (!element) return
+    element.innerHTML = ''
+    const widget = document.createElement('div')
+    widget.className = 'tradingview-widget-container__widget'
+    widget.style.height = 'calc(100% - 32px)'
+    widget.style.width = '100%'
+    const script = document.createElement('script')
+    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js'
+    script.type = 'text/javascript'
+    script.async = true
+    script.innerHTML = JSON.stringify({ allow_symbol_change: true, calendar: false, details: false, hide_side_toolbar: false, hide_top_toolbar: false, hide_legend: false, hide_volume: false, hotlist: false, interval, locale: 'en', save_image: true, style: '1', symbol: `NASDAQ:${symbol}`, theme: 'dark', timezone: 'America/New_York', backgroundColor: '#0F0F0F', gridColor: 'rgba(242, 242, 242, 0.2)', watchlist: [], withdateranges: false, compareSymbols: [], support_host: 'https://www.tradingview.com', studies: ['STD;VWAP'], autosize: true })
+    element.append(widget, script)
+    return () => { element.innerHTML = '' }
+  }, [symbol, interval])
+
+  return <div className="tradingview-widget-container" ref={container} style={{ height: '100%', width: '100%' }} />
+}
+
 function Chart({ symbol }: { symbol: string }) {
-  const widgetUrl = `https://www.tradingview.com/widgetembed/?frameElementId=tradingview_widget&symbol=${encodeURIComponent(`NASDAQ:${symbol}`)}&interval=D&hidetoptoolbar=0&hidesidetoolbar=0&symboledit=1&saveimage=1&studies=Volume%40tv-basicstudies&theme=dark&style=1&timezone=Etc%2FUTC&withdateranges=1&hidelegend=0&hidevolume=0&allow_symbol_change=1&locale=en&backgroundColor=%230F0F0F&gridColor=%23182433`
-  return <div className="chart-shell tradingview-widget-container" aria-label={`${symbol} TradingView advanced chart`}><iframe title={`${symbol} TradingView advanced chart`} src={widgetUrl} loading="lazy" allow="fullscreen" referrerPolicy="no-referrer-when-downgrade" /></div>
+  const [timeframe, setTimeframe] = useState<(typeof chartTimeframes)[number]>(chartTimeframes[1])
+  return <div className="chart-shell tradingview-widget-container" aria-label={`${symbol} TradingView advanced chart`}><div className="chart-timeframes" role="group" aria-label="Chart timeframe"><span>TIMEFRAME</span>{chartTimeframes.map((option) => <button key={option.label} type="button" className={timeframe.label === option.label ? 'active' : ''} onClick={() => setTimeframe(option)}>{option.label}</button>)}</div><TradingViewWidget symbol={symbol} interval={timeframe.interval} /></div>
 }
 
 export default function Home() {
