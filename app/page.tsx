@@ -39,9 +39,18 @@ const events = [
   ['07:00:00', 'SYSTEM', 'AItrading App is awake, let’s make this GREEN DAY', 'purple'],
 ]
 
+const chartTimeframes = [
+  { label: '10 SEC', interval: '10S', range: '1D' },
+  { label: '5 MIN', interval: '5', range: '5D' },
+  { label: '4 HR', interval: '240', range: '3M' },
+  { label: '1D', interval: 'D', range: '12M' },
+  { label: '1Y', interval: 'W', range: '60M' },
+] as const
+
 function Chart({ symbol }: { symbol: string }) {
-  const widgetUrl = `https://www.tradingview.com/widgetembed/?frameElementId=tradingview_widget&symbol=${encodeURIComponent(`NASDAQ:${symbol}`)}&interval=D&hidetoptoolbar=0&hidesidetoolbar=0&symboledit=1&saveimage=1&studies=Volume%40tv-basicstudies&theme=dark&style=1&timezone=Etc%2FUTC&withdateranges=1&hidelegend=0&hidevolume=0&allow_symbol_change=1&locale=en&backgroundColor=%230F0F0F&gridColor=%23182433`
-  return <div className="chart-shell tradingview-widget-container" aria-label={`${symbol} TradingView advanced chart`}><iframe title={`${symbol} TradingView advanced chart`} src={widgetUrl} loading="lazy" allow="fullscreen" referrerPolicy="no-referrer-when-downgrade" /></div>
+  const [timeframe, setTimeframe] = useState<(typeof chartTimeframes)[number]>(chartTimeframes[1])
+  const widgetUrl = `https://www.tradingview.com/widgetembed/?frameElementId=tradingview_widget&symbol=${encodeURIComponent(`NASDAQ:${symbol}`)}&interval=${timeframe.interval}&range=${timeframe.range}&hidetoptoolbar=0&hidesidetoolbar=0&symboledit=1&saveimage=1&studies=Volume%40tv-basicstudies&theme=dark&style=1&timezone=Etc%2FUTC&withdateranges=1&hidelegend=0&hidevolume=0&allow_symbol_change=1&locale=en&backgroundColor=%230F0F0F&gridColor=%23182433`
+  return <div className="chart-shell tradingview-widget-container" aria-label={`${symbol} TradingView advanced chart`}><div className="chart-timeframes" role="group" aria-label="Chart timeframe"><span>TIMEFRAME</span>{chartTimeframes.map((option) => <button key={option.label} type="button" className={timeframe.label === option.label ? 'active' : ''} onClick={() => setTimeframe(option)}>{option.label}</button>)}</div><iframe title={`${symbol} TradingView advanced chart`} src={widgetUrl} loading="lazy" allow="fullscreen" referrerPolicy="no-referrer-when-downgrade" /></div>
 }
 
 export default function Home() {
