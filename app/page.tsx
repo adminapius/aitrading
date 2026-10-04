@@ -40,7 +40,7 @@ const events = [
 ]
 
 function TradingViewWidget({ symbol }: { symbol: string }) {
-  const widgetUrl = `https://www.tradingview.com/widgetembed/?frameElementId=tradingview_widget&symbol=${encodeURIComponent(`NASDAQ:${symbol}`)}&interval=5&hidetoptoolbar=0&hidesidetoolbar=0&symboledit=1&saveimage=1&studies=STD%3BVWAP%2CVolume%40tv-basicstudies&theme=dark&style=1&timezone=America%2FNew_York&withdateranges=1&hidelegend=0&hidevolume=0&allow_symbol_change=1&locale=en&backgroundColor=%230F0F0F&gridColor=%23182433`
+  const widgetUrl = `https://www.tradingview.com/widgetembed/?frameElementId=tradingview_widget&symbol=${encodeURIComponent(`NASDAQ:${symbol}`)}&interval=5&hidetoptoolbar=0&hidesidetoolbar=0&symboledit=1&saveimage=1&studies=STD%3BVWAP%2CSTD%3BEMA%2CVolume%40tv-basicstudies&theme=dark&style=1&timezone=America%2FNew_York&withdateranges=1&hidelegend=0&hidevolume=0&allow_symbol_change=1&locale=en&backgroundColor=%230F0F0F&gridColor=%23182433`
   return <iframe title={`${symbol} TradingView chart`} src={widgetUrl} loading="lazy" allow="fullscreen" referrerPolicy="no-referrer-when-downgrade" style={{ height: '100%', width: '100%', border: 0 }} />
 }
 
