@@ -2,7 +2,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseHeaders, tradingConfig } from '@/lib/trading-config'
 import { sendTradingNotification } from '@/lib/notifications'
-import { decideEntry, isFlattenWindow, isTradingWindow, strategyGuardrails, type ScanCandidate } from '@/lib/strategy'
+import { decideEntry, isFlattenWindow, isTradingWindow, normalizeFloatShares, strategyGuardrails, type ScanCandidate } from '@/lib/strategy'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,11 +36,22 @@ export async function POST(request: NextRequest) {
   const account = ledger[0]
   const startingBalance = Number(account?.starting_balance)
   const cashBalance = Number(account?.cash_balance)
+  // Intentional test-phase guard: keep paper sizing capped at the configured starting balance.
   const equity = Math.min(cashBalance, startingBalance)
   if (!Number.isFinite(equity) || equity <= 0) return NextResponse.json({ error: 'Internal paper-trading ledger has no valid sizing balance.' }, { status: 503 })
   const candidates = Array.isArray(body.candidates) ? body.candidates : []
   const decisions: Array<ReturnType<typeof decideEntry>> = candidates
-    .map((candidate: ScanCandidate) => decideEntry(candidate, equity))
+    .map((candidate: ScanCandidate) => {
+      const decision = decideEntry(candidate, equity)
+      console.info('[worker] strategy decision', {
+        symbol: candidate.symbol,
+        action: decision.action,
+        floatSource: candidate.floatSource ?? 'missing',
+        floatShares: candidate.float ?? null,
+        normalizedFloatShares: candidate.float == null ? null : normalizeFloatShares(candidate.float, candidate.floatSource),
+      })
+      return decision
+    })
     .filter((decision: ReturnType<typeof decideEntry>) => decision.action !== 'hold')
   const notificationResults = body.notify && decisions.length
     ? await sendTradingNotification({ title: 'AItrading paper scan', message: `${decisions.length} paper decision(s) ready: ${decisions.map((decision) => `${decision.action.toUpperCase()} ${decision.symbol}`).join(', ')}` })
