@@ -14,7 +14,7 @@ export async function GET() {
 
   try {
     const supabase = createClient(supabaseUrl, supabaseKey)
-    const { data, error } = await supabase.from('profiles').select('*').limit(1)
+    const { data, error } = await supabase.from('ait_bot_state').select('*').limit(1)
 
     if (error) {
       return NextResponse.json(

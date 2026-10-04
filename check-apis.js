@@ -18,11 +18,21 @@ async function checkAPIs() {
   await check(
     'Stocktwits',
     'https://api.stocktwits.com/api/2/streams/symbol/AAPL.json',
-    { headers: { Authorization: `Bearer ${process.env.STOCKTWITS_API_KEY ?? ''}`, accept: 'application/json' } },
+    {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        accept: 'application/json',
+      },
+    },
   )
   await check(
     'FMP',
-    'https://financialmodelingprep.com/api/v3/quote/AAPL?apikey=' + encodeURIComponent(process.env.FMP_API_KEY ?? ''),
+    'https://financialmodelingprep.com/stable/profile?symbol=AAPL&apikey=' + encodeURIComponent(process.env.FMP_API_KEY ?? ''),
+    { headers: { accept: 'application/json' } },
+  )
+  await check(
+    'Railway',
+    `${(process.env.RAILWAY_SERVICE_URL ?? '').replace(/\/+$/, '')}/api/health`,
     { headers: { accept: 'application/json' } },
   )
   console.log(JSON.stringify(checks, null, 2))
