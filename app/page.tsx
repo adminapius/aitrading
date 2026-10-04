@@ -1,7 +1,7 @@
 'use client'
 
 import useSWR from 'swr'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Activity, Bell, Search, Settings2, ShieldCheck, Sparkles, TrendingUp } from 'lucide-react'
 
 type Stock = { symbol: string; name: string; price: string; change: string; score: number; volume: string; catalyst: string; tone: 'green' | 'amber' | 'red' }
@@ -40,49 +40,8 @@ const events = [
 ]
 
 function Chart({ symbol }: { symbol: string }) {
-  const container = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const root = container.current
-    if (!root) return
-    root.replaceChildren()
-
-    const widget = document.createElement('div')
-    widget.className = 'tradingview-widget-container__widget'
-    const script = document.createElement('script')
-    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js'
-    script.type = 'text/javascript'
-    script.async = true
-    script.text = JSON.stringify({
-      allow_symbol_change: true,
-      calendar: false,
-      details: false,
-      hide_side_toolbar: true,
-      hide_top_toolbar: false,
-      hide_legend: false,
-      hide_volume: false,
-      hotlist: false,
-      interval: 'D',
-      locale: 'en',
-      save_image: true,
-      style: '1',
-      symbol: `NASDAQ:${symbol}`,
-      theme: 'dark',
-      timezone: 'Etc/UTC',
-      backgroundColor: '#0F0F0F',
-      gridColor: 'rgba(242, 242, 242, 0.2)',
-      watchlist: [],
-      withdateranges: false,
-      compareSymbols: [],
-      support_host: 'https://www.tradingview.com',
-      studies: [],
-      autosize: true,
-    })
-    root.append(widget, script)
-    return () => root.replaceChildren()
-  }, [symbol])
-
-  return <div className="chart-shell tradingview-widget-container" ref={container} aria-label={`${symbol} TradingView advanced chart`} />
+  const widgetUrl = `https://www.tradingview.com/widgetembed/?frameElementId=tradingview_widget&symbol=${encodeURIComponent(`NASDAQ:${symbol}`)}&interval=D&hidetoptoolbar=0&hidesidetoolbar=0&symboledit=1&saveimage=1&studies=Volume%40tv-basicstudies&theme=dark&style=1&timezone=Etc%2FUTC&withdateranges=1&hidelegend=0&hidevolume=0&allow_symbol_change=1&locale=en&backgroundColor=%230F0F0F&gridColor=%23182433`
+  return <div className="chart-shell tradingview-widget-container" aria-label={`${symbol} TradingView advanced chart`}><iframe title={`${symbol} TradingView advanced chart`} src={widgetUrl} loading="lazy" allow="fullscreen" referrerPolicy="no-referrer-when-downgrade" /></div>
 }
 
 export default function Home() {
