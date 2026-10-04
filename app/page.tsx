@@ -1,7 +1,7 @@
 'use client'
 
 import useSWR from 'swr'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Activity, Bell, Search, Settings2, ShieldCheck, Sparkles, TrendingUp } from 'lucide-react'
 
 type Stock = { symbol: string; name: string; price: string; change: string; score: number; volume: string; catalyst: string; tone: 'green' | 'amber' | 'red' }
@@ -40,8 +40,49 @@ const events = [
 ]
 
 function Chart({ symbol }: { symbol: string }) {
-  const widgetUrl = `https://www.tradingview.com/widgetembed/?frameElementId=tradingview_widget&symbol=${encodeURIComponent(`NASDAQ:${symbol}`)}&interval=5&hidetoptoolbar=0&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=f1f3f6&studies=Volume%40tv-basicstudies&theme=dark&style=1&timezone=America%2FNew_York&withdateranges=1&hidelegend=0&hidevolume=0&allow_symbol_change=1&locale=en&backgroundColor=%230c131e&gridColor=%23182433`
-  return <div className="chart-shell tradingview-widget-container" aria-label={`${symbol} TradingView advanced chart`}><iframe title={`${symbol} TradingView advanced chart`} src={widgetUrl} loading="eager" allow="fullscreen" referrerPolicy="no-referrer-when-downgrade" /></div>
+  const container = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const root = container.current
+    if (!root) return
+    root.replaceChildren()
+
+    const widget = document.createElement('div')
+    widget.className = 'tradingview-widget-container__widget'
+    const script = document.createElement('script')
+    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js'
+    script.type = 'text/javascript'
+    script.async = true
+    script.text = JSON.stringify({
+      allow_symbol_change: true,
+      calendar: false,
+      details: false,
+      hide_side_toolbar: true,
+      hide_top_toolbar: false,
+      hide_legend: false,
+      hide_volume: false,
+      hotlist: false,
+      interval: 'D',
+      locale: 'en',
+      save_image: true,
+      style: '1',
+      symbol: `NASDAQ:${symbol}`,
+      theme: 'dark',
+      timezone: 'Etc/UTC',
+      backgroundColor: '#0F0F0F',
+      gridColor: 'rgba(242, 242, 242, 0.2)',
+      watchlist: [],
+      withdateranges: false,
+      compareSymbols: [],
+      support_host: 'https://www.tradingview.com',
+      studies: [],
+      autosize: true,
+    })
+    root.append(widget, script)
+    return () => root.replaceChildren()
+  }, [symbol])
+
+  return <div className="chart-shell tradingview-widget-container" ref={container} aria-label={`${symbol} TradingView advanced chart`} />
 }
 
 export default function Home() {
@@ -60,14 +101,7 @@ export default function Home() {
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000)
-    const ignoreTradingViewScriptError = (event: ErrorEvent) => {
-      if (event.message === 'Script error.' || event.message === 'Script error') event.preventDefault()
-    }
-    window.addEventListener('error', ignoreTradingViewScriptError)
-    return () => {
-      window.clearInterval(timer)
-      window.removeEventListener('error', ignoreTradingViewScriptError)
-    }
+    return () => window.clearInterval(timer)
   }, [])
   const displayNow = now ?? new Date(0)
   const etTime = now ? new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }).format(now) : '—'
