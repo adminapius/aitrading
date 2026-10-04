@@ -1,7 +1,7 @@
 'use client'
 
 import useSWR from 'swr'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Activity, Bell, Search, Settings2, ShieldCheck, Sparkles, TrendingUp } from 'lucide-react'
 
 type Stock = { symbol: string; name: string; price: string; change: string; score: number; volume: string; catalyst: string; tone: 'green' | 'amber' | 'red' }
@@ -40,23 +40,8 @@ const events = [
 ]
 
 function Chart({ symbol }: { symbol: string }) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-    container.replaceChildren()
-    const widget = document.createElement('div')
-    widget.className = 'tradingview-widget-container__widget'
-    widget.style.cssText = 'height:calc(100% - 32px);width:100%'
-    const script = document.createElement('script')
-    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js'
-    script.type = 'text/javascript'
-    script.async = true
-    script.text = JSON.stringify({ allow_symbol_change: true, calendar: false, details: false, hide_side_toolbar: false, hide_top_toolbar: false, hide_legend: false, hide_volume: false, hotlist: false, interval: '5', locale: 'en', save_image: true, style: '1', symbol: `NASDAQ:${symbol}`, theme: 'dark', timezone: 'America/New_York', backgroundColor: '#0c131e', gridColor: 'rgba(242, 242, 242, 0.08)', watchlist: [], withdateranges: true, compareSymbols: [], support_host: 'https://www.tradingview.com', studies: ['Volume@tv-basicstudies'], autosize: true })
-    container.append(widget, script)
-    return () => container.replaceChildren()
-  }, [symbol])
-  return <div className="chart-shell tradingview-widget-container" ref={containerRef} aria-label={`${symbol} TradingView advanced chart`} />
+  const widgetUrl = `https://www.tradingview.com/widgetembed/?frameElementId=tradingview_widget&symbol=${encodeURIComponent(`NASDAQ:${symbol}`)}&interval=5&hidetoptoolbar=0&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=f1f3f6&studies=Volume%40tv-basicstudies&theme=dark&style=1&timezone=America%2FNew_York&withdateranges=1&hidelegend=0&hidevolume=0&allow_symbol_change=1&locale=en&backgroundColor=%230c131e&gridColor=%23182433`
+  return <div className="chart-shell tradingview-widget-container" aria-label={`${symbol} TradingView advanced chart`}><iframe title={`${symbol} TradingView advanced chart`} src={widgetUrl} loading="eager" allow="fullscreen" referrerPolicy="no-referrer-when-downgrade" /></div>
 }
 
 export default function Home() {
