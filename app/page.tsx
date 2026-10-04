@@ -1,7 +1,7 @@
 'use client'
 
 import useSWR from 'swr'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Activity, Bell, Search, Settings2, ShieldCheck, Sparkles, TrendingUp } from 'lucide-react'
 
 type Stock = { symbol: string; name: string; price: string; change: string; score: number; volume: string; catalyst: string; tone: 'green' | 'amber' | 'red' }
@@ -40,8 +40,53 @@ const events = [
 ]
 
 function TradingViewWidget({ symbol }: { symbol: string }) {
-  const widgetUrl = `https://www.tradingview.com/widgetembed/?frameElementId=tradingview_widget&symbol=${encodeURIComponent(`NASDAQ:${symbol}`)}&interval=5&hidetoptoolbar=0&hidesidetoolbar=0&symboledit=1&saveimage=1&studies=STD%3BVWAP%2CSTD%3BEMA%2CVolume%40tv-basicstudies&theme=dark&style=1&timezone=America%2FNew_York&withdateranges=1&hidelegend=0&hidevolume=0&allow_symbol_change=1&locale=en&backgroundColor=%230F0F0F&gridColor=%23182433`
-  return <iframe title={`${symbol} TradingView chart`} src={widgetUrl} loading="lazy" allow="fullscreen" referrerPolicy="no-referrer-when-downgrade" style={{ height: '100%', width: '100%', border: 0 }} />
+  const container = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const element = container.current
+    if (!element) return
+
+    const widget = document.createElement('div')
+    widget.className = 'tradingview-widget-container__widget'
+    widget.style.height = 'calc(100% - 32px)'
+    widget.style.width = '100%'
+
+    const script = document.createElement('script')
+    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js'
+    script.type = 'text/javascript'
+    script.async = true
+    script.innerHTML = JSON.stringify({
+      allow_symbol_change: true,
+      calendar: false,
+      details: false,
+      hide_side_toolbar: true,
+      hide_top_toolbar: false,
+      hide_legend: false,
+      hide_volume: false,
+      hotlist: false,
+      interval: '5',
+      locale: 'en',
+      save_image: true,
+      style: '1',
+      symbol: `NASDAQ:${symbol}`,
+      theme: 'dark',
+      timezone: 'America/New_York',
+      backgroundColor: '#0F0F0F',
+      gridColor: 'rgba(242, 242, 242, 0.2)',
+      watchlist: [],
+      withdateranges: false,
+      compareSymbols: [],
+      support_host: 'https://www.tradingview.com',
+      studies: ['STD;VWAP', 'Volume@tv-basicstudies', 'STD;EMA'],
+      autosize: true,
+    })
+
+    element.replaceChildren(widget)
+    widget.appendChild(script)
+    return () => element.replaceChildren()
+  }, [symbol])
+
+  return <div className="tradingview-widget-container" ref={container} style={{ height: '100%', width: '100%' }} />
 }
 
 function Chart({ symbol }: { symbol: string }) {
