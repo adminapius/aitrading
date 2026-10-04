@@ -6,11 +6,17 @@ export type ScanCandidate = {
   volume?: number
   averageVolume?: number
   float?: number
+  floatSource?: 'fmp' | 'finnhub'
   changePercent?: number
   vwap?: number
   atr?: number
   hasNews?: boolean
   socialScore?: number
+}
+
+export function normalizeFloatShares(value: number | null | undefined, source: ScanCandidate['floatSource'] = 'fmp') {
+  if (!Number.isFinite(value) || value == null) return undefined
+  return source === 'finnhub' ? value * 1_000_000 : value
 }
 
 export type TradeDecision = {
@@ -29,7 +35,8 @@ export function scoreCandidate(candidate: ScanCandidate) {
   const rvol = candidate.averageVolume ? (candidate.volume ?? 0) / candidate.averageVolume : 0
   const catalysts = Number(Boolean(candidate.hasNews)) + Number((candidate.socialScore ?? 0) >= 60)
   const technicals = Number((candidate.changePercent ?? 0) > 2) + Number(candidate.vwap ? candidate.price > candidate.vwap : false)
-  const liquidity = Number(rvol >= 2.5) + Number((candidate.float ?? Infinity) <= 10_000_000)
+  const normalizedFloat = normalizeFloatShares(candidate.float, candidate.floatSource)
+  const liquidity = Number(rvol >= 2.5) + Number((normalizedFloat ?? Infinity) <= 10_000_000)
   return catalysts * 25 + technicals * 15 + liquidity * 10
 }
 
