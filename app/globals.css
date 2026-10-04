@@ -102,7 +102,7 @@ html, body { overflow-x: hidden; }
 .timeframes button, .drawing-tools button { border: 0; background: transparent; color: #8b9bad; padding: 6px 8px; font: 12px monospace; cursor: pointer; }
 .timeframes button.active, .timeframes button:hover, .drawing-tools button:hover { color: #2dd4bf; background: #12212c; }
 .drawing-tools button { border-left: 1px solid #1d2c3c; }
-.full-chart { --tradingview-width: 100%; --tradingview-height: 560px; width: var(--tradingview-width); height: var(--tradingview-height); flex: 1 1 auto; min-height: 560px; background: #0c131e; border: 1px solid #1a2837; border-radius: 0 0 5px 5px; overflow: hidden; }
+.full-chart { --tradingview-width: 100%; --tradingview-height: 615px; width: var(--tradingview-width); height: var(--tradingview-height); margin-top: -10px; flex: 1 1 auto; min-height: 615px; background: #0c131e; border: 1px solid #1a2837; border-radius: 0 0 5px 5px; overflow: hidden; }
 .full-chart .chart-shell { width: 100%; height: 100%; min-height: 0; padding: 0; }
 .tradingview-widget-container { width: 100%; height: 100%; }
 .tradingview-widget-container__widget { width: 100%; height: calc(100% - 32px); }
