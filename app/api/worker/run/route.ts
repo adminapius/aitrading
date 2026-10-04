@@ -5,7 +5,14 @@ import { decideEntry, isFlattenWindow, isTradingWindow, strategyGuardrails, type
 
 export const dynamic = 'force-dynamic'
 
+function isAuthorized(request: NextRequest) {
+  const configuredSecret = process.env.WORKER_RUN_SECRET?.trim()
+  const suppliedSecret = request.headers.get('x-worker-secret')?.trim()
+  return Boolean(configuredSecret && suppliedSecret && suppliedSecret === configuredSecret)
+}
+
 export async function POST(request: NextRequest) {
+  if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (tradingConfig.mode !== 'paper' || strategyGuardrails.liveTradingEnabled) return NextResponse.json({ error: 'Live execution is disabled by guardrails.' }, { status: 403 })
   const body = await request.json().catch(() => ({}))
   const now = new Date()
