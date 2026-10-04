@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseHeaders, tradingConfig } from '@/lib/trading-config'
 import { sendTradingNotification } from '@/lib/notifications'
@@ -7,8 +8,13 @@ export const dynamic = 'force-dynamic'
 
 function isAuthorized(request: NextRequest) {
   const configuredSecret = process.env.WORKER_RUN_SECRET?.trim()
-  const suppliedSecret = request.headers.get('x-worker-secret')?.trim()
-  return Boolean(configuredSecret && suppliedSecret && suppliedSecret === configuredSecret)
+  const authorization = request.headers.get('authorization')?.trim()
+  const suppliedSecret = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim()
+  if (!configuredSecret || !suppliedSecret) return false
+
+  const configuredBytes = Buffer.from(configuredSecret)
+  const suppliedBytes = Buffer.from(suppliedSecret)
+  return configuredBytes.length === suppliedBytes.length && timingSafeEqual(configuredBytes, suppliedBytes)
 }
 
 export async function POST(request: NextRequest) {
