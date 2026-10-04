@@ -60,7 +60,14 @@ export default function Home() {
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000)
-    return () => window.clearInterval(timer)
+    const ignoreTradingViewScriptError = (event: ErrorEvent) => {
+      if (event.message === 'Script error.' || event.message === 'Script error') event.preventDefault()
+    }
+    window.addEventListener('error', ignoreTradingViewScriptError)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('error', ignoreTradingViewScriptError)
+    }
   }, [])
   const displayNow = now ?? new Date(0)
   const etTime = now ? new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }).format(now) : '—'
