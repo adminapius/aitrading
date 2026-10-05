@@ -5,14 +5,34 @@ function normalizeUrl(value: string | undefined) {
 
 const configuredAlpacaUrl = normalizeUrl(process.env.ALPACA_BASE_URL)
 const configuredAlpacaDataUrl = normalizeUrl(process.env.ALPACA_DATA_URL)
+const supabaseKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
+  process.env.SUPABASE_SECRET_KEY?.trim() ||
+  process.env.SUPABASE_PUBLISHABLE_KEY?.trim() ||
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim()
+
+// Supabase service-role JWTs carry their project ref, which can recover a missing URL in preview environments.
+function inferSupabaseUrlFromKey(key: string | undefined) {
+  const payload = key?.split('.')[1]
+  if (!payload) return undefined
+
+  try {
+    const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { ref?: unknown }
+    if (typeof claims.ref !== 'string' || !/^[a-z0-9-]{10,50}$/.test(claims.ref)) return undefined
+    return `https://${claims.ref}.supabase.co`
+  } catch {
+    return undefined
+  }
+}
+
+const configuredSupabaseUrl =
+  process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ||
+  process.env.SUPABASE_URL?.trim() ||
+  inferSupabaseUrlFromKey(supabaseKey)
 
 export const tradingConfig = {
-  supabaseUrl: (process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL)?.trim().replace(/\/+$/, ''),
-  supabaseKey:
-    (process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-      process.env.SUPABASE_SECRET_KEY?.trim() ||
-      process.env.SUPABASE_PUBLISHABLE_KEY?.trim() ||
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim()),
+  supabaseUrl: normalizeUrl(configuredSupabaseUrl),
+  supabaseKey,
   alpacaBaseUrl: (configuredAlpacaUrl || 'https://paper-api.alpaca.markets').replace(/\/v2$/, ''),
   alpacaDataUrl: (configuredAlpacaDataUrl || 'https://data.alpaca.markets').replace(/\/v2$/, ''),
   alpacaDataFeed: process.env.ALPACA_DATA_FEED?.trim() || 'iex',
