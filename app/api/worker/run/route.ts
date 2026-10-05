@@ -6,6 +6,16 @@ import { decideEntry, isFlattenWindow, isTradingWindow, normalizeFloatShares, st
 
 export const dynamic = 'force-dynamic'
 
+function isValidCandidate(value: unknown): value is ScanCandidate {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<ScanCandidate>
+  if (typeof candidate.symbol !== 'string' || !/^[A-Z]{1,5}$/.test(candidate.symbol) || typeof candidate.price !== 'number' || !Number.isFinite(candidate.price) || candidate.price <= 0) return false
+  const numericFields = [candidate.bid, candidate.ask, candidate.volume, candidate.averageVolume, candidate.float, candidate.changePercent, candidate.vwap, candidate.atr, candidate.socialScore]
+  if (numericFields.some((field) => field !== undefined && (typeof field !== 'number' || !Number.isFinite(field)))) return false
+  if (candidate.floatSource !== undefined && candidate.floatSource !== 'fmp' && candidate.floatSource !== 'finnhub') return false
+  return candidate.hasNews === undefined || typeof candidate.hasNews === 'boolean'
+}
+
 function isAuthorized(request: NextRequest) {
   const configuredSecret = process.env.WORKER_RUN_SECRET?.trim()
   const authorization = request.headers.get('authorization')?.trim()
@@ -42,9 +52,9 @@ export async function POST(request: NextRequest) {
   const deployedCapital = Math.max(0, equity - cashBalance)
   const exposureLimit = equity * strategyGuardrails.maxAggregateExposureFraction
   let remainingAllocation = Math.max(0, Math.min(exposureLimit - deployedCapital, cashBalance))
-  const candidates = Array.isArray(body.candidates) ? body.candidates : []
+  const candidates = Array.isArray(body.candidates) ? body.candidates.filter(isValidCandidate) : []
   const decisions: Array<ReturnType<typeof decideEntry>> = []
-  for (const candidate of candidates as ScanCandidate[]) {
+  for (const candidate of candidates) {
     const decision = decideEntry(candidate, equity, now, remainingAllocation)
     console.info('[worker] strategy decision', {
       symbol: candidate.symbol,

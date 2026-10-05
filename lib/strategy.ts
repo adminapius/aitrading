@@ -29,6 +29,7 @@ export type TradeDecision = {
 }
 
 const MAX_POSITION_FRACTION = 0.9
+const MAX_AGGREGATE_EXPOSURE_FRACTION = 0.9
 const MAX_DAILY_LOSS_FRACTION = 0.04
 const RISK_PER_TRADE_FRACTION = 0.02
 
@@ -63,11 +64,18 @@ export function scoreCandidate(candidate: ScanCandidate, now = new Date()) {
 export function decideEntry(candidate: ScanCandidate, equity: number, now = new Date(), availableAllocation = equity * MAX_POSITION_FRACTION): TradeDecision {
   const regime = strategyRegime(now)
   const score = scoreCandidate(candidate, now)
-  const atr = Math.max(candidate.atr ?? candidate.price * 0.02, 0.01)
-  const riskPerShare = atr
+  const riskPerShare = Number.isFinite(candidate.atr) && Number(candidate.atr) > 0 ? Number(candidate.atr) : 0
+  const validEquity = Number.isFinite(equity) && equity > 0
+  const validPrice = Number.isFinite(candidate.price) && candidate.price > 0
+  const validAllocation = Number.isFinite(availableAllocation) && availableAllocation > 0
+  if (!validEquity || !validPrice || !validAllocation || riskPerShare <= 0) {
+    const reason = riskPerShare <= 0 ? 'ATR data unavailable; risk is not estimated.' : 'Invalid account, price, or allocation data.'
+    return { action: 'hold', symbol: candidate.symbol, confidence: score / 100, reason, riskPerShare, suggestedShares: 0 }
+  }
+
   const riskBudget = equity * RISK_PER_TRADE_FRACTION * regime.sizeFraction
-  const maxNotional = Math.min(equity * MAX_POSITION_FRACTION * regime.sizeFraction, Math.max(0, availableAllocation))
-  const suggestedShares = Math.max(0, Math.floor(Math.min(riskBudget / riskPerShare, maxNotional / Math.max(candidate.price, 0.01))))
+  const maxNotional = Math.min(equity * MAX_POSITION_FRACTION * regime.sizeFraction, availableAllocation)
+  const suggestedShares = Math.max(0, Math.floor(Math.min(riskBudget / riskPerShare, maxNotional / candidate.price)))
   if (regime.name === 'exits-only' || score < regime.score || suggestedShares < 1) return { action: 'hold', symbol: candidate.symbol, confidence: score / 100, reason: `${regime.name}: candidate failed time-of-day, liquidity, catalyst, or technical threshold.`, riskPerShare, suggestedShares: 0 }
   return { action: 'buy', symbol: candidate.symbol, confidence: Math.min(score / 100, 0.99), reason: `${regime.name}: catalyst, relative volume, liquidity, price action, and spread align.`, riskPerShare, suggestedShares }
 }
@@ -81,7 +89,7 @@ export const strategyGuardrails = {
   mode: 'paper' as const,
   flattenBeforeEt: '15:55',
   maxPositionFraction: MAX_POSITION_FRACTION,
-  maxAggregateExposureFraction: MAX_POSITION_FRACTION,
+  maxAggregateExposureFraction: MAX_AGGREGATE_EXPOSURE_FRACTION,
   maxDailyLossFraction: MAX_DAILY_LOSS_FRACTION,
   riskPerTradeFraction: RISK_PER_TRADE_FRACTION,
   entryMonitorSeconds: 10,

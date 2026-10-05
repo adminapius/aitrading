@@ -41,10 +41,15 @@ export function alpacaHeaders() {
   }
 }
 
+export function getSupabaseConfigurationError() {
+  if (!tradingConfig.supabaseUrl) return 'Supabase URL is not configured in the server environment'
+  if (!tradingConfig.supabaseKey) return 'Supabase server key is not configured'
+  return null
+}
+
 export function assertServerConfig() {
-  if (!tradingConfig.supabaseUrl || !tradingConfig.supabaseKey) {
-    throw new Error('Supabase server configuration is missing')
-  }
+  const error = getSupabaseConfigurationError()
+  if (error) throw new Error(error)
 }
 
 export function supabaseHeaders() {
