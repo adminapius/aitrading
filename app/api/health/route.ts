@@ -18,7 +18,7 @@ async function checkRailway() {
     return { configured: false, reachable: false }
   }
 
-  const response = await fetch(`${tradingConfig.railwayServiceUrl.replace(/\/$/, '')}/health`, {
+  const response = await fetch(`${tradingConfig.railwayServiceUrl.replace(/\/$/, '')}/api/health`, {
     headers: { Accept: 'application/json' },
     signal: AbortSignal.timeout(5000),
     cache: 'no-store',
