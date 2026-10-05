@@ -126,15 +126,21 @@ html, body { overflow-x: hidden; }
   .top-actions { gap: 4px; }
   .top-actions .icon-button { min-width: 44px; min-height: 44px; justify-content: center; }
   .workspace { display: flex; flex-direction: column; }
-  .center-workspace { order: -1; width: 100%; padding: 14px 10px 20px; height: auto; }
+  .left-rail, .right-rail { display: contents; }
+  .center-workspace { order: 2; width: 100%; padding: 14px 10px 20px; height: auto; }
   .full-chart { height: 470px; min-height: 470px; flex: none; }
   .signal-strip { width: 100%; gap: 12px; margin-bottom: 0; }
   .signal-main, .signal-context { min-width: 0; max-width: none; width: 100%; flex-basis: 100%; }
   .signal-context strong { width: auto; }
-  .left-rail, .right-rail { display: block; width: 100%; padding: 10px; }
-  .left-rail .panel, .right-rail .panel { width: 100%; margin-bottom: 10px; }
+  .watchlist-panel, .events-panel, .balance-panel, .indices-panel, .terminal-foot, .left-rail > section:nth-child(2) { width: calc(100% - 20px); margin-left: 10px; margin-right: 10px; }
+  .watchlist-panel { order: 1; }
+  .events-panel { order: 3; }
+  .balance-panel { order: 4; }
+  .left-rail > section:nth-child(2) { order: 5; }
+  .indices-panel { order: 6; }
+  .terminal-foot { order: 7; }
+  .watchlist-panel, .events-panel, .balance-panel, .indices-panel { display: block; height: auto; min-height: 0; overflow: visible; }
   .right-rail { gap: 0; }
-  .watchlist-panel, .events-panel { display: block; height: auto; min-height: 0; overflow: visible; }
   .scanner-title { align-items: flex-start; white-space: normal; flex-wrap: wrap; }
   .scanner-title > span:first-child { flex: 1 1 180px; }
   .scan-status { flex: 0 1 auto; }
