@@ -62,7 +62,7 @@ function TradingViewWidget({ symbol }: { symbol: string }) {
       hide_side_toolbar: true,
       hide_top_toolbar: false,
       hide_legend: false,
-      hide_volume: false,
+      hide_volume: true,
       hotlist: false,
       interval: '5',
       locale: 'en',
@@ -77,7 +77,7 @@ function TradingViewWidget({ symbol }: { symbol: string }) {
       withdateranges: false,
       compareSymbols: [],
       support_host: 'https://www.tradingview.com',
-      studies: ['STD;VWAP', 'Volume@tv-basicstudies', 'STD;EMA'],
+      studies: ['STD;VWAP', 'STD;EMA'],
       autosize: true,
     })
 
