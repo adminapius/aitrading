@@ -118,3 +118,39 @@ html, body { overflow-x: hidden; }
 .market-closed { color: #fb7185; background: #321a24; border-color: #632c3d; }
 .market-closed .pulse { background: #fb7185; box-shadow: 0 0 0 3px #4b2532; }
 @media (max-width: 850px) { .terminal { height: auto; min-height: 100dvh; overflow: visible; } .workspace { height: auto; } .left-rail, .right-rail { overflow: visible; } .watchlist, .events { max-height: 320px; } }
+
+@media (max-width: 560px) {
+  .topbar { min-height: 68px; height: auto; padding: 12px 14px; }
+  .brand { min-width: 0; }
+  .brand strong { font-size: 16px; }
+  .top-actions { gap: 4px; }
+  .top-actions .icon-button { min-width: 44px; min-height: 44px; justify-content: center; }
+  .workspace { display: flex; flex-direction: column; }
+  .left-rail, .right-rail { display: contents; }
+  .center-workspace { order: 2; width: 100%; padding: 14px 10px 20px; height: auto; }
+  .full-chart { height: 470px; min-height: 470px; flex: none; }
+  .signal-strip { width: 100%; gap: 12px; margin-bottom: 0; }
+  .signal-main, .signal-context { min-width: 0; max-width: none; width: 100%; flex-basis: 100%; }
+  .signal-context strong { width: auto; }
+  .watchlist-panel, .events-panel, .balance-panel, .indices-panel, .terminal-foot, .left-rail > section:nth-child(2) { width: calc(100% - 20px); margin-left: 10px; margin-right: 10px; }
+  .watchlist-panel { order: 1; }
+  .events-panel { order: 3; }
+  .balance-panel { order: 4; }
+  .left-rail > section:nth-child(2) { order: 5; }
+  .indices-panel { order: 6; }
+  .terminal-foot { order: 7; }
+  .watchlist-panel, .events-panel, .balance-panel, .indices-panel, .left-rail > .panel { display: block; flex: none !important; width: calc(100% - 20px); height: auto !important; min-height: 0; margin-top: 0; margin-bottom: 12px; overflow: visible; }
+  .events-panel { padding-bottom: 14px; }
+  .balance-panel { padding-bottom: 16px; }
+  .right-rail { gap: 0; }
+  .terminal-foot { display: flex; flex-wrap: wrap; min-height: 44px; padding: 8px 10px; align-items: center; }
+  .health-values { display: flex; flex-wrap: wrap; gap: 8px; }
+  .scanner-title { align-items: flex-start; white-space: normal; flex-wrap: wrap; }
+  .scanner-title > span:first-child { flex: 1 1 180px; }
+  .scan-status { flex: 0 1 auto; }
+  .watchlist, .events { display: block; width: 100%; max-height: 320px; overflow-y: auto; }
+  .event { grid-template-columns: 68px 58px minmax(0, 1fr); gap: 6px; }
+  .event-time, .event-type { margin-left: 0; width: auto; }
+  .event p { width: auto; margin: 0; overflow-wrap: anywhere; }
+  .stock-row { grid-template-columns: minmax(0, 1fr) auto; }
+}
