@@ -139,8 +139,12 @@ html, body { overflow-x: hidden; }
   .left-rail > section:nth-child(2) { order: 5; }
   .indices-panel { order: 6; }
   .terminal-foot { order: 7; }
-  .watchlist-panel, .events-panel, .balance-panel, .indices-panel { display: block; height: auto; min-height: 0; overflow: visible; }
+  .watchlist-panel, .events-panel, .balance-panel, .indices-panel, .left-rail > .panel { display: block; flex: none !important; width: calc(100% - 20px); height: auto !important; min-height: 0; margin-top: 0; margin-bottom: 12px; overflow: visible; }
+  .events-panel { padding-bottom: 14px; }
+  .balance-panel { padding-bottom: 16px; }
   .right-rail { gap: 0; }
+  .terminal-foot { display: flex; flex-wrap: wrap; min-height: 44px; padding: 8px 10px; align-items: center; }
+  .health-values { display: flex; flex-wrap: wrap; gap: 8px; }
   .scanner-title { align-items: flex-start; white-space: normal; flex-wrap: wrap; }
   .scanner-title > span:first-child { flex: 1 1 180px; }
   .scan-status { flex: 0 1 auto; }
