@@ -3,8 +3,8 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'AItrading — Intelligent Execution Terminal',
-  description: 'Paper-trading dashboard for real-time scanning, signals, positions, and execution logs.',
+  title: 'AItrading — Paper Trading Monitor',
+  description: 'Paper-only market monitor with live Alpaca movers, account readiness, and transparent execution status.',
   generator: 'v0.app',
   icons: {
     icon: [
@@ -28,8 +28,8 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   colorScheme: 'light dark',
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: 'white' },
-    { media: '(prefers-color-scheme: dark)', color: 'black' },
+    { media: '(prefers-color-scheme: light)', color: '#070b13' },
+    { media: '(prefers-color-scheme: dark)', color: '#070b13' },
   ],
 }
 
@@ -39,7 +39,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className="bg-background">
       <body className="antialiased">
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
