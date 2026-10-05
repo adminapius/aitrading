@@ -28,7 +28,7 @@ export type TradeDecision = {
   suggestedShares: number
 }
 
-const MAX_POSITION_FRACTION = 0.2
+const MAX_POSITION_FRACTION = 0.9
 const MAX_DAILY_LOSS_FRACTION = 0.04
 const RISK_PER_TRADE_FRACTION = 0.02
 
@@ -60,13 +60,13 @@ export function scoreCandidate(candidate: ScanCandidate, now = new Date()) {
   return catalysts * 25 + technicals * 15 + liquidity * 10
 }
 
-export function decideEntry(candidate: ScanCandidate, equity: number, now = new Date()): TradeDecision {
+export function decideEntry(candidate: ScanCandidate, equity: number, now = new Date(), availableAllocation = equity * MAX_POSITION_FRACTION): TradeDecision {
   const regime = strategyRegime(now)
   const score = scoreCandidate(candidate, now)
   const atr = Math.max(candidate.atr ?? candidate.price * 0.02, 0.01)
   const riskPerShare = atr
   const riskBudget = equity * RISK_PER_TRADE_FRACTION * regime.sizeFraction
-  const maxNotional = equity * MAX_POSITION_FRACTION * regime.sizeFraction
+  const maxNotional = Math.min(equity * MAX_POSITION_FRACTION * regime.sizeFraction, Math.max(0, availableAllocation))
   const suggestedShares = Math.max(0, Math.floor(Math.min(riskBudget / riskPerShare, maxNotional / Math.max(candidate.price, 0.01))))
   if (regime.name === 'exits-only' || score < regime.score || suggestedShares < 1) return { action: 'hold', symbol: candidate.symbol, confidence: score / 100, reason: `${regime.name}: candidate failed time-of-day, liquidity, catalyst, or technical threshold.`, riskPerShare, suggestedShares: 0 }
   return { action: 'buy', symbol: candidate.symbol, confidence: Math.min(score / 100, 0.99), reason: `${regime.name}: catalyst, relative volume, liquidity, price action, and spread align.`, riskPerShare, suggestedShares }
@@ -81,6 +81,7 @@ export const strategyGuardrails = {
   mode: 'paper' as const,
   flattenBeforeEt: '15:55',
   maxPositionFraction: MAX_POSITION_FRACTION,
+  maxAggregateExposureFraction: MAX_POSITION_FRACTION,
   maxDailyLossFraction: MAX_DAILY_LOSS_FRACTION,
   riskPerTradeFraction: RISK_PER_TRADE_FRACTION,
   entryMonitorSeconds: 10,

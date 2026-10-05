@@ -25,8 +25,12 @@ def required(name: str) -> str:
     return value
 
 
+def is_common_stock_symbol(symbol: str) -> bool:
+    return symbol.isalpha() and 1 <= len(symbol) <= 5 and not symbol.endswith(("W", "U"))
+
+
 def supplemental_symbols() -> list[str]:
-    return sorted({s.strip().upper() for s in os.getenv("WATCHLIST_SYMBOLS", "").split(",") if s.strip()})
+    return sorted({symbol for value in os.getenv("WATCHLIST_SYMBOLS", "").split(",") if (symbol := value.strip().upper()) and is_common_stock_symbol(symbol)})
 
 
 async def discover_symbols(client: httpx.AsyncClient) -> list[str]:
@@ -37,7 +41,7 @@ async def discover_symbols(client: httpx.AsyncClient) -> list[str]:
         response.raise_for_status()
         payload = response.json()
         movers = payload.get("gainers", []) + payload.get("losers", [])
-        discovered = [item.get("symbol", "").strip().upper() for item in movers if item.get("symbol")]
+        discovered = [symbol for item in movers if (symbol := item.get("symbol", "").strip().upper()) and is_common_stock_symbol(symbol)]
         combined = sorted(set(discovered + supplemental_symbols()))
         if combined:
             log.info("discovered=%d movers=%d supplemental=%d", len(combined), len(discovered), len(supplemental_symbols()))
