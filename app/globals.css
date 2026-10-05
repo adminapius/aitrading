@@ -118,3 +118,29 @@ html, body { overflow-x: hidden; }
 .market-closed { color: #fb7185; background: #321a24; border-color: #632c3d; }
 .market-closed .pulse { background: #fb7185; box-shadow: 0 0 0 3px #4b2532; }
 @media (max-width: 850px) { .terminal { height: auto; min-height: 100dvh; overflow: visible; } .workspace { height: auto; } .left-rail, .right-rail { overflow: visible; } .watchlist, .events { max-height: 320px; } }
+
+@media (max-width: 560px) {
+  .topbar { min-height: 68px; height: auto; padding: 12px 14px; }
+  .brand { min-width: 0; }
+  .brand strong { font-size: 16px; }
+  .top-actions { gap: 4px; }
+  .top-actions .icon-button { min-width: 44px; min-height: 44px; justify-content: center; }
+  .workspace { display: flex; flex-direction: column; }
+  .center-workspace { order: -1; width: 100%; padding: 14px 10px 20px; height: auto; }
+  .full-chart { height: 470px; min-height: 470px; flex: none; }
+  .signal-strip { width: 100%; gap: 12px; margin-bottom: 0; }
+  .signal-main, .signal-context { min-width: 0; max-width: none; width: 100%; flex-basis: 100%; }
+  .signal-context strong { width: auto; }
+  .left-rail, .right-rail { display: block; width: 100%; padding: 10px; }
+  .left-rail .panel, .right-rail .panel { width: 100%; margin-bottom: 10px; }
+  .right-rail { gap: 0; }
+  .watchlist-panel, .events-panel { display: block; height: auto; min-height: 0; overflow: visible; }
+  .scanner-title { align-items: flex-start; white-space: normal; flex-wrap: wrap; }
+  .scanner-title > span:first-child { flex: 1 1 180px; }
+  .scan-status { flex: 0 1 auto; }
+  .watchlist, .events { display: block; width: 100%; max-height: 320px; overflow-y: auto; }
+  .event { grid-template-columns: 68px 58px minmax(0, 1fr); gap: 6px; }
+  .event-time, .event-type { margin-left: 0; width: auto; }
+  .event p { width: auto; margin: 0; overflow-wrap: anywhere; }
+  .stock-row { grid-template-columns: minmax(0, 1fr) auto; }
+}
