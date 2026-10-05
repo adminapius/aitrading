@@ -69,8 +69,8 @@ html, body { overflow-x: hidden; }
 .index-row { grid-template-columns: 1fr 1fr 1fr; }
 .index-row strong { text-align: center; }
 .index-row em { text-align: right; }
-.stock-row { display: grid; grid-template-columns: minmax(0, 1fr) 104px; gap: 8px; }
-.stock-row.selected { box-sizing: border-box; width: 100%; margin: 0; padding: 11px 2px 11px 0; }
+.stock-row { display: grid; grid-template-columns: minmax(0, 1fr) 104px; gap: 8px; border-left: 2px solid transparent; }
+.stock-row.selected { box-sizing: border-box; width: 100%; margin: 0; padding: 11px 2px; border-left-color: #2dd4bf; }
 .stock-price { min-width: 0; text-align: right; }
 .stock-price strong, .stock-price span { text-align: right; }
 .event { display: grid; grid-template-columns: 56px 82px minmax(0, 1fr); gap: 8px; align-items: start; }
@@ -91,12 +91,14 @@ html, body { overflow-x: hidden; }
 .scanner-title { align-items: center; flex-direction: row; justify-content: space-between; gap: 8px; white-space: nowrap; }
 .scanner-title > span:first-child { min-width: 0; }
 .scanner-title .scan-status { white-space: nowrap; font-size: 12px !important; }
-.stock-mover-change { flex: 0 0 58px; text-align: right; font: 10px monospace; }
+.stock-mover-change { flex: 0 0 76px; min-width: 76px; text-align: right; white-space: nowrap; font: 14px monospace; font-variant-numeric: tabular-nums; }
 .stock-row .stock-left > div > strong { padding-left: 22px; font-size: 14px; }
 .stock-row .stock-price > span { padding-right: 15px; font-size: 11px; }
-.stock-row .stock-left > span.stock-mover-change { font-size: 14px; padding-left: 10px; }
+.stock-row .stock-left > span.stock-mover-change { font-size: 14px; padding: 0; }
 .stock-row .stock-left > div > small { padding-left: 21px; width: 115px; font-size: 11px; height: 11px; }
 .stock-row .stock-price > strong { padding-right: 15px; font-size: 14px; }
+.signal-strip { border: 0; }
+.signal-strip .signal-stat { border-left: 0; }
 .scanner-title .scan-status { font-size: 12px; }
 .scan-status { display: inline-flex; align-items: center; gap: 6px; }
 .scan-status i { margin-right: 0; }
