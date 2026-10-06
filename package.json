@@ -12,6 +12,7 @@
     "@base-ui/react": "^1.5.0",
     "@supabase/supabase-js": "^2.117.2",
     "@vercel/analytics": "1.6.1",
+    "ai": "^7.0.127",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lightweight-charts": "^5.2.1",
