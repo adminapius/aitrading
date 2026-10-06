@@ -143,34 +143,6 @@ export function scheduleEventActionForMinute(minuteOfDay: number): ScheduleEvent
   return null
 }
 
-export function easternSchedule(now: Date) {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    weekday: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(now)
-  const value = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value ?? 0)
-  const hour = value('hour')
-  const minute = value('minute')
-  return {
-    year: value('year'),
-    month: value('month'),
-    day: value('day'),
-    weekday: parts.find((part) => part.type === 'weekday')?.value ?? '',
-    hour,
-    minute,
-    minuteOfDay: hour * 60 + minute,
-    isWeekday: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(parts.find((part) => part.type === 'weekday')?.value ?? ''),
-    scanWindow: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(parts.find((part) => part.type === 'weekday')?.value ?? '') && hour * 60 + minute >= 7 * 60 && hour * 60 + minute < 15 * 60 + 55,
-    flattenWindow: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(parts.find((part) => part.type === 'weekday')?.value ?? '') && hour * 60 + minute >= 15 * 60 + 55 && hour * 60 + minute < 16 * 60,
-  }
-}
-
 export function isEasternScanningAllowed(now: Date) {
   return easternSchedule(now).scanWindow
 }
