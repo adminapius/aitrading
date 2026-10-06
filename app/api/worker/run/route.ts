@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseHeaders, tradingConfig } from '@/lib/trading-config'
 import { sendTradingNotification } from '@/lib/notifications'
+import { recordScheduleEvent, scheduleWindowAction } from '@/lib/scheduled-events'
 import { decideEntry, isFlattenWindow, isTradingWindow, normalizeFloatShares, strategyGuardrails, type ScanCandidate } from '@/lib/strategy'
 
 export const dynamic = 'force-dynamic'
@@ -32,6 +33,14 @@ export async function POST(request: NextRequest) {
   if (tradingConfig.mode !== 'paper' || strategyGuardrails.liveTradingEnabled) return NextResponse.json({ error: 'Live execution is disabled by guardrails.' }, { status: 403 })
   const body = await request.json().catch(() => ({}))
   const now = new Date()
+  const scheduleAction = scheduleWindowAction(now)
+  if (scheduleAction) {
+    try {
+      await recordScheduleEvent(scheduleAction, now)
+    } catch (error) {
+      console.error('[worker] scheduled system event could not be recorded', error)
+    }
+  }
   if (!isTradingWindow(now) && !isFlattenWindow(now)) return NextResponse.json({ status: 'sleeping', mode: 'paper', checkedAt: now.toISOString() })
   if (isFlattenWindow(now)) return NextResponse.json({ status: 'flatten_required', mode: 'paper', action: 'close_all_positions', checkedAt: now.toISOString() })
   if (!tradingConfig.supabaseUrl || !tradingConfig.supabaseKey) {

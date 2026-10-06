@@ -97,15 +97,44 @@ export const strategyGuardrails = {
 }
 
 export function isTradingWindow(now = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(now)
-  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? 0)
-  const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? 0)
-  return hour >= 7 && (hour < 15 || (hour === 15 && minute < 55))
+  return easternSchedule(now).scanWindow
 }
 
 export function isFlattenWindow(now = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(now)
-  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? 0)
-  const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? 0)
-  return hour === 15 && minute >= 55
+  return easternSchedule(now).flattenWindow
+}
+
+export function easternSchedule(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(now)
+  const value = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value ?? 0)
+  const weekday = parts.find((part) => part.type === 'weekday')?.value ?? ''
+  const hour = value('hour')
+  const minute = value('minute')
+  const minuteOfDay = hour * 60 + minute
+  const isWeekday = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(weekday)
+  return {
+    year: value('year'),
+    month: value('month'),
+    day: value('day'),
+    weekday,
+    hour,
+    minute,
+    minuteOfDay,
+    isWeekday,
+    scanWindow: isWeekday && minuteOfDay >= 7 * 60 && minuteOfDay < 15 * 60 + 55,
+    flattenWindow: isWeekday && minuteOfDay >= 15 * 60 + 55 && minuteOfDay < 16 * 60,
+  }
+}
+
+export function isEasternScanningAllowed(now = new Date()) {
+  return easternSchedule(now).scanWindow
 }
