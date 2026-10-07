@@ -25,7 +25,7 @@ create or replace function public.claim_ait_scan_lease(
 ) returns text
 language plpgsql
 security definer
-set search_path = pg_catalog, public
+set search_path = ''
 as $$
 declare
   claimed boolean;
@@ -65,7 +65,7 @@ create or replace function public.release_ait_scan_lease(
 ) returns boolean
 language plpgsql
 security definer
-set search_path = pg_catalog, public
+set search_path = ''
 as $$
 declare
   released boolean;
@@ -84,7 +84,7 @@ create or replace function public.ensure_ait_scan_session(
 ) returns uuid
 language plpgsql
 security definer
-set search_path = pg_catalog, public
+set search_path = ''
 as $$
 declare
   session_id uuid;
