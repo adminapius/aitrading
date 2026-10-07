@@ -1,10 +1,10 @@
 import asyncio
-import hashlib
 import hmac
 import logging
 import math
 import os
-from datetime import datetime, time, timedelta, timezone
+import uuid
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -63,12 +63,6 @@ def scan_interval_seconds(now: datetime | None = None) -> int:
     return max(1, math.ceil(period - elapsed_in_period % period))
 
 
-def scan_id(candidates: list[dict]) -> str:
-    bucket = int(datetime.now(timezone.utc).timestamp()) // 30
-    symbols = ",".join(sorted(str(candidate.get("symbol", "")) for candidate in candidates))
-    return hashlib.sha256(f"{bucket}:{symbols}".encode()).hexdigest()[:24]
-
-
 def authorized(request: Request) -> bool:
     secret = os.getenv("WORKER_RUN_SECRET", "").strip()
     authorization = request.headers.get("authorization", "").strip()
@@ -76,14 +70,15 @@ def authorized(request: Request) -> bool:
     return bool(secret and supplied and hmac.compare_digest(secret, supplied))
 
 
-async def post_worker_run(client: httpx.AsyncClient, candidates: list[dict], current_scan: str) -> dict:
+async def post_worker_run(client: httpx.AsyncClient, candidates: list[dict], current_scan: str, trigger_source: str, scan_started_at: str | None = None) -> dict:
     url = f"{vercel_worker_url()}/api/worker/run"
     headers = {
         "Authorization": f"Bearer {os.getenv('WORKER_RUN_SECRET', '').strip()}",
         "Content-Type": "application/json",
         "X-Scan-ID": current_scan,
+        "X-Trigger-Source": trigger_source,
     }
-    payload = {"candidates": candidates, "notify": False}
+    payload = {"candidates": candidates, "notify": False, "scanId": current_scan, "scanStartedAt": scan_started_at, "triggerSource": trigger_source}
 
     for attempt in range(3):
         try:
@@ -118,13 +113,13 @@ async def send_sleep_event(client: httpx.AsyncClient, now: datetime) -> dict:
     if last_sleep_event_date == event_date:
         return {"status": "sleep_event_already_sent"}
 
-    result = await post_worker_run(client, [], f"{event_date}-sleep")
+    result = await post_worker_run(client, [], str(uuid.uuid4()), "railway-scheduler")
     if result.get("status") == "sent":
         last_sleep_event_date = event_date
     return result
 
 
-async def send_scan() -> dict:
+async def send_scan(trigger_source: str = "railway-scheduler") -> dict:
     now = datetime.now(ET)
     in_session = is_scan_window(now)
     if not in_session and not is_sleep_event_window(now):
@@ -147,7 +142,17 @@ async def send_scan() -> dict:
                     return {"status": "sleeping"}
                 raw_candidates = scan_data.get("candidates", [])
                 candidates = [item for item in raw_candidates if isinstance(item, dict)] if isinstance(raw_candidates, list) else []
-                return await post_worker_run(client, candidates, scan_id(candidates))
+                current_scan = scan_data.get("scanId")
+                if not isinstance(current_scan, str) or not current_scan:
+                    current_scan = str(uuid.uuid4())
+                scan_started_at = scan_data.get("scanStartedAt")
+                return await post_worker_run(
+                    client,
+                    candidates,
+                    current_scan,
+                    trigger_source,
+                    scan_started_at if isinstance(scan_started_at, str) else None,
+                )
             except (httpx.TimeoutException, httpx.NetworkError, ValueError) as exc:
                 log.error("market scan request failed: %s", exc)
                 return {"status": "scan_failed"}
@@ -185,7 +190,7 @@ async def health():
 async def run_once(request: Request):
     if not authorized(request):
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
-    return await send_scan()
+    return await send_scan("manual")
 
 
 async def scheduler():

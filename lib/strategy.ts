@@ -14,6 +14,10 @@ export type ScanCandidate = {
   socialScore?: number
   companyName?: string
   relativeVolume?: number
+  lastTradeAt?: string
+  lastTradePrice?: number
+  spreadPct?: number
+  enrichmentErrors?: string[]
   catalystType?: string
   catalystSummary?: string
 }
@@ -55,7 +59,7 @@ export function strategyRegime(now = new Date()) {
 
 export function scoreCandidate(candidate: ScanCandidate, now = new Date()) {
   const regime = strategyRegime(now)
-  const rvol = candidate.averageVolume ? (candidate.volume ?? 0) / candidate.averageVolume : 0
+  const rvol = candidate.relativeVolume ?? (candidate.averageVolume ? (candidate.volume ?? 0) / candidate.averageVolume : 0)
   const dollarVolume = (candidate.volume ?? 0) * candidate.price
   const spread = candidate.bid && candidate.ask && candidate.price > 0 ? (candidate.ask - candidate.bid) / candidate.price : Infinity
   const catalysts = Number(Boolean(candidate.hasNews)) + Number((candidate.socialScore ?? 0) >= 60)
@@ -80,8 +84,21 @@ export function decideEntry(candidate: ScanCandidate, equity: number, now = new 
   const riskBudget = equity * RISK_PER_TRADE_FRACTION * regime.sizeFraction
   const maxNotional = Math.min(equity * MAX_POSITION_FRACTION * regime.sizeFraction, availableAllocation)
   const suggestedShares = Math.max(0, Math.floor(Math.min(riskBudget / riskPerShare, maxNotional / candidate.price)))
-  if (regime.name === 'exits-only' || score < regime.score || suggestedShares < 1) return { action: 'hold', symbol: candidate.symbol, confidence: score / 100, reason: `${regime.name}: candidate failed time-of-day, liquidity, catalyst, or technical threshold.`, riskPerShare, suggestedShares: 0 }
-  return { action: 'buy', symbol: candidate.symbol, confidence: Math.min(score / 100, 0.99), reason: `${regime.name}: catalyst, relative volume, liquidity, price action, and spread align.`, riskPerShare, suggestedShares }
+  const relativeVolume = candidate.relativeVolume ?? (candidate.averageVolume ? (candidate.volume ?? 0) / candidate.averageVolume : 0)
+  const normalizedFloat = normalizeFloatShares(candidate.float, candidate.floatSource)
+  const spread = candidate.bid && candidate.ask && candidate.price > 0 ? (candidate.ask - candidate.bid) / candidate.price : Infinity
+  const entryGatesPass =
+    (candidate.changePercent ?? 0) > 2 &&
+    candidate.price > (candidate.vwap ?? Infinity) &&
+    relativeVolume >= regime.rvol &&
+    (candidate.volume ?? 0) >= regime.volume &&
+    (candidate.volume ?? 0) * candidate.price >= regime.dollarVolume &&
+    spread <= regime.spread &&
+    Number.isFinite(normalizedFloat) && Number(normalizedFloat) <= 10_000_000 &&
+    Boolean(candidate.hasNews) &&
+    Number.isFinite(candidate.atr) && Number(candidate.atr) > 0
+  if (regime.name === 'exits-only' || !entryGatesPass || score < regime.score || suggestedShares < 1) return { action: 'hold', symbol: candidate.symbol, confidence: score / 100, reason: `${regime.name}: candidate failed a required price, volume, relative-volume, catalyst, ATR, or spread gate.`, riskPerShare, suggestedShares: 0 }
+  return { action: 'buy', symbol: candidate.symbol, confidence: Math.min(score / 100, 0.99), reason: `${regime.name}: required catalyst, relative-volume, liquidity, price action, ATR, and spread gates passed.`, riskPerShare, suggestedShares }
 }
 
 export function shouldExit(entryPrice: number, currentPrice: number, atr = entryPrice * 0.02) {

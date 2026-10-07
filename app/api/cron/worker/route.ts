@@ -45,15 +45,21 @@ export async function GET(request: NextRequest) {
 
   let candidates: unknown[] = []
   let scanError: string | null = null
+  let scanId: string | undefined
+  let scanStartedAt: string | undefined
   if (action === 'wake') {
     try {
       const scanResponse = await fetch(new URL('/api/scan?top=25', request.url), {
         signal: AbortSignal.timeout(15000),
         cache: 'no-store',
       })
-      const scanData = await scanResponse.json().catch(() => ({})) as { candidates?: unknown[]; error?: string }
+      const scanData = await scanResponse.json().catch(() => ({})) as { candidates?: unknown[]; error?: string; scanId?: string; scanStartedAt?: string }
       if (!scanResponse.ok) scanError = scanData.error ?? `Scheduled market scan failed (${scanResponse.status}).`
-      else candidates = Array.isArray(scanData.candidates) ? scanData.candidates : []
+      else {
+        candidates = Array.isArray(scanData.candidates) ? scanData.candidates : []
+        scanId = scanData.scanId
+        scanStartedAt = scanData.scanStartedAt
+      }
     } catch (error) {
       scanError = error instanceof Error ? error.message : 'Scheduled market scan could not be completed.'
     }
@@ -63,8 +69,8 @@ export async function GET(request: NextRequest) {
   try {
     workerResponse = await fetch(new URL('/api/worker/run', request.url), {
       method: 'POST',
-      headers: { authorization: `Bearer ${workerSecret}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ candidates }),
+      headers: { authorization: `Bearer ${workerSecret}`, 'content-type': 'application/json', 'x-trigger-source': 'vercel-cron', ...(scanId ? { 'x-scan-id': scanId } : {}) },
+      body: JSON.stringify({ candidates, triggerSource: 'vercel-cron', scanId, scanStartedAt }),
       signal: AbortSignal.timeout(20000),
       cache: 'no-store',
     })
