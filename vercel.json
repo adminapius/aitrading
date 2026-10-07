@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/worker",
+      "schedule": "0 11,12 * * 1-5"
+    },
+    {
+      "path": "/api/cron/worker",
+      "schedule": "55 19,20 * * 1-5"
+    }
+  ]
+}

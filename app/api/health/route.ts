@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { configuredServices, supabaseHeaders, tradingConfig } from '@/lib/trading-config'
+import { alpacaHeaders, configuredServices, supabaseHeaders, tradingConfig } from '@/lib/trading-config'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,24 +15,27 @@ async function checkSupabase() {
 
 async function checkRailway() {
   if (!tradingConfig.railwayServiceUrl) {
-    return { configured: false, reachable: false }
+    return { configured: false, reachable: false, ready: false }
   }
 
-  const response = await fetch(`${tradingConfig.railwayServiceUrl.replace(/\/$/, '')}/api/health`, {
-    headers: { Accept: 'application/json' },
-    signal: AbortSignal.timeout(5000),
-    cache: 'no-store',
-  })
-  if (!response.ok) throw new Error(`Railway returned ${response.status}`)
-  return { configured: true, reachable: true, status: response.status }
+  const baseUrl = tradingConfig.railwayServiceUrl.replace(/\/$/, '')
+  const [liveness, readiness] = await Promise.all([
+    fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(5000), cache: 'no-store' }),
+    fetch(`${baseUrl}/api/health`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(5000), cache: 'no-store' }),
+  ])
+  if (!liveness.ok) throw new Error(`Railway liveness check returned ${liveness.status}`)
+  return {
+    configured: true,
+    reachable: true,
+    ready: readiness.ok,
+    status: readiness.status,
+    ...(readiness.ok ? {} : { error: `Railway readiness check returned ${readiness.status}` }),
+  }
 }
 
 async function checkAlpaca() {
   const response = await fetch(`${tradingConfig.alpacaBaseUrl}/v2/account`, {
-    headers: {
-      'APCA-API-KEY-ID': process.env.ALPACA_API_KEY ?? '',
-      'APCA-API-SECRET-KEY': process.env.ALPACA_API_SECRET ?? '',
-    },
+    headers: alpacaHeaders(),
     signal: AbortSignal.timeout(5000),
     cache: 'no-store',
   })
@@ -47,7 +50,8 @@ export async function GET() {
     checkAlpaca(),
     checkRailway(),
   ])
-  const requiredHealthy = supabase.status === 'fulfilled' && alpaca.status === 'fulfilled'
+  const railwayHealthy = !tradingConfig.railwayServiceUrl || (railway.status === 'fulfilled' && railway.value.reachable && railway.value.ready)
+  const requiredHealthy = supabase.status === 'fulfilled' && alpaca.status === 'fulfilled' && railwayHealthy
   return NextResponse.json({
     ok: requiredHealthy,
     checkedAt: new Date().toISOString(),

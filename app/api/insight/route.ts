@@ -1,6 +1,7 @@
 import { generateText } from 'ai'
 import { NextRequest, NextResponse } from 'next/server'
-import { alpacaHeaders, getSupabaseConfigurationError, supabaseHeaders, tradingConfig } from '@/lib/trading-config'
+import { recordAiEvent } from '@/lib/ai-events'
+import { alpacaHeaders, tradingConfig } from '@/lib/trading-config'
 
 export const dynamic = 'force-dynamic'
 
@@ -66,40 +67,15 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const configError = getSupabaseConfigurationError()
-  if (!configError) {
-    try {
-      const cacheUrl = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_strategy_signals`)
-      cacheUrl.search = new URLSearchParams({
-        select: 'action,rationale,features,created_at',
-        symbol: `eq.${symbol}`,
-        created_at: `gte.${new Date(Date.now() - 5 * 60 * 1000).toISOString()}`,
-        order: 'created_at.desc',
-        limit: '1',
-      }).toString()
-      const cacheResponse = await fetch(cacheUrl, { headers: supabaseHeaders(), signal: AbortSignal.timeout(4000), cache: 'no-store' })
-      if (cacheResponse.ok) {
-        const [cached] = await cacheResponse.json() as Array<{ action: string; rationale: string; features?: { signal?: string; rationale?: string } }>
-        if (cached) {
-          const result = {
-            symbol,
-            price: price || undefined,
-            changePercent,
-            signal: cached.features?.signal ?? 'HOLD',
-            rationale: cached.features?.rationale ?? cached.rationale,
-            headline,
-          }
-          return NextResponse.json(result)
-        }
-      }
-    } catch {
-      // A stale-signal lookup is optional; the current quote can still be analyzed.
-    }
-  }
-
   const fallback = rulesFallback(changePercent, price, vwap)
   let result = fallback
   let modelUsed: string | null = null
+  await recordAiEvent({
+    eventType: 'AI_CALL',
+    provider: 'Gemini-AI',
+    message: `Gemini-AI analysis requested for ${symbol}.`,
+    payload: { model: 'google/gemini-2.5-flash', route: 'insight' },
+  })
   try {
     const { text } = await generateText({
       model: 'google/gemini-2.5-flash',
@@ -116,31 +92,36 @@ export async function GET(request: NextRequest) {
     if (signal && lines[1]) {
       result = { signal, rationale: lines.slice(1).join(' ').slice(0, 240) }
       modelUsed = 'google/gemini-2.5-flash'
-    }
-  } catch {
-    result = fallback
-  }
-
-  if (!configError) {
-    try {
-      await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_strategy_signals`, {
-        method: 'POST',
-        headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
-        body: JSON.stringify({
-          symbol,
-          action: 'hold',
-          confidence: 50,
-          rationale: result.rationale,
-          model: modelUsed ?? 'rules-fallback',
-          features: { signal: result.signal, rationale: result.rationale, price, changePercent, volume, vwap, headline },
-        }),
-        signal: AbortSignal.timeout(5000),
-        cache: 'no-store',
+    } else {
+      await recordAiEvent({
+        eventType: 'AI_ERROR',
+        provider: 'Gemini-AI',
+        message: `Gemini-AI returned an unreadable signal for ${symbol}; rules engine used.`,
+        payload: { model: 'google/gemini-2.5-flash', route: 'insight', fallback: 'rules-engine' },
       })
-    } catch {
-      // Signal persistence is best-effort so provider outages do not break the dashboard.
     }
+  } catch (error) {
+    result = fallback
+    await recordAiEvent({
+      eventType: 'AI_ERROR',
+      provider: 'Gemini-AI',
+      message: `Gemini-AI analysis failed for ${symbol}; rules engine used.`,
+      payload: {
+        model: 'google/gemini-2.5-flash',
+        route: 'insight',
+        fallback: 'rules-engine',
+        error: error instanceof Error ? error.message.slice(0, 180) : 'Unknown model error',
+      },
+    })
   }
 
-  return NextResponse.json({ symbol, price: price || undefined, changePercent, signal: result.signal, rationale: result.rationale, headline })
+  return NextResponse.json({
+    symbol,
+    price: price || undefined,
+    changePercent,
+    signal: result.signal,
+    rationale: result.rationale,
+    headline,
+    analysisSource: modelUsed ? 'Gemini-AI' : 'rules-engine',
+  })
 }

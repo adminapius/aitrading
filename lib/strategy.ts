@@ -12,6 +12,10 @@ export type ScanCandidate = {
   atr?: number
   hasNews?: boolean
   socialScore?: number
+  companyName?: string
+  relativeVolume?: number
+  catalystType?: string
+  catalystSummary?: string
 }
 
 export function normalizeFloatShares(value: number | null | undefined, source: ScanCandidate['floatSource'] = 'fmp') {

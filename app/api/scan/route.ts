@@ -1,48 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { alpacaHeaders, getSupabaseConfigurationError, supabaseHeaders, tradingConfig } from '@/lib/trading-config'
+import { alpacaHeaders, tradingConfig } from '@/lib/trading-config'
 import { isEasternScanningAllowed } from '@/lib/strategy'
 
 export const dynamic = 'force-dynamic'
 
 type MarketBar = { c?: number; v?: number; vw?: number }
 type Snapshot = { latestTrade?: { p?: number }; dailyTradeBar?: MarketBar; dailyBar?: MarketBar; prevDailyBar?: MarketBar; latestQuote?: { bp?: number; ap?: number } }
-
-async function persistScan(candidates: Array<{ symbol: string; price: number; changePercent: number | null; volume: number; bid: number; ask: number }>, scannedAt: string) {
-  const configurationError = getSupabaseConfigurationError()
-  if (configurationError) return configurationError
-
-  let paperAccount: { equity: number; pnl: number } | null = null
-  try {
-    const accountResponse = await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_papermoney?select=equity,realized_pnl,unrealized_pnl&account_name=eq.paper-main&is_active=eq.true&limit=1`, {
-      headers: supabaseHeaders(),
-      signal: AbortSignal.timeout(5000),
-      cache: 'no-store',
-    })
-    if (accountResponse.ok) {
-      const [account] = await accountResponse.json() as Array<{ equity?: number; realized_pnl?: number; unrealized_pnl?: number }>
-      if (account) paperAccount = { equity: Number(account.equity), pnl: Number(account.realized_pnl ?? 0) + Number(account.unrealized_pnl ?? 0) }
-    }
-  } catch {
-    paperAccount = null
-  }
-
-  const response = await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_watchlist_scans`, {
-    method: 'POST',
-    headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
-    body: JSON.stringify(candidates.map((candidate) => ({
-      symbol: candidate.symbol,
-      price: candidate.price,
-      change_percent: candidate.changePercent,
-      volume: candidate.volume,
-      scanned_at: scannedAt,
-      decision: 'watch',
-      metadata: { source: 'alpaca-movers', bid: candidate.bid, ask: candidate.ask, paperAccount },
-    }))),
-    signal: AbortSignal.timeout(7000),
-    cache: 'no-store',
-  })
-  return response.ok ? null : `Supabase scan history write failed (${response.status})`
-}
 
 export async function GET(request: NextRequest) {
   const scannedAt = new Date().toISOString()
@@ -95,8 +58,7 @@ export async function GET(request: NextRequest) {
       }]
     })
 
-    const persistenceWarning = candidates.length ? await persistScan(candidates, scannedAt) : null
-    return NextResponse.json({ source: 'Alpaca market movers', scannedAt, mode: 'paper', candidates, ...(persistenceWarning ? { persistenceWarning } : {}) })
+    return NextResponse.json({ source: 'Alpaca market movers', scannedAt, mode: 'paper', candidates })
   } catch (error) {
     return NextResponse.json({
       source: 'Alpaca',
