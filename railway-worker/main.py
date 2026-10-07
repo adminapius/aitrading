@@ -28,6 +28,7 @@ scheduler_heartbeat = {
     "lastTickResult": "sleeping",
     "consecutiveErrors": 0,
 }
+SCHEDULER_HEARTBEAT_INTERVAL_SECONDS = 15
 
 
 def vercel_worker_url() -> str:
@@ -237,10 +238,18 @@ def scheduler_result(result: dict) -> str:
     return "error"
 
 
+async def refresh_scheduler_heartbeat_during_tick():
+    while True:
+        await asyncio.sleep(SCHEDULER_HEARTBEAT_INTERVAL_SECONDS)
+        scheduler_heartbeat["lastTickAt"] = datetime.now(ET).isoformat()
+
+
 async def scheduler():
     while True:
         tick_started = datetime.now(ET)
         tick_started_monotonic = asyncio.get_running_loop().time()
+        scheduler_heartbeat["lastTickAt"] = tick_started.isoformat()
+        heartbeat_task = asyncio.create_task(refresh_scheduler_heartbeat_during_tick())
         result: dict = {}
         tick_result = "error"
         try:
@@ -252,6 +261,8 @@ async def scheduler():
             log.exception("scheduler tick raised an exception")
             tick_result = "error"
         finally:
+            heartbeat_task.cancel()
+            await asyncio.gather(heartbeat_task, return_exceptions=True)
             tick_completed = datetime.now(ET)
             duration_ms = max(0, round((asyncio.get_running_loop().time() - tick_started_monotonic) * 1000))
             scheduler_heartbeat["lastTickAt"] = tick_completed.isoformat()
