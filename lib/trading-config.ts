@@ -5,9 +5,11 @@ function normalizeUrl(value: string | undefined) {
 
 const configuredAlpacaUrl = normalizeUrl(process.env.ALPACA_BASE_URL)
 const configuredAlpacaDataUrl = normalizeUrl(process.env.ALPACA_DATA_URL)
+const alpacaApiSecret = process.env.ALPACA_API_SECRET?.trim() || process.env.ALPACA_SECRET?.trim()
 const supabaseKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
   process.env.SUPABASE_SECRET_KEY?.trim() ||
+  process.env.SUPABASE_KEY?.trim() ||
   process.env.SUPABASE_PUBLISHABLE_KEY?.trim() ||
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim()
 
@@ -44,8 +46,8 @@ export const tradingConfig = {
 export function configuredServices() {
   return {
     supabase: Boolean(tradingConfig.supabaseUrl && tradingConfig.supabaseKey),
-    alpaca: Boolean(process.env.ALPACA_API_KEY?.trim() && process.env.ALPACA_API_SECRET?.trim()),
-    marketData: Boolean(process.env.ALPACA_API_KEY?.trim() && process.env.ALPACA_API_SECRET?.trim()),
+    alpaca: Boolean(process.env.ALPACA_API_KEY?.trim() && alpacaApiSecret),
+    marketData: Boolean(process.env.ALPACA_API_KEY?.trim() && alpacaApiSecret),
     railway: Boolean(tradingConfig.railwayServiceUrl),
     telegram: Boolean(process.env.TELEGRAM_BOT_TOKEN?.trim() && process.env.TELEGRAM_CHAT_ID?.trim()),
     ntfy: Boolean(process.env.NTFY_TOPIC_URL?.trim()),
@@ -57,7 +59,7 @@ export function configuredServices() {
 export function alpacaHeaders() {
   return {
     'APCA-API-KEY-ID': process.env.ALPACA_API_KEY ?? '',
-    'APCA-API-SECRET-KEY': process.env.ALPACA_API_SECRET ?? '',
+    'APCA-API-SECRET-KEY': alpacaApiSecret ?? '',
   }
 }
 
