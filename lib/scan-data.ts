@@ -23,6 +23,7 @@ type ScanFailure = { symbol: string; reason: string }
 
 const validSymbol = /^[A-Z][A-Z0-9.-]{0,9}$/
 const excludedSecurityName = /\b(warrants?|rights?|units?)\b/i
+const excludedSecuritySuffix = /^(?=.{5,}$)[A-Z0-9.-]+(?:WS|RT|W|R|U|Z)$/
 const supportedExchanges = new Set(['NYSE', 'NASDAQ', 'AMEX', 'ARCA', 'BATS', 'NYSEARCA', 'NYSEAMERICAN'])
 const dailyScanCache = new Map<string, Promise<unknown>>()
 const dailyAtrCache = new Map<string, number | null>()
@@ -272,8 +273,13 @@ async function getNews(symbols: string[], now: Date) {
 }
 
 export async function loadEnrichedCandidates(symbols: string[], snapshots: Record<string, Snapshot>, now: Date) {
-  const uniqueSymbols = [...new Set(symbols.filter((symbol) => validSymbol.test(symbol)))].slice(0, 50)
+  const requestedSymbols = [...new Set(symbols.filter((symbol) => validSymbol.test(symbol)))].slice(0, 50)
   const failures: ScanFailure[] = []
+  const uniqueSymbols = requestedSymbols.filter((symbol) => {
+    if (!excludedSecuritySuffix.test(symbol)) return true
+    failures.push({ symbol, reason: 'symbol suffix matches the warrant, right, unit, or related security backstop' })
+    return false
+  })
   const assetResults = await mapLimit(uniqueSymbols, 5, async (symbol) => {
     try {
       const asset = await getAsset(symbol, now)
