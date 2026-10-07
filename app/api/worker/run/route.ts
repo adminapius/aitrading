@@ -6,6 +6,7 @@ import { recordScheduleEvent, scheduleWindowAction } from '@/lib/scheduled-event
 import { decideEntry, isFlattenWindow, isTradingWindow, normalizeFloatShares, scoreCandidate, strategyGuardrails, type ScanCandidate } from '@/lib/strategy'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60
 
 function isValidCandidate(value: unknown): value is ScanCandidate {
   if (!value || typeof value !== 'object') return false
@@ -31,6 +32,83 @@ function isAuthorized(request: NextRequest) {
 }
 
 type Evaluation = { candidate: ScanCandidate; decision: ReturnType<typeof decideEntry> }
+
+async function persistScheduledScan(candidates: ScanCandidate[], checkedAt: Date) {
+  const recentEventUrl = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`)
+  recentEventUrl.search = new URLSearchParams({
+    select: 'id',
+    event_type: 'eq.SCHEDULED_SCAN',
+    symbol: 'eq.WAKE',
+    created_at: `gte.${new Date(checkedAt.getTime() - 5 * 60 * 1000).toISOString()}`,
+    limit: '1',
+  }).toString()
+  const recentEventResponse = await fetch(recentEventUrl, { headers: supabaseHeaders(), signal: AbortSignal.timeout(5000), cache: 'no-store' })
+  if (!recentEventResponse.ok) return `Supabase scheduled-scan check failed (${recentEventResponse.status})`
+  const recentEvents = await recentEventResponse.json() as Array<{ id: number }>
+  if (recentEvents.length) return null
+
+  if (candidates.length) {
+    const rows = candidates.map((candidate) => {
+      const averageVolume = candidate.averageVolume ?? 0
+      const relativeVolume = candidate.relativeVolume ?? (averageVolume > 0 ? (candidate.volume ?? 0) / averageVolume : null)
+      const floatShares = normalizeFloatShares(candidate.float, candidate.floatSource)
+      const catalystType = candidate.catalystType ?? (candidate.hasNews ? 'news' : (candidate.socialScore ?? 0) >= 60 ? 'social' : null)
+      const catalystSummary = candidate.catalystSummary ?? (candidate.hasNews === true ? 'News catalyst identified; source summary was not provided.' : null)
+      const missingEnrichmentFields = Object.entries({
+        company_name: candidate.companyName,
+        relative_volume: relativeVolume,
+        float_shares: floatShares,
+        atr: candidate.atr,
+        vwap: candidate.vwap,
+        catalyst_type: catalystType,
+        catalyst_summary: catalystSummary,
+      }).filter(([, value]) => value == null).map(([field]) => field)
+
+      return {
+        symbol: candidate.symbol,
+        company_name: candidate.companyName ?? null,
+        price: candidate.price,
+        change_percent: candidate.changePercent ?? null,
+        volume: candidate.volume ?? null,
+        relative_volume: Number.isFinite(relativeVolume) ? relativeVolume : null,
+        float_shares: floatShares == null ? null : Math.round(floatShares),
+        atr: candidate.atr ?? null,
+        vwap: candidate.vwap ?? null,
+        catalyst_type: catalystType,
+        catalyst_summary: catalystSummary,
+        score: scoreCandidate(candidate, checkedAt),
+        decision: 'watch',
+        scanned_at: checkedAt.toISOString(),
+        metadata: { source: 'vercel-cron-7am-et', strategy: 'rules-engine-paper-v1', floatSource: candidate.floatSource ?? null, missingEnrichmentFields },
+      }
+    })
+    const scanResponse = await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_watchlist_scans`, {
+      method: 'POST',
+      headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
+      body: JSON.stringify(rows),
+      signal: AbortSignal.timeout(6000),
+      cache: 'no-store',
+    })
+    if (!scanResponse.ok) return `Supabase scheduled watchlist write failed (${scanResponse.status})`
+  }
+
+  const eventResponse = await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`, {
+    method: 'POST',
+    headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
+    body: JSON.stringify({
+      level: 'info',
+      event_type: 'SCHEDULED_SCAN',
+      symbol: 'WAKE',
+      message: `7:00 AM ET paper scan evaluated ${candidates.length} symbols; no orders were submitted.`,
+      payload: { source: 'vercel-cron-7am-et', scannedCandidates: candidates.length, strategy: 'rules-engine-paper-v1' },
+      created_at: checkedAt.toISOString(),
+    }),
+    signal: AbortSignal.timeout(5000),
+    cache: 'no-store',
+  })
+  if (!eventResponse.ok) return `Supabase scheduled scan event write failed (${eventResponse.status})`
+  return null
+}
 
 async function persistWorkerActivity(evaluations: Evaluation[], checkedAt: Date) {
   let persistenceWarning: string | null = null
@@ -150,7 +228,20 @@ export async function POST(request: NextRequest) {
       console.error('[worker] scheduled system event could not be recorded', error)
     }
   }
-  if (!isTradingWindow(now) && !isFlattenWindow(now)) return NextResponse.json({ status: 'sleeping', mode: 'paper', checkedAt: now.toISOString() })
+  if (!isTradingWindow(now) && !isFlattenWindow(now)) {
+    if (scheduleAction === 'wake') {
+      const persistenceWarning = await persistScheduledScan(Array.isArray(body.candidates) ? body.candidates.filter(isValidCandidate) : [], now)
+      return NextResponse.json({
+        status: 'sleeping',
+        mode: 'paper',
+        checkedAt: now.toISOString(),
+        scheduledScan: true,
+        scannedCandidates: Array.isArray(body.candidates) ? body.candidates.filter(isValidCandidate).length : 0,
+        ...(persistenceWarning ? { persistenceWarning } : {}),
+      })
+    }
+    return NextResponse.json({ status: 'sleeping', mode: 'paper', checkedAt: now.toISOString() })
+  }
   if (isFlattenWindow(now)) return NextResponse.json({ status: 'flatten_required', mode: 'paper', action: 'close_all_positions', checkedAt: now.toISOString() })
   if (!tradingConfig.supabaseUrl || !tradingConfig.supabaseKey) {
     return NextResponse.json({ error: 'Internal paper-trading ledger is unavailable.' }, { status: 503 })
