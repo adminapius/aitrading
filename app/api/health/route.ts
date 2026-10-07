@@ -24,12 +24,28 @@ async function checkRailway() {
     fetch(`${baseUrl}/api/health`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(5000), cache: 'no-store' }),
   ])
   if (!liveness.ok) throw new Error(`Railway liveness check returned ${liveness.status}`)
+
+  const [livenessBody, readinessBody] = await Promise.all([
+    liveness.json().catch(() => null) as Promise<{ service?: string } | null>,
+    readiness.json().catch(() => null) as Promise<{ service?: string; ready?: boolean; missing?: string[] } | null>,
+  ])
+  const expectedService = 'aitrading-worker'
+  const serviceMatches = livenessBody?.service === expectedService && readinessBody?.service === expectedService
+  const ready = serviceMatches && readiness.ok && readinessBody?.ready === true
+  const reportedService = readinessBody?.service ?? livenessBody?.service ?? null
+
   return {
     configured: true,
     reachable: true,
-    ready: readiness.ok,
+    ready,
     status: readiness.status,
-    ...(readiness.ok ? {} : { error: `Railway readiness check returned ${readiness.status}` }),
+    service: reportedService,
+    ...(readinessBody?.missing?.length ? { missing: readinessBody.missing } : {}),
+    ...(!serviceMatches
+      ? { error: `Expected ${expectedService} at the Railway URL, received ${reportedService ?? 'an unknown service'}` }
+      : !ready
+        ? { error: `Railway worker readiness check returned ${readiness.status}` }
+        : {}),
   }
 }
 
