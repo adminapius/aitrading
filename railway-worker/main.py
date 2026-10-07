@@ -53,7 +53,7 @@ def next_market_open(now: datetime) -> datetime:
 def scan_interval_seconds(now: datetime | None = None) -> int:
     current = (now or datetime.now(ET)).astimezone(ET)
     if is_scan_window(current):
-        period = 60 if current.time() < time(9, 30) else 30
+        period = 15 if current.time() < time(11, 0) else 30
     elif is_sleep_event_window(current):
         period = 15
     else:

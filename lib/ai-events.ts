@@ -4,12 +4,13 @@ export type AiProvider = 'Gemini-AI' | 'Claude-AI'
 
 type AiEventInput = {
   provider: AiProvider
+  symbol?: string
   message: string
   payload?: Record<string, unknown>
 }
 
 
-export async function recordAiCall({ provider, message, payload = {} }: AiEventInput) {
+export async function recordAiError({ provider, symbol, message, payload = {} }: AiEventInput) {
   if (getSupabaseConfigurationError()) return false
 
   try {
@@ -17,9 +18,9 @@ export async function recordAiCall({ provider, message, payload = {} }: AiEventI
       method: 'POST',
       headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
       body: JSON.stringify({
-        level: 'info',
-        event_type: 'AI_CALL',
-        symbol: provider,
+        level: 'error',
+        event_type: 'AI_ERROR',
+        symbol: symbol ?? provider,
         message: message.slice(0, 240),
         payload: { provider, ...payload },
       }),
