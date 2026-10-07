@@ -50,15 +50,20 @@ export async function GET() {
     checkAlpaca(),
     checkRailway(),
   ])
+  const supabaseConnected = supabase.status === 'fulfilled'
+  const paperAccount = supabaseConnected ? supabase.value : null
+  const paperAccountReady = paperAccount !== null
   const railwayHealthy = !tradingConfig.railwayServiceUrl || (railway.status === 'fulfilled' && railway.value.reachable && railway.value.ready)
-  const requiredHealthy = supabase.status === 'fulfilled' && alpaca.status === 'fulfilled' && railwayHealthy
+  const requiredHealthy = paperAccountReady && alpaca.status === 'fulfilled' && railwayHealthy
   return NextResponse.json({
     ok: requiredHealthy,
     checkedAt: new Date().toISOString(),
     mode: tradingConfig.mode,
     liveTradingEnabled: tradingConfig.liveTradingEnabled,
     services: configuredServices(),
-    supabase: supabase.status === 'fulfilled' ? { connected: true, account: supabase.value } : { connected: false, error: supabase.reason instanceof Error ? supabase.reason.message : 'Unavailable' },
+    supabase: supabaseConnected
+      ? { connected: true, ready: paperAccountReady, account: paperAccount, ...(!paperAccountReady ? { error: 'Active paper account paper-main was not found' } : {}) }
+      : { connected: false, ready: false, error: supabase.reason instanceof Error ? supabase.reason.message : 'Unavailable' },
     alpaca: alpaca.status === 'fulfilled' ? { connected: true, account: alpaca.value } : { connected: false, error: alpaca.reason instanceof Error ? alpaca.reason.message : 'Unavailable' },
     railway: railway.status === 'fulfilled' ? railway.value : { configured: true, reachable: false, error: railway.reason instanceof Error ? railway.reason.message : 'Unavailable' },
   }, { status: requiredHealthy ? 200 : 503 })
