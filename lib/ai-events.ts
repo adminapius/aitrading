@@ -89,24 +89,21 @@ export async function recordDailyAiSummary(dayStart: Date, now: Date) {
   const existing = await existingResponse.json() as Array<{ id: number }>
   if (existing.length) return { recorded: false, duplicate: true }
 
-  const activity = await getDailyAiActivity(dayStart)
-  const errorSummary = activity.errorCount
-    ? ` ${activity.errorCount} AI error(s) recorded.`
-    : ' No AI errors recorded.'
-  const message = `Gemini-AI Call: ${activity.calls['Gemini-AI']}, Claude-AI: ${activity.calls['Claude-AI']}.${errorSummary}`
+  const calls = await getDailyAiCallCounts(dayStart)
+  const message = `Gemini-AI Call: ${calls['Gemini-AI']}, Claude-AI: ${calls['Claude-AI']}.`
   const response = await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`, {
     method: 'POST',
     headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
     body: JSON.stringify({
-      level: activity.errorCount ? 'warning' : 'info',
+      level: 'info',
       event_type: 'AI_DAILY_SUMMARY',
       message,
-      payload: { calls: activity.calls, errorCount: activity.errorCount, dayStart: dayStart.toISOString() },
+      payload: { calls, dayStart: dayStart.toISOString() },
       created_at: now.toISOString(),
     }),
     signal: AbortSignal.timeout(5000),
     cache: 'no-store',
   })
   if (!response.ok) throw new Error(`Supabase AI summary write failed (${response.status}).`)
-  return { recorded: true, calls: activity.calls, errors: activity.errorCount }
+  return { recorded: true, calls }
 }

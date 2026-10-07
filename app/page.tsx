@@ -9,7 +9,7 @@ type ScanData = { candidates?: Stock[]; scannedAt?: string; source?: string; err
 type InsightData = { symbol?: string; price?: number; changePercent?: number | null; signal?: string; rationale?: string; analysisSource?: string; headline?: { title: string; source?: string; publishedAt?: string; url?: string } | null; error?: string }
 type PnlHistoryData = { points?: number[]; degraded?: boolean }
 type AccountData = { account?: { equity?: number; cash_balance?: number; realized_pnl?: number; unrealized_pnl?: number } | null; degraded?: boolean; degradedReason?: string }
-type EventData = { events?: Array<{ id: string; level: string; event_type: string; message: string; created_at: string; symbol?: string | null }>; aiCalls?: { 'Gemini-AI': number; 'Claude-AI': number }; aiCallsError?: string; degraded?: boolean; degradedReason?: string }
+type EventData = { events?: Array<{ id: string; level: string; event_type: string; message: string; created_at: string; symbol?: string | null }>; degraded?: boolean; degradedReason?: string }
 type PositionData = { positions?: Array<{ id: string; symbol: string; side: string; quantity: number; entry_price: number; current_price?: number; stop_price?: number; target_price?: number; unrealized_pnl?: number }>; degraded?: boolean; degradedReason?: string }
 type IndexData = { indices?: Array<{ symbol: string; name: string; price: number; changePercent: number }> }
 type LatencyData = { providers?: Array<{ name: string; ok: boolean; ms: number; error?: string }> }
@@ -115,7 +115,7 @@ export default function Home() {
   const { data: indexData } = useSWR<IndexData>('/api/indices', fetcher, { refreshInterval: 15000, revalidateOnFocus: true })
   const { data: latencyData } = useSWR<LatencyData>('/api/latency', fetcher, { refreshInterval: 15000, revalidateOnFocus: true })
   const { data: accountData } = useSWR<AccountData>('/api/account', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
-  const { data: eventData } = useSWR<EventData>('/api/events?limit=8', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
+  const { data: eventData } = useSWR<EventData>('/api/events?limit=100', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
   const { data: positionData } = useSWR<PositionData>('/api/positions', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
   const liveAccount = accountData?.account
   const livePositions = positionData?.positions ?? []
@@ -138,7 +138,10 @@ export default function Home() {
     if (!now) return
     const wasOpen = scanWindowWasOpen.current
     scanWindowWasOpen.current = scanWindowOpen
-    if (wasOpen && !scanWindowOpen) setSelectedSymbol('AMZN')
+    if (wasOpen && !scanWindowOpen) {
+      setSelectedSymbol('AMZN')
+      setFilter('')
+    }
   }, [now, scanWindowOpen])
   const displayNow = now ?? new Date(0)
   const etTime = now ? new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }).format(now) : '—'
@@ -175,7 +178,7 @@ export default function Home() {
         </section>
         <aside className="right-rail">
           <section className="panel watchlist-panel"><div className="panel-title scanner-title"><span>SCANNED STOCKS ({stocks.length})</span><span className="scan-status"><i />{isFlattening ? 'FLATTEN' : scanError && scanWindowOpen ? 'FEED OFF · NEXT SCAN —' : nextScanLabel}</span></div><div className="search-box"><Search /><input placeholder="Filter symbols…" aria-label="Filter symbols" value={filter} onChange={(event) => setFilter(event.target.value)} /></div><div className="watchlist">{filteredStocks.length ? filteredStocks.map((stock) => <button key={stock.symbol} onClick={() => setSelectedSymbol(stock.symbol)} className={`stock-row ${selected?.symbol === stock.symbol ? 'selected' : ''}`}><div className="stock-left"><span className={`stock-mover-change ${stock.changePercent != null && stock.changePercent >= 0 ? 'positive' : 'negative'}`}>{stock.changePercent == null ? '—' : `${stock.changePercent >= 0 ? '+' : ''}${stock.changePercent.toFixed(1)}%`}</span><div><strong>{stock.symbol}</strong><small>Volume {formatVolume(stock.volume)}</small></div></div><div className="stock-price"><strong>${stock.price.toFixed(2)}</strong></div></button>) : <div className="empty-position">{!scanWindowOpen ? '' : scanError ? 'Alpaca market mover feed is unavailable.' : scanData ? 'No market movers returned.' : 'Loading live market movers…'}</div>}</div></section>
-          <section className="panel events-panel"><div className="panel-title"><span>LIVE EVENT LOG</span><span className="ai-call-totals" aria-label={`AI calls since 4:00 AM ET — Gemini ${eventData?.aiCalls?.['Gemini-AI'] ?? 'unavailable'}, Claude ${eventData?.aiCalls?.['Claude-AI'] ?? 'unavailable'}`}>AI CALLS · G {eventData?.aiCalls?.['Gemini-AI'] ?? '—'} / C {eventData?.aiCalls?.['Claude-AI'] ?? '—'}</span></div><div className="events">{displayedEvents.length ? displayedEvents.map((event) => <div className="event" key={event.id}><span className="event-time">{event.time}</span><span className={`event-type ${event.event_type.toLowerCase().replace(/[_\s]+/g, '-')}-${event.level.toLowerCase()}`}>{event.event_type}</span><p>{event.message}</p></div>) : <div className="empty-position">{eventData?.degraded ? eventData.degradedReason ?? 'Event history unavailable' : eventData ? '' : 'Loading event history…'}</div>}</div></section>
+          <section className="panel events-panel"><div className="panel-title"><span>LIVE EVENT LOG</span></div><div className="events">{displayedEvents.length ? displayedEvents.map((event) => <div className="event" key={event.id}><span className="event-time">{event.time}</span><span className={`event-type ${event.event_type.toLowerCase().replace(/[_\s]+/g, '-')}-${event.level.toLowerCase()}`}>{event.event_type}</span><p>{event.message}</p></div>) : <div className="empty-position">{eventData?.degraded ? eventData.degradedReason ?? 'Event history unavailable' : eventData ? '' : 'Loading event history…'}</div>}</div></section>
         </aside>
       </div>
     </main>

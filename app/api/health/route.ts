@@ -25,27 +25,17 @@ async function checkRailway() {
   ])
   if (!liveness.ok) throw new Error(`Railway liveness check returned ${liveness.status}`)
 
-  const [livenessBody, readinessBody] = await Promise.all([
-    liveness.json().catch(() => null) as Promise<{ service?: string } | null>,
-    readiness.json().catch(() => null) as Promise<{ service?: string; ready?: boolean; missing?: string[] } | null>,
-  ])
-  const expectedService = 'aitrading-worker'
-  const serviceMatches = livenessBody?.service === expectedService && readinessBody?.service === expectedService
-  const ready = serviceMatches && readiness.ok && readinessBody?.ready === true
-  const reportedService = readinessBody?.service ?? livenessBody?.service ?? null
+  const readinessBody = await readiness.json().catch(() => null) as { service?: string; ready?: boolean; missing?: string[] } | null
+  const ready = readiness.ok && readinessBody?.ready === true
 
   return {
     configured: true,
     reachable: true,
     ready,
     status: readiness.status,
-    service: reportedService,
+    ...(readinessBody?.service ? { service: readinessBody.service } : {}),
     ...(readinessBody?.missing?.length ? { missing: readinessBody.missing } : {}),
-    ...(!serviceMatches
-      ? { error: `Expected ${expectedService} at the Railway URL, received ${reportedService ?? 'an unknown service'}` }
-      : !ready
-        ? { error: `Railway worker readiness check returned ${readiness.status}` }
-        : {}),
+    ...(!ready ? { error: `Railway worker readiness check returned ${readiness.status}` } : {}),
   }
 }
 

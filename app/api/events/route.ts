@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDailyAiCallCounts } from '@/lib/ai-events'
 import { getSupabaseConfigurationError, supabaseHeaders, tradingConfig } from '@/lib/trading-config'
 import { easternFourAmCutoff, shouldShowEventAfterFourAm } from '@/lib/scheduled-events'
 
@@ -15,20 +14,12 @@ export async function GET(request: NextRequest) {
   const configurationError = getSupabaseConfigurationError()
   if (configurationError) return NextResponse.json({ events: [], degraded: true, degradedReason: configurationError })
 
-  let aiCalls: Awaited<ReturnType<typeof getDailyAiCallCounts>> | undefined
-  let aiCallsError: string | undefined
-  try {
-    aiCalls = await getDailyAiCallCounts(resetAt)
-  } catch {
-    aiCallsError = 'AI call totals are temporarily unavailable.'
-  }
-
   try {
     const batchSize = 500
     const maxRows = 10_000
-    const uniqueEvents = new Map<string, EventRow>()
+    const events: EventRow[] = []
 
-    for (let offset = 0; offset < maxRows && uniqueEvents.size < limit; offset += batchSize) {
+    for (let offset = 0; offset < maxRows && events.length < limit; offset += batchSize) {
       const url = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`)
       url.search = new URLSearchParams({
         select: 'id,level,event_type,message,symbol,created_at',
@@ -40,21 +31,16 @@ export async function GET(request: NextRequest) {
         cache: 'no-store',
       })
       if (!response.ok) {
-        return NextResponse.json({ events: [], aiCalls, aiCallsError, degraded: true, degradedReason: `Supabase event-history request failed (${response.status})` })
+        return NextResponse.json({ events: [], degraded: true, degradedReason: `Supabase event-history request failed (${response.status})` })
       }
 
       const rows = await response.json() as EventRow[]
-      for (const event of rows) {
-        if (!shouldShowEventAfterFourAm(event.created_at, now)) continue
-        const key = [event.event_type, event.symbol ?? '', event.message].join('\u001f')
-        if (!uniqueEvents.has(key)) uniqueEvents.set(key, event)
-      }
+      events.push(...rows.filter((event) => shouldShowEventAfterFourAm(event.created_at, now)).slice(0, limit - events.length))
       if (rows.length < batchSize) break
     }
 
-    const events = Array.from(uniqueEvents.values()).slice(0, limit).reverse()
-    return NextResponse.json({ events, aiCalls, aiCallsError })
+    return NextResponse.json({ events: events.reverse() })
   } catch {
-    return NextResponse.json({ events: [], aiCalls, aiCallsError, degraded: true, degradedReason: 'Supabase event-history request could not be completed' })
+    return NextResponse.json({ events: [], degraded: true, degradedReason: 'Supabase event-history request could not be completed' })
   }
 }
