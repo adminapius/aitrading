@@ -6,12 +6,7 @@ function normalizeUrl(value: string | undefined) {
 const configuredAlpacaUrl = normalizeUrl(process.env.ALPACA_BASE_URL)
 const configuredAlpacaDataUrl = normalizeUrl(process.env.ALPACA_DATA_URL)
 const alpacaApiSecret = process.env.ALPACA_API_SECRET?.trim() || process.env.ALPACA_SECRET?.trim()
-const supabaseKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-  process.env.SUPABASE_SECRET_KEY?.trim() ||
-  process.env.SUPABASE_KEY?.trim() ||
-  process.env.SUPABASE_PUBLISHABLE_KEY?.trim() ||
-  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim()
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
 
 // Supabase service-role JWTs carry their project ref, which can recover a missing URL in preview environments.
 function inferSupabaseUrlFromKey(key: string | undefined) {
@@ -65,7 +60,7 @@ export function alpacaHeaders() {
 
 export function getSupabaseConfigurationError() {
   if (!tradingConfig.supabaseUrl) return 'Supabase URL is not configured in the server environment'
-  if (!tradingConfig.supabaseKey) return 'Supabase server key is not configured'
+  if (!tradingConfig.supabaseKey) return 'SUPABASE_SERVICE_ROLE_KEY is not configured in the server environment'
   return null
 }
 
