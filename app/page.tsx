@@ -100,12 +100,12 @@ function TradingViewWidget({ symbol }: { symbol: string }) {
   return <div className="tradingview-widget-container" ref={container} style={{ height: '100%', width: '100%' }} />
 }
 
-function Chart({ symbol }: { symbol: string }) {
-  return <div className="chart-shell tradingview-widget-container" aria-label={`${symbol} TradingView advanced chart`}><TradingViewWidget symbol={symbol} /></div>
+function Chart({ symbol }: { symbol: string | null }) {
+  return <div className="chart-shell tradingview-widget-container" aria-label={symbol ? `${symbol} TradingView advanced chart` : 'Stock chart'}>{symbol ? <TradingViewWidget symbol={symbol} /> : <div className="chart-empty-state" role="status">Select a scanned stock to view its chart.</div>}</div>
 }
 
 export default function Home() {
-  const [selectedSymbol, setSelectedSymbol] = useState('AMZN')
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null)
   const scanWindowWasOpen = useRef(false)
   const [now, setNow] = useState<Date | null>(null)
   const [filter, setFilter] = useState('')
@@ -123,7 +123,7 @@ export default function Home() {
   const clockNow = now ?? new Date()
   const scanWindowOpen = isScanWindow(clockNow)
   const stocks = scanWindowOpen ? scanData?.candidates ?? [] : []
-  const selected = stocks.find((stock) => stock.symbol === selectedSymbol) ?? null
+  const selected = selectedSymbol ? stocks.find((stock) => stock.symbol === selectedSymbol) ?? null : null
   const accountPnl = (liveAccount?.realized_pnl ?? 0) + (liveAccount?.unrealized_pnl ?? 0)
   const pnlPoints = [...(pnlHistory?.points?.length ? pnlHistory.points : [0]), accountPnl]
   const displayedEvents = liveEvents.map((event) => ({ ...event, time: new Date(event.created_at).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase().replace(' ', '') }))
@@ -139,7 +139,7 @@ export default function Home() {
     const wasOpen = scanWindowWasOpen.current
     scanWindowWasOpen.current = scanWindowOpen
     if (wasOpen && !scanWindowOpen) {
-      setSelectedSymbol('AMZN')
+      setSelectedSymbol(null)
       setFilter('')
     }
   }, [now, scanWindowOpen])
@@ -174,7 +174,7 @@ export default function Home() {
         </aside>
         <section className="center-workspace">
           <div className="full-chart"><Chart symbol={selectedSymbol} /></div>
-          <div className="signal-strip"><div className="signal-main"><Sparkles /><div><span>AI SIGNAL · {insightData?.symbol ?? selectedSymbol}</span><strong>{insightLoading ? 'Analyzing selected symbol…' : insightData?.signal ?? 'AI analysis unavailable'}</strong><small>{insightData?.analysisSource ? `${insightData.analysisSource} · ` : ''}{insightData?.rationale ?? insightData?.error ?? 'Analysis only · no paper orders are submitted.'}</small></div></div><div className="signal-stat signal-context"><span>HEADLINE · {insightData?.symbol ?? selectedSymbol}</span>{insightData?.headline?.url ? <a href={insightData.headline.url} target="_blank" rel="noreferrer" title={insightData.headline.title}>{insightData.headline.title}</a> : <strong>{insightLoading ? 'Checking current headlines…' : insightData?.headline?.title ?? 'No recent headline for this symbol.'}</strong>}</div><div className="signal-stat"><span>Selected Mover</span><strong>{selectedSymbol}</strong></div><div className="signal-stat"><span>Price Change</span><strong className={(insightData?.changePercent ?? selected?.changePercent ?? 0) >= 0 ? 'positive' : 'negative'}>{(insightData?.changePercent ?? selected?.changePercent) == null ? '—' : `${(insightData?.changePercent ?? selected?.changePercent ?? 0) >= 0 ? '+' : ''}${(insightData?.changePercent ?? selected?.changePercent ?? 0).toFixed(2)}%`}</strong></div></div>
+          <div className="signal-strip"><div className="signal-main"><Sparkles /><div><span>AI SIGNAL · {insightData?.symbol ?? selectedSymbol ?? '—'}</span><strong>{!selectedSymbol ? 'Select a scanned stock' : insightLoading ? 'Analyzing selected symbol…' : insightData?.signal ?? 'AI analysis unavailable'}</strong><small>{!selectedSymbol ? 'Analysis runs only for a stock you select.' : insightData?.analysisSource ? `${insightData.analysisSource} · ` : ''}{selectedSymbol ? insightData?.rationale ?? insightData?.error ?? 'Analysis only · no paper orders are submitted.' : ''}</small></div></div><div className="signal-stat signal-context"><span>HEADLINE · {insightData?.symbol ?? selectedSymbol ?? '—'}</span>{insightData?.headline?.url ? <a href={insightData.headline.url} target="_blank" rel="noreferrer" title={insightData.headline.title}>{insightData.headline.title}</a> : <strong>{!selectedSymbol ? 'No stock selected.' : insightLoading ? 'Checking current headlines…' : insightData?.headline?.title ?? 'No recent headline for this symbol.'}</strong>}</div><div className="signal-stat"><span>Selected Mover</span><strong>{selectedSymbol ?? '—'}</strong></div><div className="signal-stat"><span>Price Change</span><strong className={(insightData?.changePercent ?? selected?.changePercent ?? 0) >= 0 ? 'positive' : 'negative'}>{(insightData?.changePercent ?? selected?.changePercent) == null ? '—' : `${(insightData?.changePercent ?? selected?.changePercent ?? 0) >= 0 ? '+' : ''}${(insightData?.changePercent ?? selected?.changePercent ?? 0).toFixed(2)}%`}</strong></div></div>
         </section>
         <aside className="right-rail">
           <section className="panel watchlist-panel"><div className="panel-title scanner-title"><span>SCANNED STOCKS ({stocks.length})</span><span className="scan-status"><i />{isFlattening ? 'FLATTEN' : scanError && scanWindowOpen ? 'FEED OFF · NEXT SCAN —' : nextScanLabel}</span></div><div className="search-box"><Search /><input placeholder="Filter symbols…" aria-label="Filter symbols" value={filter} onChange={(event) => setFilter(event.target.value)} /></div><div className="watchlist">{filteredStocks.length ? filteredStocks.map((stock) => <button key={stock.symbol} onClick={() => setSelectedSymbol(stock.symbol)} className={`stock-row ${selected?.symbol === stock.symbol ? 'selected' : ''}`}><div className="stock-left"><span className={`stock-mover-change ${stock.changePercent != null && stock.changePercent >= 0 ? 'positive' : 'negative'}`}>{stock.changePercent == null ? '—' : `${stock.changePercent >= 0 ? '+' : ''}${stock.changePercent.toFixed(1)}%`}</span><div><strong>{stock.symbol}</strong><small>Volume {formatVolume(stock.volume)}</small></div></div><div className="stock-price"><strong>${stock.price.toFixed(2)}</strong></div></button>) : <div className="empty-position">{!scanWindowOpen ? '' : scanError ? 'Alpaca market mover feed is unavailable.' : scanData ? 'No market movers returned.' : 'Loading live market movers…'}</div>}</div></section>
