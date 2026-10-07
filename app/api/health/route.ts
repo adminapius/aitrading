@@ -3,6 +3,59 @@ import { alpacaHeaders, configuredServices, supabaseHeaders, tradingConfig } fro
 
 export const dynamic = 'force-dynamic'
 
+const scanStaleThresholdSeconds = 120
+
+async function checkLatestScanAt() {
+  const url = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_watchlist_scans`)
+  url.search = new URLSearchParams({ select: 'scanned_at', order: 'scanned_at.desc', limit: '1' }).toString()
+  const response = await fetch(url, {
+    headers: supabaseHeaders(),
+    signal: AbortSignal.timeout(5_000),
+    cache: 'no-store',
+  })
+  if (!response.ok) throw new Error(`Supabase scan freshness request failed (${response.status})`)
+  const rows = (await response.json()) as Array<{ scanned_at?: string | null }>
+  return rows[0]?.scanned_at ?? null
+}
+
+function getScanFreshness(now: Date, lastScanAt: string | null) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(now)
+  const value = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value ?? 0)
+  const weekday = parts.find((part) => part.type === 'weekday')?.value ?? ''
+  const year = value('year')
+  const month = value('month')
+  const day = value('day')
+  const hour = value('hour')
+  const minute = value('minute')
+  const second = value('second')
+  const minuteOfDay = hour * 60 + minute
+  const inScanWindow = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(weekday) && minuteOfDay >= 7 * 60 && minuteOfDay < 15 * 60 + 55
+
+  if (!inScanWindow) return { inScanWindow, staleSeconds: null, stale: false }
+
+  const localTimestamp = Date.UTC(year, month - 1, day, hour, minute, second)
+  const currentTimestamp = Math.floor(now.getTime() / 1_000) * 1_000
+  const easternOffset = localTimestamp - currentTimestamp
+  const scanWindowStartedAt = Date.UTC(year, month - 1, day, 7, 0) - easternOffset
+  const parsedLastScanAt = lastScanAt ? Date.parse(lastScanAt) : Number.NaN
+  const freshnessStartedAt = Number.isFinite(parsedLastScanAt)
+    ? Math.max(parsedLastScanAt, scanWindowStartedAt)
+    : scanWindowStartedAt
+  const staleSeconds = Math.max(0, Math.floor((now.getTime() - freshnessStartedAt) / 1_000))
+
+  return { inScanWindow, staleSeconds, stale: staleSeconds > scanStaleThresholdSeconds }
+}
+
 async function checkSupabase() {
   const response = await fetch(
     `${tradingConfig.supabaseUrl}/rest/v1/ait_papermoney?select=account_name,starting_balance,cash_balance,equity,realized_pnl,unrealized_pnl,is_active&account_name=eq.paper-main&is_active=eq.true&limit=1`,
@@ -51,19 +104,35 @@ async function checkAlpaca() {
 }
 
 export async function GET() {
-  const [supabase, alpaca, railway] = await Promise.allSettled([
+  const now = new Date()
+  const [supabase, alpaca, railway, latestScan] = await Promise.allSettled([
     checkSupabase(),
     checkAlpaca(),
     checkRailway(),
+    checkLatestScanAt(),
   ])
   const supabaseConnected = supabase.status === 'fulfilled'
   const paperAccount = supabaseConnected ? supabase.value : null
   const paperAccountReady = paperAccount !== null
   const railwayHealthy = !tradingConfig.railwayServiceUrl || (railway.status === 'fulfilled' && railway.value.reachable && railway.value.ready)
-  const requiredHealthy = paperAccountReady && alpaca.status === 'fulfilled' && railwayHealthy
+  const lastScanAt = latestScan.status === 'fulfilled' ? latestScan.value : null
+  const scanFreshness = getScanFreshness(now, lastScanAt)
+  const scanFreshnessAvailable = latestScan.status === 'fulfilled'
+  const scanFreshnessDegraded = scanFreshness.inScanWindow && (!scanFreshnessAvailable || scanFreshness.stale)
+  const scanDegradedReason = scanFreshnessDegraded
+    ? !scanFreshnessAvailable
+      ? 'Watchlist scan freshness could not be checked.'
+      : `No watchlist scan row has been written for more than ${scanStaleThresholdSeconds} seconds.`
+    : undefined
+  const requiredHealthy = paperAccountReady && alpaca.status === 'fulfilled' && railwayHealthy && !scanFreshnessDegraded
   return NextResponse.json({
     ok: requiredHealthy,
-    checkedAt: new Date().toISOString(),
+    status: scanFreshnessDegraded ? 'degraded' : requiredHealthy ? 'healthy' : 'unhealthy',
+    degraded: scanFreshnessDegraded,
+    ...(scanDegradedReason ? { degradedReason: scanDegradedReason } : {}),
+    lastScanAt,
+    staleSeconds: scanFreshnessAvailable ? scanFreshness.staleSeconds : null,
+    checkedAt: now.toISOString(),
     mode: tradingConfig.mode,
     liveTradingEnabled: tradingConfig.liveTradingEnabled,
     services: configuredServices(),

@@ -4,7 +4,7 @@ import { supabaseHeaders, tradingConfig } from '@/lib/trading-config'
 import { sendTradingNotification } from '@/lib/notifications'
 import { recordScheduleEvent, scheduleWindowAction } from '@/lib/scheduled-events'
 import { claimScanLease, ensureScanSession, releaseScanLease } from '@/lib/scan-lock'
-import { expectedScanIntervalSeconds, scanConfig } from '@/lib/scan-config'
+import { minimumScanLeaseIntervalSeconds, scanConfig } from '@/lib/scan-config'
 import { decideEntry, isFlattenWindow, isTradingWindow, normalizeFloatShares, scoreCandidate, strategyGuardrails, type ScanCandidate } from '@/lib/strategy'
 
 export const dynamic = 'force-dynamic'
@@ -217,7 +217,7 @@ export async function POST(request: NextRequest) {
 
   let leaseStatus: 'acquired' | 'busy' | 'cooldown'
   try {
-    leaseStatus = await claimScanLease(ownerToken, scanConfig.leaseSeconds, expectedScanIntervalSeconds(now))
+    leaseStatus = await claimScanLease(ownerToken, scanConfig.leaseSeconds, minimumScanLeaseIntervalSeconds(now))
   } catch (error) {
     console.error('[worker] scan lease could not be acquired', { scanId, error })
     return NextResponse.json({ status: 'scan_lock_unavailable', error: 'Distributed scan lock is unavailable; no scan was run.' }, { status: 503 })
