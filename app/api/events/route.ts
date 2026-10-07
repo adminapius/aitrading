@@ -23,6 +23,7 @@ export async function GET(request: NextRequest) {
       const url = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`)
       url.search = new URLSearchParams({
         select: 'id,level,event_type,message,symbol,created_at',
+        event_type: 'not.in.(AI_CALL,AI_ERROR)',
         created_at: `gte.${resetAt.toISOString()}`,
         order: 'created_at.desc',
       }).toString()

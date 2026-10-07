@@ -1,17 +1,15 @@
 import { getSupabaseConfigurationError, supabaseHeaders, tradingConfig } from '@/lib/trading-config'
 
 export type AiProvider = 'Gemini-AI' | 'Claude-AI'
-export type AiEventType = 'AI_CALL' | 'AI_ERROR'
 
 type AiEventInput = {
-  eventType: AiEventType
   provider: AiProvider
   message: string
   payload?: Record<string, unknown>
 }
 
 
-export async function recordAiEvent({ eventType, provider, message, payload = {} }: AiEventInput) {
+export async function recordAiCall({ provider, message, payload = {} }: AiEventInput) {
   if (getSupabaseConfigurationError()) return false
 
   try {
@@ -19,8 +17,8 @@ export async function recordAiEvent({ eventType, provider, message, payload = {}
       method: 'POST',
       headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
       body: JSON.stringify({
-        level: eventType === 'AI_ERROR' ? 'error' : 'info',
-        event_type: eventType,
+        level: 'info',
+        event_type: 'AI_CALL',
         symbol: provider,
         message: message.slice(0, 240),
         payload: { provider, ...payload },
@@ -34,11 +32,11 @@ export async function recordAiEvent({ eventType, provider, message, payload = {}
   }
 }
 
-async function countDailyAiEvents(dayStart: Date, eventType: 'AI_CALL' | 'AI_ERROR', provider?: AiProvider) {
+async function countDailyAiEvents(dayStart: Date, provider: AiProvider) {
   const url = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`)
   const params = new URLSearchParams({
     select: 'id',
-    event_type: `eq.${eventType}`,
+    event_type: 'eq.AI_CALL',
     created_at: `gte.${dayStart.toISOString()}`,
   })
   if (provider) params.set('symbol', `eq.${provider}`)
@@ -60,18 +58,8 @@ export async function getDailyAiCallCounts(dayStart: Date) {
   if (getSupabaseConfigurationError()) throw new Error('Supabase is not configured for AI activity history.')
 
   const providers: AiProvider[] = ['Gemini-AI', 'Claude-AI']
-  const counts = await Promise.all(providers.map((provider) => countDailyAiEvents(dayStart, 'AI_CALL', provider)))
+  const counts = await Promise.all(providers.map((provider) => countDailyAiEvents(dayStart, provider)))
   return Object.fromEntries(providers.map((provider, index) => [provider, counts[index]])) as Record<AiProvider, number>
-}
-
-export async function getDailyAiActivity(dayStart: Date) {
-  if (getSupabaseConfigurationError()) throw new Error('Supabase is not configured for AI activity history.')
-
-  const [calls, errorCount] = await Promise.all([
-    getDailyAiCallCounts(dayStart),
-    countDailyAiEvents(dayStart, 'AI_ERROR'),
-  ])
-  return { calls, errorCount }
 }
 
 export async function recordDailyAiSummary(dayStart: Date, now: Date) {
