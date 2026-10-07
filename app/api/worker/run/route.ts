@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseHeaders, tradingConfig } from '@/lib/trading-config'
 import { sendTradingNotification } from '@/lib/notifications'
 import { recordScheduleEvent, scheduleWindowAction } from '@/lib/scheduled-events'
-import { decideEntry, isFlattenWindow, isTradingWindow, normalizeFloatShares, strategyGuardrails, type ScanCandidate } from '@/lib/strategy'
+import { decideEntry, isFlattenWindow, isTradingWindow, normalizeFloatShares, scoreCandidate, strategyGuardrails, type ScanCandidate } from '@/lib/strategy'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,9 +11,11 @@ function isValidCandidate(value: unknown): value is ScanCandidate {
   if (!value || typeof value !== 'object') return false
   const candidate = value as Partial<ScanCandidate>
   if (typeof candidate.symbol !== 'string' || !/^[A-Z]{1,5}$/.test(candidate.symbol) || typeof candidate.price !== 'number' || !Number.isFinite(candidate.price) || candidate.price <= 0) return false
-  const numericFields = [candidate.bid, candidate.ask, candidate.volume, candidate.averageVolume, candidate.float, candidate.changePercent, candidate.vwap, candidate.atr, candidate.socialScore]
+  const numericFields = [candidate.bid, candidate.ask, candidate.volume, candidate.averageVolume, candidate.float, candidate.changePercent, candidate.vwap, candidate.atr, candidate.socialScore, candidate.relativeVolume]
   if (numericFields.some((field) => field !== undefined && (typeof field !== 'number' || !Number.isFinite(field)))) return false
   if (candidate.floatSource !== undefined && candidate.floatSource !== 'fmp' && candidate.floatSource !== 'finnhub') return false
+  const textFields = [candidate.companyName, candidate.catalystType, candidate.catalystSummary]
+  if (textFields.some((field) => field !== undefined && (typeof field !== 'string' || field.length > 500))) return false
   return candidate.hasNews === undefined || typeof candidate.hasNews === 'boolean'
 }
 
@@ -31,54 +33,109 @@ function isAuthorized(request: NextRequest) {
 type Evaluation = { candidate: ScanCandidate; decision: ReturnType<typeof decideEntry> }
 
 async function persistWorkerActivity(evaluations: Evaluation[], checkedAt: Date) {
-  const persistedEvaluations = evaluations.filter(({ candidate }) => candidate.symbol !== 'AMZN')
-  if (!persistedEvaluations.length) return null
+  let persistenceWarning: string | null = null
+  if (evaluations.length) {
+    const scanRows = evaluations.map(({ candidate, decision }) => {
+      const averageVolume = candidate.averageVolume ?? 0
+      const relativeVolume = candidate.relativeVolume ?? (averageVolume > 0 ? (candidate.volume ?? 0) / averageVolume : null)
+      const floatShares = normalizeFloatShares(candidate.float, candidate.floatSource)
+      const catalystType = candidate.catalystType ?? (candidate.hasNews ? 'news' : (candidate.socialScore ?? 0) >= 60 ? 'social' : null)
+      const catalystSummary = candidate.catalystSummary ?? (candidate.hasNews === true ? 'News catalyst identified; source summary was not provided.' : null)
+      const missingEnrichmentFields = Object.entries({
+        company_name: candidate.companyName,
+        relative_volume: relativeVolume,
+        float_shares: floatShares,
+        atr: candidate.atr,
+        vwap: candidate.vwap,
+        catalyst_type: catalystType,
+        catalyst_summary: catalystSummary,
+      }).filter(([, value]) => value == null).map(([field]) => field)
 
-  const signalsResponse = await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_strategy_signals`, {
-    method: 'POST',
-    headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
-    body: JSON.stringify(persistedEvaluations.map(({ candidate, decision }) => ({
-      symbol: candidate.symbol,
-      action: decision.action,
-      confidence: Math.max(0, Math.min(100, Math.round(decision.confidence * 100))),
-      rationale: decision.reason,
-      model: 'paper-strategy',
-      features: { price: candidate.price, riskPerShare: decision.riskPerShare, suggestedShares: decision.suggestedShares },
-      created_at: checkedAt.toISOString(),
-    }))),
-    signal: AbortSignal.timeout(6000),
-    cache: 'no-store',
-  })
-  if (!signalsResponse.ok) return `Supabase strategy-signal write failed (${signalsResponse.status})`
+      return {
+        symbol: candidate.symbol,
+        company_name: candidate.companyName ?? null,
+        price: candidate.price,
+        change_percent: candidate.changePercent ?? null,
+        volume: candidate.volume ?? null,
+        relative_volume: Number.isFinite(relativeVolume) ? relativeVolume : null,
+        float_shares: floatShares == null ? null : Math.round(floatShares),
+        atr: candidate.atr ?? null,
+        vwap: candidate.vwap ?? null,
+        catalyst_type: catalystType,
+        catalyst_summary: catalystSummary,
+        score: scoreCandidate(candidate, checkedAt),
+        decision: decision.action === 'buy' ? 'enter' : 'watch',
+        scanned_at: checkedAt.toISOString(),
+        metadata: {
+          source: 'paper-strategy-worker',
+          strategy: 'rules-engine-paper-v1',
+          floatSource: candidate.floatSource ?? null,
+          missingEnrichmentFields,
+          riskPerShare: decision.riskPerShare,
+          suggestedShares: decision.suggestedShares,
+        },
+      }
+    })
+    const scansResponse = await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_watchlist_scans`, {
+      method: 'POST',
+      headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
+      body: JSON.stringify(scanRows),
+      signal: AbortSignal.timeout(6000),
+      cache: 'no-store',
+    })
+    if (!scansResponse.ok) persistenceWarning = `Supabase enriched scan write failed (${scansResponse.status})`
+  }
+
+  const persistedEvaluations = evaluations.filter(({ candidate }) => candidate.symbol !== 'AMZN')
+  if (persistedEvaluations.length) {
+    const signalsResponse = await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_strategy_signals`, {
+      method: 'POST',
+      headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
+      body: JSON.stringify(persistedEvaluations.map(({ candidate, decision }) => ({
+        symbol: candidate.symbol,
+        action: decision.action,
+        confidence: Math.max(0, Math.min(100, Math.round(decision.confidence * 100))),
+        rationale: decision.reason,
+        model: 'rules-engine-paper-v1',
+        features: { source: 'paper-strategy-worker', price: candidate.price, riskPerShare: decision.riskPerShare, suggestedShares: decision.suggestedShares },
+        created_at: checkedAt.toISOString(),
+      }))),
+      signal: AbortSignal.timeout(6000),
+      cache: 'no-store',
+    })
+    if (!signalsResponse.ok) persistenceWarning = `Supabase strategy-signal write failed (${signalsResponse.status})`
+  }
 
   const recentEventUrl = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`)
   recentEventUrl.search = new URLSearchParams({
     select: 'id',
-    event_type: 'STRATEGY_SCAN',
+    event_type: 'eq.STRATEGY_SCAN',
     created_at: `gte.${new Date(checkedAt.getTime() - 5 * 60 * 1000).toISOString()}`,
     limit: '1',
   }).toString()
   const recentEventResponse = await fetch(recentEventUrl, { headers: supabaseHeaders(), signal: AbortSignal.timeout(5000), cache: 'no-store' })
-  if (!recentEventResponse.ok) return `Supabase strategy-event check failed (${recentEventResponse.status})`
+  if (!recentEventResponse.ok) return persistenceWarning ?? `Supabase strategy-event check failed (${recentEventResponse.status})`
   const recentEvents = await recentEventResponse.json() as Array<{ id: number }>
-  if (recentEvents.length) return null
+  if (recentEvents.length) return persistenceWarning
 
-  const buyCount = persistedEvaluations.filter(({ decision }) => decision.action === 'buy').length
+  const buyCount = evaluations.filter(({ decision }) => decision.action === 'buy').length
   const eventResponse = await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`, {
     method: 'POST',
     headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
     body: JSON.stringify({
       level: buyCount ? 'success' : 'info',
       event_type: 'STRATEGY_SCAN',
-      message: `Evaluated ${persistedEvaluations.length} symbols; ${buyCount} passed paper guardrails. No orders were submitted.`,
-      payload: { evaluated: persistedEvaluations.length, buyCandidates: buyCount },
+      message: `Evaluated ${evaluations.length} symbols; ${buyCount} passed paper guardrails. No orders were submitted.`,
+      payload: { evaluated: evaluations.length, persistedSignals: persistedEvaluations.length, omittedAmznSignals: evaluations.length - persistedEvaluations.length, buyCandidates: buyCount },
       created_at: checkedAt.toISOString(),
     }),
     signal: AbortSignal.timeout(5000),
     cache: 'no-store',
   })
-  return eventResponse.ok ? null : `Supabase strategy-event write failed (${eventResponse.status})`
+  if (!eventResponse.ok) return persistenceWarning ?? `Supabase strategy-event write failed (${eventResponse.status})`
+  return persistenceWarning
 }
+
 
 export async function POST(request: NextRequest) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

@@ -47,7 +47,8 @@ export async function GET() {
     checkAlpaca(),
     checkRailway(),
   ])
-  const requiredHealthy = supabase.status === 'fulfilled' && alpaca.status === 'fulfilled'
+  const railwayHealthy = !tradingConfig.railwayServiceUrl || (railway.status === 'fulfilled' && railway.value.reachable)
+  const requiredHealthy = supabase.status === 'fulfilled' && alpaca.status === 'fulfilled' && railwayHealthy
   return NextResponse.json({
     ok: requiredHealthy,
     checkedAt: new Date().toISOString(),

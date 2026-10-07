@@ -1,3 +1,4 @@
+import { recordDailyAiSummary } from '@/lib/ai-events'
 import { supabaseHeaders, tradingConfig, getSupabaseConfigurationError } from '@/lib/trading-config'
 import { easternSchedule } from '@/lib/strategy'
 
@@ -11,6 +12,44 @@ function easternDayStart(now: Date) {
   const probe = easternSchedule(new Date(utcGuess))
   const probeAsLocalUtc = Date.UTC(probe.year, probe.month - 1, probe.day, probe.hour, probe.minute)
   return new Date(utcGuess - (probeAsLocalUtc - utcGuess))
+}
+
+async function persistScheduleSession(action: ScheduleEventAction, now: Date) {
+  const sessionsUrl = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_sessions`)
+  sessionsUrl.search = new URLSearchParams({
+    select: 'id',
+    trading_date: `eq.${easternDateKey(now)}`,
+    limit: '1',
+  }).toString()
+  const existingResponse = await fetch(sessionsUrl, { headers: supabaseHeaders(), signal: AbortSignal.timeout(5000), cache: 'no-store' })
+  if (!existingResponse.ok) throw new Error(`Supabase session lookup failed (${existingResponse.status}).`)
+  const [existing] = await existingResponse.json() as Array<{ id: string }>
+  const fields = action === 'wake'
+    ? { status: 'awake', started_at: now.toISOString() }
+    : { status: 'closed', ended_at: now.toISOString() }
+
+  if (existing) {
+    const updateUrl = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_sessions`)
+    updateUrl.search = new URLSearchParams({ id: `eq.${existing.id}` }).toString()
+    const updateResponse = await fetch(updateUrl, {
+      method: 'PATCH',
+      headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
+      body: JSON.stringify(fields),
+      signal: AbortSignal.timeout(5000),
+      cache: 'no-store',
+    })
+    if (!updateResponse.ok) throw new Error(`Supabase session update failed (${updateResponse.status}).`)
+    return
+  }
+
+  const insertResponse = await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_sessions`, {
+    method: 'POST',
+    headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
+    body: JSON.stringify({ trading_date: easternDateKey(now), timezone: 'America/New_York', ...fields }),
+    signal: AbortSignal.timeout(5000),
+    cache: 'no-store',
+  })
+  if (!insertResponse.ok) throw new Error(`Supabase session insert failed (${insertResponse.status}).`)
 }
 
 export async function recordScheduleEvent(action: ScheduleEventAction, now = new Date()): Promise<ScheduleEventResult> {
@@ -39,6 +78,9 @@ export async function recordScheduleEvent(action: ScheduleEventAction, now = new
   if (!existingResponse.ok) throw new Error(`Supabase schedule-event check failed (${existingResponse.status})`)
   const existing = await existingResponse.json() as Array<{ id: number }>
   if (existing.length) return { recorded: false, duplicate: true }
+
+  if (action === 'sleep') await recordDailyAiSummary(easternDayStart(now), now)
+  await persistScheduleSession(action, now)
 
   const message = action === 'wake'
     ? "AI trading App is AWAKE NOW let's make this day GREEN DAY!"

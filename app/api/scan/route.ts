@@ -1,75 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { alpacaHeaders, getSupabaseConfigurationError, supabaseHeaders, tradingConfig } from '@/lib/trading-config'
+import { alpacaHeaders, tradingConfig } from '@/lib/trading-config'
 import { isEasternScanningAllowed } from '@/lib/strategy'
 
 export const dynamic = 'force-dynamic'
 
 type MarketBar = { c?: number; v?: number; vw?: number }
 type Snapshot = { latestTrade?: { p?: number }; dailyTradeBar?: MarketBar; dailyBar?: MarketBar; prevDailyBar?: MarketBar; latestQuote?: { bp?: number; ap?: number } }
-
-async function persistScan(candidates: Array<{ symbol: string; price: number; changePercent: number | null; volume: number; bid: number; ask: number }>, scannedAt: string) {
-  const configurationError = getSupabaseConfigurationError()
-  if (configurationError) return configurationError
-
-  let paperAccount: { equity: number; pnl: number } | null = null
-  try {
-    const accountResponse = await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_papermoney?select=equity,realized_pnl,unrealized_pnl&account_name=eq.paper-main&is_active=eq.true&limit=1`, {
-      headers: supabaseHeaders(),
-      signal: AbortSignal.timeout(5000),
-      cache: 'no-store',
-    })
-    if (accountResponse.ok) {
-      const [account] = await accountResponse.json() as Array<{ equity?: number; realized_pnl?: number; unrealized_pnl?: number }>
-      if (account) paperAccount = { equity: Number(account.equity), pnl: Number(account.realized_pnl ?? 0) + Number(account.unrealized_pnl ?? 0) }
-    }
-  } catch {
-    paperAccount = null
-  }
-
-  const response = await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_watchlist_scans`, {
-    method: 'POST',
-    headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
-    body: JSON.stringify(candidates.map((candidate) => ({
-      symbol: candidate.symbol,
-      price: candidate.price,
-      change_percent: candidate.changePercent,
-      volume: candidate.volume,
-      scanned_at: scannedAt,
-      decision: 'watch',
-      metadata: { source: 'alpaca-movers', bid: candidate.bid, ask: candidate.ask, paperAccount },
-    }))),
-    signal: AbortSignal.timeout(7000),
-    cache: 'no-store',
-  })
-  if (!response.ok) return `Supabase scan history write failed (${response.status})`
-
-  const recentEventUrl = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`)
-  recentEventUrl.search = new URLSearchParams({
-    select: 'id',
-    event_type: 'eq.SCAN',
-    created_at: `gte.${new Date(Date.parse(scannedAt) - 5 * 60 * 1000).toISOString()}`,
-    limit: '1',
-  }).toString()
-  const recentEventResponse = await fetch(recentEventUrl, { headers: supabaseHeaders(), signal: AbortSignal.timeout(5000), cache: 'no-store' })
-  if (!recentEventResponse.ok) return `Supabase scan event check failed (${recentEventResponse.status})`
-  const recentEvents = await recentEventResponse.json() as Array<{ id: number }>
-  if (recentEvents.length) return null
-
-  const eventResponse = await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`, {
-    method: 'POST',
-    headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
-    body: JSON.stringify({
-      level: 'info',
-      event_type: 'SCAN',
-      message: `Market scan saved ${candidates.length} symbols.`,
-      payload: { source: 'alpaca-movers', symbols: candidates.map(({ symbol }) => symbol) },
-      created_at: scannedAt,
-    }),
-    signal: AbortSignal.timeout(5000),
-    cache: 'no-store',
-  })
-  return eventResponse.ok ? null : `Supabase scan event write failed (${eventResponse.status})`
-}
 
 export async function GET(request: NextRequest) {
   const scannedAt = new Date().toISOString()
@@ -122,8 +58,7 @@ export async function GET(request: NextRequest) {
       }]
     })
 
-    const persistenceWarning = candidates.length ? await persistScan(candidates, scannedAt) : null
-    return NextResponse.json({ source: 'Alpaca market movers', scannedAt, mode: 'paper', candidates, ...(persistenceWarning ? { persistenceWarning } : {}) })
+    return NextResponse.json({ source: 'Alpaca market movers', scannedAt, mode: 'paper', candidates })
   } catch (error) {
     return NextResponse.json({
       source: 'Alpaca',
