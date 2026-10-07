@@ -206,6 +206,7 @@ async def health():
         "ok": not missing,
         "ready": not missing,
         "service": "aitrading-worker",
+        "deploySha": os.getenv("RAILWAY_GIT_COMMIT_SHA") or None,
         "missing": missing,
         "workerUrlConfigured": bool(upstream_url),
         "scanWindow": "07:00-15:55 America/New_York",
