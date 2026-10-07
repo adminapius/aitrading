@@ -81,6 +81,8 @@ export async function recordScheduleEvent(action: ScheduleEventAction, now = new
   const configurationError = getSupabaseConfigurationError()
   if (configurationError) throw new Error(configurationError)
 
+  const summaryTime = new Date(now)
+  summaryTime.setSeconds(0, 0)
   const symbol = action === 'wake' ? 'WAKE' : 'SLEEP'
   const existingUrl = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`)
   existingUrl.search = new URLSearchParams({
@@ -94,10 +96,12 @@ export async function recordScheduleEvent(action: ScheduleEventAction, now = new
   const existingResponse = await fetch(existingUrl, { headers: supabaseHeaders(), cache: 'no-store' })
   if (!existingResponse.ok) throw new Error(`Supabase schedule-event check failed (${existingResponse.status})`)
   const existing = await existingResponse.json() as Array<{ id: number }>
-  if (existing.length) return { recorded: false, duplicate: true }
+  if (existing.length) {
+    if (action === 'sleep') await recordDailyAiSummary(easternFourAmStart(now), summaryTime)
+    return { recorded: false, duplicate: true }
+  }
 
-  if (action === 'sleep') await recordDailyAiSummary(easternFourAmStart(now), now)
-  await persistScheduleSession(action, now)
+  if (action === 'sleep') await recordDailyAiSummary(easternFourAmStart(now), summaryTime)
 
   const message = action === 'wake'
     ? "AI trading App is AWAKE NOW let's make this day GREEN DAY! :)"
@@ -109,6 +113,13 @@ export async function recordScheduleEvent(action: ScheduleEventAction, now = new
     cache: 'no-store',
   })
   if (!insertResponse.ok) throw new Error(`Supabase schedule-event write failed (${insertResponse.status})`)
+
+  try {
+    await persistScheduleSession(action, now)
+  } catch (error) {
+    console.error('[schedule] event was recorded but session persistence failed', error)
+  }
+
   return { recorded: true }
 }
 

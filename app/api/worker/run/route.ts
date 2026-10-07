@@ -226,6 +226,7 @@ export async function POST(request: NextRequest) {
       await recordScheduleEvent(scheduleAction, now)
     } catch (error) {
       console.error('[worker] scheduled system event could not be recorded', error)
+      return NextResponse.json({ status: 'schedule_event_failed', error: 'Scheduled event could not be recorded.' }, { status: 503 })
     }
   }
   if (!isTradingWindow(now) && !isFlattenWindow(now)) {
