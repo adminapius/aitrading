@@ -41,7 +41,34 @@ async function persistScan(candidates: Array<{ symbol: string; price: number; ch
     signal: AbortSignal.timeout(7000),
     cache: 'no-store',
   })
-  return response.ok ? null : `Supabase scan history write failed (${response.status})`
+  if (!response.ok) return `Supabase scan history write failed (${response.status})`
+
+  const recentEventUrl = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`)
+  recentEventUrl.search = new URLSearchParams({
+    select: 'id',
+    event_type: 'eq.SCAN',
+    created_at: `gte.${new Date(Date.parse(scannedAt) - 5 * 60 * 1000).toISOString()}`,
+    limit: '1',
+  }).toString()
+  const recentEventResponse = await fetch(recentEventUrl, { headers: supabaseHeaders(), signal: AbortSignal.timeout(5000), cache: 'no-store' })
+  if (!recentEventResponse.ok) return `Supabase scan event check failed (${recentEventResponse.status})`
+  const recentEvents = await recentEventResponse.json() as Array<{ id: number }>
+  if (recentEvents.length) return null
+
+  const eventResponse = await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`, {
+    method: 'POST',
+    headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
+    body: JSON.stringify({
+      level: 'info',
+      event_type: 'SCAN',
+      message: `Market scan saved ${candidates.length} symbols.`,
+      payload: { source: 'alpaca-movers', symbols: candidates.map(({ symbol }) => symbol) },
+      created_at: scannedAt,
+    }),
+    signal: AbortSignal.timeout(5000),
+    cache: 'no-store',
+  })
+  return eventResponse.ok ? null : `Supabase scan event write failed (${eventResponse.status})`
 }
 
 export async function GET(request: NextRequest) {

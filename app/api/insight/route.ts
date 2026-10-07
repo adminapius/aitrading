@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
   }
 
   const configError = getSupabaseConfigurationError()
-  if (!configError) {
+  if (!configError && symbol !== 'AMZN') {
     try {
       const cacheUrl = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_strategy_signals`)
       cacheUrl.search = new URLSearchParams({
@@ -121,7 +121,7 @@ export async function GET(request: NextRequest) {
     result = fallback
   }
 
-  if (!configError) {
+  if (!configError && symbol !== 'AMZN') {
     try {
       await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_strategy_signals`, {
         method: 'POST',

@@ -28,6 +28,58 @@ function isAuthorized(request: NextRequest) {
   return configuredBytes.length === suppliedBytes.length && timingSafeEqual(configuredBytes, suppliedBytes)
 }
 
+type Evaluation = { candidate: ScanCandidate; decision: ReturnType<typeof decideEntry> }
+
+async function persistWorkerActivity(evaluations: Evaluation[], checkedAt: Date) {
+  const persistedEvaluations = evaluations.filter(({ candidate }) => candidate.symbol !== 'AMZN')
+  if (!persistedEvaluations.length) return null
+
+  const signalsResponse = await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_strategy_signals`, {
+    method: 'POST',
+    headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
+    body: JSON.stringify(persistedEvaluations.map(({ candidate, decision }) => ({
+      symbol: candidate.symbol,
+      action: decision.action,
+      confidence: Math.max(0, Math.min(100, Math.round(decision.confidence * 100))),
+      rationale: decision.reason,
+      model: 'paper-strategy',
+      features: { price: candidate.price, riskPerShare: decision.riskPerShare, suggestedShares: decision.suggestedShares },
+      created_at: checkedAt.toISOString(),
+    }))),
+    signal: AbortSignal.timeout(6000),
+    cache: 'no-store',
+  })
+  if (!signalsResponse.ok) return `Supabase strategy-signal write failed (${signalsResponse.status})`
+
+  const recentEventUrl = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`)
+  recentEventUrl.search = new URLSearchParams({
+    select: 'id',
+    event_type: 'STRATEGY_SCAN',
+    created_at: `gte.${new Date(checkedAt.getTime() - 5 * 60 * 1000).toISOString()}`,
+    limit: '1',
+  }).toString()
+  const recentEventResponse = await fetch(recentEventUrl, { headers: supabaseHeaders(), signal: AbortSignal.timeout(5000), cache: 'no-store' })
+  if (!recentEventResponse.ok) return `Supabase strategy-event check failed (${recentEventResponse.status})`
+  const recentEvents = await recentEventResponse.json() as Array<{ id: number }>
+  if (recentEvents.length) return null
+
+  const buyCount = persistedEvaluations.filter(({ decision }) => decision.action === 'buy').length
+  const eventResponse = await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`, {
+    method: 'POST',
+    headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
+    body: JSON.stringify({
+      level: buyCount ? 'success' : 'info',
+      event_type: 'STRATEGY_SCAN',
+      message: `Evaluated ${persistedEvaluations.length} symbols; ${buyCount} passed paper guardrails. No orders were submitted.`,
+      payload: { evaluated: persistedEvaluations.length, buyCandidates: buyCount },
+      created_at: checkedAt.toISOString(),
+    }),
+    signal: AbortSignal.timeout(5000),
+    cache: 'no-store',
+  })
+  return eventResponse.ok ? null : `Supabase strategy-event write failed (${eventResponse.status})`
+}
+
 export async function POST(request: NextRequest) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (tradingConfig.mode !== 'paper' || strategyGuardrails.liveTradingEnabled) return NextResponse.json({ error: 'Live execution is disabled by guardrails.' }, { status: 403 })
@@ -63,8 +115,10 @@ export async function POST(request: NextRequest) {
   let remainingAllocation = Math.max(0, Math.min(exposureLimit - deployedCapital, cashBalance))
   const candidates = Array.isArray(body.candidates) ? body.candidates.filter(isValidCandidate) : []
   const decisions: Array<ReturnType<typeof decideEntry>> = []
+  const evaluations: Evaluation[] = []
   for (const candidate of candidates) {
     const decision = decideEntry(candidate, equity, now, remainingAllocation)
+    evaluations.push({ candidate, decision })
     console.info('[worker] strategy decision', {
       symbol: candidate.symbol,
       action: decision.action,
@@ -78,8 +132,9 @@ export async function POST(request: NextRequest) {
       decisions.push(decision)
     }
   }
+  const persistenceWarning = await persistWorkerActivity(evaluations, now)
   const notificationResults = body.notify && decisions.length
     ? await sendTradingNotification({ title: 'AItrading paper scan', message: `${decisions.length} paper decision(s) ready: ${decisions.map((decision) => `${decision.action.toUpperCase()} ${decision.symbol}`).join(', ')}` })
     : []
-  return NextResponse.json({ status: 'paper_decisions_ready', mode: 'paper', checkedAt: now.toISOString(), decisions, notificationResults, requiresOrderReview: true })
+  return NextResponse.json({ status: 'paper_decisions_ready', mode: 'paper', checkedAt: now.toISOString(), decisions, notificationResults, requiresOrderReview: true, ...(persistenceWarning ? { persistenceWarning } : {}) })
 }

@@ -176,3 +176,32 @@ html, body { overflow-x: hidden; }
   .event p { width: auto; margin: 0; overflow-wrap: anywhere; }
   .stock-row { grid-template-columns: minmax(0, 1fr) 104px; }
 }
+
+.signal-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 0;
+}
+
+.signal-strip > * {
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+
+.signal-strip .signal-context {
+  flex: initial;
+}
+
+.signal-strip .signal-stat {
+  border-left: 0;
+}
+
+@media (max-width: 850px) {
+  .signal-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .signal-main, .signal-context { grid-column: span 2; }
+}
