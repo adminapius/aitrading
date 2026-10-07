@@ -3,6 +3,8 @@ import hmac
 import logging
 import math
 import os
+import sys
+import threading
 import uuid
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
@@ -18,7 +20,14 @@ ET = ZoneInfo("America/New_York")
 DEFAULT_VERCEL_WORKER_URL = "https://hooyah-aitrading.vercel.app"
 scan_lock = asyncio.Lock()
 scheduler_task: asyncio.Task | None = None
+watchdog_task: asyncio.Task | None = None
+scheduler_started_at: datetime | None = None
 last_sleep_event_date: str | None = None
+scheduler_heartbeat = {
+    "lastTickAt": None,
+    "lastTickResult": "sleeping",
+    "consecutiveErrors": 0,
+}
 
 
 def vercel_worker_url() -> str:
@@ -70,6 +79,18 @@ def authorized(request: Request) -> bool:
     return bool(secret and supplied and hmac.compare_digest(secret, supplied))
 
 
+def lease_result_for_worker_status(status: str | None, successful: bool) -> str:
+    if status == "sleeping":
+        return "sleeping"
+    if status == "overlap_skipped":
+        return "busy"
+    if status == "cadence_skipped":
+        return "cooldown"
+    if successful and status == "paper_decisions_ready":
+        return "acquired"
+    return "error"
+
+
 async def post_worker_run(client: httpx.AsyncClient, candidates: list[dict], current_scan: str, trigger_source: str, scan_started_at: str | None = None) -> dict:
     url = f"{vercel_worker_url()}/api/worker/run"
     headers = {
@@ -95,6 +116,12 @@ async def post_worker_run(client: httpx.AsyncClient, candidates: list[dict], cur
                 "scan_id": current_scan,
                 "httpStatus": response.status_code,
                 "workerStatus": body.get("status") if isinstance(body, dict) else None,
+                "leaseResult": lease_result_for_worker_status(
+                    body.get("status") if isinstance(body, dict) else None,
+                    response.is_success,
+                ),
+                "symbolCount": len(candidates),
+                "rowsWritten": body.get("scanRowsWritten", 0) if isinstance(body, dict) else 0,
             }
             log.info("scan_id=%s worker_status=%s http_status=%d", current_scan, result["workerStatus"], response.status_code)
             return result
@@ -182,6 +209,9 @@ async def health():
         "workerUrlConfigured": bool(upstream_url),
         "scanWindow": "07:00-15:55 America/New_York",
         "scanIntervalSeconds": scan_interval_seconds(now),
+        "lastTickAt": scheduler_heartbeat["lastTickAt"],
+        "lastTickResult": scheduler_heartbeat["lastTickResult"],
+        "consecutiveErrors": scheduler_heartbeat["consecutiveErrors"],
         "liveTradingEnabled": False,
     }, status_code=200 if not missing else 503)
 
@@ -193,30 +223,129 @@ async def run_once(request: Request):
     return await send_scan("manual")
 
 
+def scheduler_result(result: dict) -> str:
+    lease_result = result.get("leaseResult")
+    if lease_result in {"acquired", "busy", "cooldown", "sleeping", "error"}:
+        return lease_result
+    status = result.get("status")
+    if status == "sleeping" or status == "sleep_event_already_sent":
+        return "sleeping"
+    if status == "overlap_skipped":
+        return "busy"
+    if status == "cadence_skipped":
+        return "cooldown"
+    return "error"
+
+
 async def scheduler():
     while True:
+        tick_started = datetime.now(ET)
+        tick_started_monotonic = asyncio.get_running_loop().time()
+        result: dict = {}
+        tick_result = "error"
         try:
             result = await send_scan()
-            log.info("scheduler result=%s", result)
+            tick_result = scheduler_result(result)
+        except asyncio.CancelledError:
+            raise
         except Exception:
-            log.exception("scheduler iteration failed")
-        await asyncio.sleep(scan_interval_seconds())
+            log.exception("scheduler tick raised an exception")
+            tick_result = "error"
+        finally:
+            tick_completed = datetime.now(ET)
+            duration_ms = max(0, round((asyncio.get_running_loop().time() - tick_started_monotonic) * 1000))
+            scheduler_heartbeat["lastTickAt"] = tick_completed.isoformat()
+            scheduler_heartbeat["lastTickResult"] = tick_result
+            scheduler_heartbeat["consecutiveErrors"] = (
+                scheduler_heartbeat["consecutiveErrors"] + 1 if tick_result == "error" else 0
+            )
+            symbol_count = result.get("symbolCount", 0)
+            rows_written = result.get("rowsWritten", 0)
+            log.info(
+                "scheduler tick start=%s lease_result=%s symbol_count=%s rows_written=%s duration_ms=%d",
+                tick_started.isoformat(),
+                tick_result,
+                symbol_count if isinstance(symbol_count, int) else 0,
+                rows_written if isinstance(rows_written, int) else 0,
+                duration_ms,
+            )
+
+        try:
+            await asyncio.sleep(scan_interval_seconds())
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("scheduler delay failed; retrying in one second")
+            await asyncio.sleep(1)
+
+
+def asyncio_exception_handler(loop: asyncio.AbstractEventLoop, context: dict) -> None:
+    exception = context.get("exception")
+    if exception is not None:
+        log.critical(
+            "unhandled asyncio exception: %s",
+            context.get("message", "background task failed"),
+            exc_info=(type(exception), exception, exception.__traceback__),
+        )
+    else:
+        log.critical("unhandled asyncio exception: %s", context)
+
+
+def install_process_exception_handlers() -> None:
+    loop = asyncio.get_running_loop()
+    loop.set_exception_handler(asyncio_exception_handler)
+
+    def uncaught_exception(exc_type, exc_value, exc_traceback):
+        log.critical("uncaught process exception", exc_info=(exc_type, exc_value, exc_traceback))
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+
+    def uncaught_thread_exception(args):
+        log.critical(
+            "uncaught thread exception in %s",
+            args.thread.name if args.thread else "unknown thread",
+            exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+        )
+        threading.__excepthook__(args)
+
+    sys.excepthook = uncaught_exception
+    threading.excepthook = uncaught_thread_exception
+
+
+async def scheduler_watchdog():
+    while True:
+        await asyncio.sleep(15)
+        now = datetime.now(ET)
+        if not is_scan_window(now):
+            continue
+
+        heartbeat_at = scheduler_heartbeat["lastTickAt"]
+        last_tick = datetime.fromisoformat(heartbeat_at) if heartbeat_at else scheduler_started_at
+        if last_tick is None:
+            continue
+        stale_seconds = (now - last_tick).total_seconds()
+        if stale_seconds > 90:
+            log.critical("scheduler stalled stale_seconds=%.1f; exiting for Railway restart", stale_seconds)
+            for handler in logging.getLogger().handlers:
+                handler.flush()
+            os._exit(1)
 
 
 @app.on_event("startup")
 async def start_scheduler():
-    global scheduler_task
-    scheduler_task = asyncio.create_task(scheduler())
+    global scheduler_task, watchdog_task, scheduler_started_at
+    install_process_exception_handlers()
+    scheduler_started_at = datetime.now(ET)
+    scheduler_task = asyncio.create_task(scheduler(), name="market-scan-scheduler")
+    watchdog_task = asyncio.create_task(scheduler_watchdog(), name="market-scan-watchdog")
 
 
 @app.on_event("shutdown")
 async def stop_scheduler():
-    if scheduler_task is not None:
-        scheduler_task.cancel()
-        try:
-            await scheduler_task
-        except asyncio.CancelledError:
-            pass
+    tasks = [task for task in (scheduler_task, watchdog_task) if task is not None]
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 if __name__ == "__main__":
