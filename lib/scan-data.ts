@@ -24,6 +24,25 @@ type ScanFailure = { symbol: string; reason: string }
 const validSymbol = /^[A-Z][A-Z0-9.-]{0,9}$/
 const excludedSecurityName = /\b(warrants?|rights?|units?)\b/i
 const supportedExchanges = new Set(['NYSE', 'NASDAQ', 'AMEX', 'ARCA', 'BATS', 'NYSEARCA', 'NYSEAMERICAN'])
+const dailyScanCache = new Map<string, Promise<unknown>>()
+const dailyAtrCache = new Map<string, number | null>()
+const dailyVolumeBaselineCache = new Map<string, Map<number, number>[]>()
+
+type DailyCacheKind = 'asset' | 'float' | 'atr-bars' | 'historical-bars'
+
+function cacheForTradingDay<T>(kind: DailyCacheKind, symbol: string, now: Date, load: () => Promise<T>) {
+  const day = easternParts(now).date
+  for (const key of dailyScanCache.keys()) if (!key.startsWith(`${day}:`)) dailyScanCache.delete(key)
+  const key = `${day}:${kind}:${symbol}`
+  const cached = dailyScanCache.get(key)
+  if (cached) return cached as Promise<T>
+  const promise = load().catch((error) => {
+    dailyScanCache.delete(key)
+    throw error
+  })
+  dailyScanCache.set(key, promise)
+  return promise
+}
 
 function numberOrNull(value: unknown) {
   const number = Number(value)
@@ -64,46 +83,76 @@ function computeAtr(bars: Bar[], now: Date) {
   return ranges.length === scanConfig.atrPeriod ? ranges.reduce((sum, range) => sum + range, 0) / ranges.length : null
 }
 
-function computeIntradayMetrics(bars: Bar[], now: Date) {
-  const today = easternParts(now)
-  const dailyBuckets = new Map<string, Map<number, { volume: number; weightedVwap: number }>>()
+function cachedDailyAtr(symbol: string, bars: Bar[], now: Date) {
+  const day = easternParts(now).date
+  const key = `${day}:${symbol}`
+  if (dailyAtrCache.has(key)) return dailyAtrCache.get(key) ?? null
+  for (const cachedKey of dailyAtrCache.keys()) if (!cachedKey.startsWith(`${day}:`)) dailyAtrCache.delete(cachedKey)
+  const atr = computeAtr(bars, now)
+  dailyAtrCache.set(key, atr)
+  return atr
+}
+
+function historicalVolumeBuckets(symbol: string, bars: Bar[], today: string) {
+  const key = `${today}:${symbol}`
+  const cached = dailyVolumeBaselineCache.get(key)
+  if (cached) return cached
+
+  const byDate = new Map<string, Map<number, number>>()
   for (const bar of bars) {
     const timestamp = new Date(bar.t)
     if (!Number.isFinite(timestamp.getTime())) continue
     const { date, minute } = easternParts(timestamp)
-    if (minute > today.minute) continue
+    if (date >= today) continue
+    const bucket = Math.floor(minute / scanConfig.relativeVolumeBarMinutes) * scanConfig.relativeVolumeBarMinutes
+    const volume = Math.max(0, Number(bar.v ?? 0))
+    if (!byDate.has(date)) byDate.set(date, new Map())
+    const buckets = byDate.get(date)!
+    buckets.set(bucket, (buckets.get(bucket) ?? 0) + volume)
+  }
+
+  const sessions = [...byDate.entries()]
+    .sort(([left], [right]) => right.localeCompare(left))
+    .slice(0, scanConfig.relativeVolumeLookbackSessions)
+    .map(([, buckets]) => buckets)
+  for (const cachedKey of dailyVolumeBaselineCache.keys()) if (!cachedKey.startsWith(`${today}:`)) dailyVolumeBaselineCache.delete(cachedKey)
+  dailyVolumeBaselineCache.set(key, sessions)
+  return sessions
+}
+
+function computeIntradayMetrics(symbol: string, historicalBars: Bar[], currentBars: Bar[], now: Date) {
+  const today = easternParts(now)
+  const historicalSessions = historicalVolumeBuckets(symbol, historicalBars, today.date)
+  const currentBuckets = new Map<number, { volume: number; weightedVwap: number }>()
+  for (const bar of currentBars) {
+    const timestamp = new Date(bar.t)
+    if (!Number.isFinite(timestamp.getTime())) continue
+    const { date, minute } = easternParts(timestamp)
+    if (date !== today.date || minute > today.minute) continue
     const bucket = Math.floor(minute / scanConfig.relativeVolumeBarMinutes) * scanConfig.relativeVolumeBarMinutes
     const volume = Math.max(0, Number(bar.v ?? 0))
     const vwap = numberOrNull(bar.vw) ?? numberOrNull(bar.c) ?? 0
-    if (!dailyBuckets.has(date)) dailyBuckets.set(date, new Map())
-    const bucketValues = dailyBuckets.get(date)!
-    const current = bucketValues.get(bucket) ?? { volume: 0, weightedVwap: 0 }
+    const current = currentBuckets.get(bucket) ?? { volume: 0, weightedVwap: 0 }
     current.volume += volume
     current.weightedVwap += vwap * volume
-    bucketValues.set(bucket, current)
+    currentBuckets.set(bucket, current)
   }
 
-  const cumulativeByDate = [...dailyBuckets.entries()].map(([date, buckets]) => {
-    let volume = 0
-    let weightedVwap = 0
-    for (const [minute, value] of [...buckets.entries()].sort(([left], [right]) => left - right)) {
-      if (minute > today.minute) continue
-      volume += value.volume
-      weightedVwap += value.weightedVwap
-    }
-    return { date, volume, weightedVwap }
-  })
-  const current = cumulativeByDate.find((entry) => entry.date === today.date)
-  const history = cumulativeByDate.filter((entry) => entry.date !== today.date && entry.volume > 0)
-    .sort((left, right) => right.date.localeCompare(left.date))
-    .slice(0, scanConfig.relativeVolumeLookbackSessions)
-  const averageVolume = history.length ? history.reduce((sum, entry) => sum + entry.volume, 0) / history.length : null
-  const volume = current?.volume ?? null
+  let volume = 0
+  let weightedVwap = 0
+  for (const [minute, value] of [...currentBuckets.entries()].sort(([left], [right]) => left - right)) {
+    if (minute > today.minute) continue
+    volume += value.volume
+    weightedVwap += value.weightedVwap
+  }
+  const averageVolume = historicalSessions.length
+    ? historicalSessions.reduce((sum, buckets) => sum + [...buckets.entries()].reduce((total, [minute, bucketVolume]) => total + (minute <= today.minute ? bucketVolume : 0), 0), 0) / historicalSessions.length
+    : null
   return {
-    volume,
+    volume: currentBuckets.size ? volume : null,
     averageVolume,
-    relativeVolume: volume != null && averageVolume != null && averageVolume > 0 ? volume / averageVolume : null,
-    vwap: current && current.volume > 0 ? current.weightedVwap / current.volume : null,
+    relativeVolume: volume > 0 && averageVolume != null && averageVolume > 0 ? volume / averageVolume : null,
+    vwap: volume > 0 ? weightedVwap / volume : null,
   }
 }
 
@@ -149,36 +198,64 @@ function assetEligibility(asset: Asset | null) {
   return null
 }
 
-async function getAsset(symbol: string): Promise<Asset> {
-  return fetchJson<Asset>(`${tradingConfig.alpacaBaseUrl}/v2/assets/${encodeURIComponent(symbol)}`, 21_600)
+function easternMidnight(now: Date) {
+  const { date } = easternParts(now)
+  const [year, month, day] = date.split('-').map(Number)
+  const approximateNoon = new Date(Date.UTC(year, month - 1, day, 12))
+  const localParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).formatToParts(approximateNoon)
+  const part = (name: Intl.DateTimeFormatPartTypes) => Number(localParts.find((item) => item.type === name)?.value ?? 0)
+  const localAsUtc = Date.UTC(part('year'), part('month') - 1, part('day'), part('hour'), part('minute'), part('second'))
+  return new Date(Date.UTC(year, month - 1, day) - (localAsUtc - approximateNoon.getTime()))
 }
 
-async function getFloat(symbol: string) {
-  const apiKey = process.env.FMP_API_KEY?.trim()
-  if (!apiKey) throw new Error('FMP_API_KEY is not configured')
-  const url = new URL('https://financialmodelingprep.com/stable/shares-float')
-  url.searchParams.set('symbol', symbol)
-  url.searchParams.set('apikey', apiKey)
-  const response = await fetch(url, { signal: AbortSignal.timeout(5_000), next: { revalidate: 86_400 } })
-  if (!response.ok) throw new Error(`FMP HTTP ${response.status}`)
-  const payload = await response.json() as Array<Record<string, unknown>>
-  const row = Array.isArray(payload) ? payload[0] : undefined
-  const value = numberOrNull(row?.floatShares ?? row?.float_shares ?? row?.freeFloat)
-  if (!value) throw new Error('FMP returned no positive float-shares value')
-  return value
+async function getAsset(symbol: string, now: Date): Promise<Asset> {
+  return cacheForTradingDay('asset', symbol, now, () => fetchJson<Asset>(`${tradingConfig.alpacaBaseUrl}/v2/assets/${encodeURIComponent(symbol)}`, 86_400))
 }
 
-async function getIntradayBars(symbol: string, start: string) {
-  const url = new URL(`${tradingConfig.alpacaDataUrl}/v2/stocks/${encodeURIComponent(symbol)}/bars`)
-  url.search = new URLSearchParams({ timeframe: `${scanConfig.relativeVolumeBarMinutes}Min`, start, limit: '10000', feed: tradingConfig.alpacaDataFeed, sort: 'asc' }).toString()
-  const payload = await fetchJson<{ bars?: Bar[] }>(url.toString(), 30)
-  return Array.isArray(payload.bars) ? payload.bars : []
+async function getFloat(symbol: string, now: Date) {
+  return cacheForTradingDay('float', symbol, now, async () => {
+    const apiKey = process.env.FMP_API_KEY?.trim()
+    if (!apiKey) throw new Error('FMP_API_KEY is not configured')
+    const url = new URL('https://financialmodelingprep.com/stable/shares-float')
+    url.searchParams.set('symbol', symbol)
+    url.searchParams.set('apikey', apiKey)
+    const response = await fetch(url, { signal: AbortSignal.timeout(5_000), next: { revalidate: 86_400 } })
+    if (!response.ok) throw new Error(`FMP HTTP ${response.status}`)
+    const payload = await response.json() as Array<Record<string, unknown>>
+    const row = Array.isArray(payload) ? payload[0] : undefined
+    const value = numberOrNull(row?.floatShares ?? row?.float_shares ?? row?.freeFloat)
+    if (!value) throw new Error('FMP returned no positive float-shares value')
+    return value
+  })
 }
 
-async function getDailyBars(symbols: string[], start: string) {
+async function getHistoricalIntradayBars(symbol: string, start: string, end: string, now: Date) {
+  return cacheForTradingDay('historical-bars', symbol, now, async () => {
+    const url = new URL(`${tradingConfig.alpacaDataUrl}/v2/stocks/${encodeURIComponent(symbol)}/bars`)
+    url.search = new URLSearchParams({ timeframe: `${scanConfig.relativeVolumeBarMinutes}Min`, start, end, limit: '10000', feed: tradingConfig.alpacaDataFeed, sort: 'asc' }).toString()
+    const payload = await fetchJson<{ bars?: Bar[] }>(url.toString(), 86_400)
+    return Array.isArray(payload.bars) ? payload.bars : []
+  })
+}
+
+async function getCurrentIntradayBars(symbols: string[], start: string) {
   const url = new URL(`${tradingConfig.alpacaDataUrl}/v2/stocks/bars`)
-  url.search = new URLSearchParams({ symbols: symbols.join(','), timeframe: '1Day', start, limit: '10000', feed: tradingConfig.alpacaDataFeed, sort: 'asc' }).toString()
-  return parseBarsBySymbol(await fetchJson<unknown>(url.toString(), 3_600))
+  url.search = new URLSearchParams({ symbols: symbols.join(','), timeframe: `${scanConfig.relativeVolumeBarMinutes}Min`, start, limit: '10000', feed: tradingConfig.alpacaDataFeed, sort: 'asc' }).toString()
+  const response = await fetch(url, { headers: alpacaHeaders(), signal: AbortSignal.timeout(8_000), cache: 'no-store' })
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  return parseBarsBySymbol(await response.json())
+}
+
+async function getDailyBars(symbol: string, start: string, end: string, now: Date) {
+  return cacheForTradingDay('atr-bars', symbol, now, async () => {
+    const url = new URL(`${tradingConfig.alpacaDataUrl}/v2/stocks/${encodeURIComponent(symbol)}/bars`)
+    url.search = new URLSearchParams({ timeframe: '1Day', start, end, limit: '10000', feed: tradingConfig.alpacaDataFeed, sort: 'asc' }).toString()
+    const payload = await fetchJson<{ bars?: Bar[] }>(url.toString(), 86_400)
+    return Array.isArray(payload.bars) ? payload.bars : []
+  })
 }
 
 async function getNews(symbols: string[], now: Date) {
@@ -199,7 +276,7 @@ export async function loadEnrichedCandidates(symbols: string[], snapshots: Recor
   const failures: ScanFailure[] = []
   const assetResults = await mapLimit(uniqueSymbols, 5, async (symbol) => {
     try {
-      const asset = await getAsset(symbol)
+      const asset = await getAsset(symbol, now)
       const reason = assetEligibility(asset)
       if (reason) failures.push({ symbol, reason })
       return { symbol, asset: reason ? null : asset }
@@ -213,24 +290,31 @@ export async function loadEnrichedCandidates(symbols: string[], snapshots: Recor
   const activeSymbols = eligible.map(({ symbol }) => symbol)
   if (!activeSymbols.length) return { candidates: [] as EnrichedCandidate[], failures }
 
-  const utcDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
-  const intradayStart = new Date(utcDay.getTime() - 15 * 24 * 60 * 60 * 1000).toISOString()
-  const dailyStart = new Date(utcDay.getTime() - 35 * 24 * 60 * 60 * 1000).toISOString()
-  const [intradayResults, dailyBarsResult, newsResult, floatResults] = await Promise.all([
+  const sessionStart = easternMidnight(now)
+  const intradayStart = new Date(sessionStart.getTime() - 22 * 24 * 60 * 60 * 1000).toISOString()
+  const dailyStart = new Date(sessionStart.getTime() - 45 * 24 * 60 * 60 * 1000).toISOString()
+  const [historicalIntradayResults, currentIntradayResult, dailyBarsResults, newsResult, floatResults] = await Promise.all([
     mapLimit(activeSymbols, 5, async (symbol) => {
-      try { return { symbol, bars: await getIntradayBars(symbol, intradayStart), error: null } }
-      catch (error) { return { symbol, bars: [] as Bar[], error: error instanceof Error ? error.message : 'intraday bars unavailable' } }
+      try { return { symbol, bars: await getHistoricalIntradayBars(symbol, intradayStart, sessionStart.toISOString(), now), error: null } }
+      catch (error) { return { symbol, bars: [] as Bar[], error: error instanceof Error ? error.message : 'historical intraday bars unavailable' } }
     }),
-    getDailyBars(activeSymbols, dailyStart).catch((error) => ({ error: error instanceof Error ? error.message : 'daily bars unavailable' })),
+    getCurrentIntradayBars(activeSymbols, sessionStart.toISOString())
+      .then((bars) => ({ bars, error: null as string | null }))
+      .catch((error) => ({ bars: {} as Record<string, Bar[]>, error: error instanceof Error ? error.message : 'current intraday bars unavailable' })),
+    mapLimit(activeSymbols, 5, async (symbol) => {
+      try { return { symbol, bars: await getDailyBars(symbol, dailyStart, sessionStart.toISOString(), now), error: null } }
+      catch (error) { return { symbol, bars: [] as Bar[], error: error instanceof Error ? error.message : 'daily bars unavailable' } }
+    }),
     getNews(activeSymbols, now).catch((error) => ({ error: error instanceof Error ? error.message : 'Alpaca news unavailable' })),
     mapLimit(activeSymbols, 5, async (symbol) => {
-      try { return { symbol, value: await getFloat(symbol), error: null } }
+      try { return { symbol, value: await getFloat(symbol, now), error: null } }
       catch (error) { return { symbol, value: null, error: error instanceof Error ? error.message : 'float unavailable' } }
     }),
   ])
 
-  const intradayBySymbol = new Map(intradayResults.map((result) => [result.symbol, result]))
-  const dailyBars = 'error' in dailyBarsResult ? {} : dailyBarsResult
+  const historicalIntradayBySymbol = new Map(historicalIntradayResults.map((result) => [result.symbol, result]))
+  const currentIntradayBySymbol = currentIntradayResult.bars
+  const dailyBarsBySymbol = new Map(dailyBarsResults.map((result) => [result.symbol, result]))
   const news = Array.isArray(newsResult) ? newsResult : []
   const newsError = Array.isArray(newsResult) ? null : newsResult.error
   const floatBySymbol = new Map(floatResults.map((result) => [result.symbol, result]))
@@ -268,15 +352,19 @@ export async function loadEnrichedCandidates(symbols: string[], snapshots: Recor
       return []
     }
 
-    const intraday = intradayBySymbol.get(symbol)
-    const metrics = computeIntradayMetrics(intraday?.bars ?? [], now)
-    const atr = computeAtr(dailyBars[symbol] ?? [], now)
+    const historicalIntraday = historicalIntradayBySymbol.get(symbol)
+    const currentBars = currentIntradayBySymbol[symbol] ?? []
+    const dailyBars = dailyBarsBySymbol.get(symbol)
+    const metrics = computeIntradayMetrics(symbol, historicalIntraday?.bars ?? [], currentBars, now)
+    const atr = dailyBars?.error ? null : cachedDailyAtr(symbol, dailyBars?.bars ?? [], now)
     const floatResult = floatBySymbol.get(symbol)
     const asset = assetBySymbol.get(symbol)!
     const story = news.filter((item) => item.symbols?.includes(symbol)).sort((left, right) => (right.created_at ?? '').localeCompare(left.created_at ?? ''))[0]
     const errors: string[] = []
     if (!asset.name?.trim()) errors.push('company_name: Alpaca asset metadata has no display name')
-    if (intraday?.error) errors.push(`intraday_bars: ${intraday.error}`)
+    if (historicalIntraday?.error) errors.push(`historical_intraday_bars: ${historicalIntraday.error}`)
+    if (currentIntradayResult.error) errors.push(`current_intraday_bars: ${currentIntradayResult.error}`)
+    if (dailyBars?.error) errors.push(`daily_bars: ${dailyBars.error}`)
     if (metrics.relativeVolume == null) errors.push('relative_volume: same-time-of-day 15-minute history is insufficient')
     if (floatResult?.error) errors.push(`float_shares: ${floatResult.error}`)
     if (atr == null) errors.push(`atr: fewer than ${scanConfig.atrPeriod + 1} daily bars available`)
