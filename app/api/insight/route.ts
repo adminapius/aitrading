@@ -1,6 +1,6 @@
 import { generateText } from 'ai'
 import { NextRequest, NextResponse } from 'next/server'
-import { recordAiCall } from '@/lib/ai-events'
+import { recordAiError } from '@/lib/ai-events'
 import { alpacaHeaders, tradingConfig } from '@/lib/trading-config'
 
 export const dynamic = 'force-dynamic'
@@ -70,11 +70,8 @@ export async function GET(request: NextRequest) {
   const fallback = rulesFallback(changePercent, price, vwap)
   let result = fallback
   let modelUsed: string | null = null
-  await recordAiCall({
-    provider: 'Gemini-AI',
-    message: `Gemini-AI analysis requested for ${symbol}.`,
-    payload: { model: 'google/gemini-2.5-flash', route: 'insight' },
-  })
+  let aiErrorMessage: string | null = null
+  let aiErrorDetails: string | undefined
   try {
     const { text } = await generateText({
       model: 'google/gemini-2.5-flash',
@@ -91,9 +88,27 @@ export async function GET(request: NextRequest) {
     if (signal && lines[1]) {
       result = { signal, rationale: lines.slice(1).join(' ').slice(0, 240) }
       modelUsed = 'google/gemini-2.5-flash'
+    } else {
+      aiErrorMessage = `Gemini-AI returned an unreadable signal for ${symbol}; rules engine used.`
     }
-  } catch {
+  } catch (error) {
     result = fallback
+    aiErrorMessage = `Gemini-AI analysis failed for ${symbol}; rules engine used.`
+    aiErrorDetails = error instanceof Error ? error.message.slice(0, 180) : 'Unknown model error'
+  }
+
+  if (aiErrorMessage) {
+    await recordAiError({
+      provider: 'Gemini-AI',
+      symbol,
+      message: aiErrorMessage,
+      payload: {
+        model: 'google/gemini-2.5-flash',
+        route: 'insight',
+        fallback: 'rules-engine',
+        ...(aiErrorDetails ? { error: aiErrorDetails } : {}),
+      },
+    })
   }
 
   return NextResponse.json({
