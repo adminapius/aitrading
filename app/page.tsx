@@ -35,6 +35,11 @@ function isScanWindow(date: Date) {
   return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(weekday ?? '') && (hour > 7 || (hour === 7 && minute >= 0)) && (hour < 15 || (hour === 15 && minute < 55))
 }
 
+function easternDateKey(date: Date) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date)
+  return ['year', 'month', 'day'].map((type) => parts.find((part) => part.type === type)?.value).join('-')
+}
+
 function PnlSparkline({ values }: { values: number[] }) {
   const points = values.length > 1 ? values.slice(-80) : [values[0] ?? 0, values[0] ?? 0]
   const min = Math.min(...points)
@@ -107,6 +112,7 @@ function Chart({ symbol }: { symbol: string }) {
 export default function Home() {
   const [selectedSymbol, setSelectedSymbol] = useState('AMZN')
   const [now, setNow] = useState<Date | null>(null)
+  const autoSelectedScanDay = useRef<string | null>(null)
   const [filter, setFilter] = useState('')
   const { data: scanData, error: scanError } = useSWR<ScanData>('/api/scan?top=25', fetcher, { refreshInterval: () => isScanWindow(new Date()) ? 30000 : 0, revalidateOnFocus: true })
   const { data: insightData, isLoading: insightLoading } = useSWR<InsightData>(selectedSymbol ? `/api/insight?symbol=${encodeURIComponent(selectedSymbol)}` : null, fetcher, { revalidateOnFocus: false })
@@ -136,6 +142,13 @@ export default function Home() {
   useEffect(() => {
     if (now && !isScanWindow(now) && selectedSymbol !== 'AMZN') setSelectedSymbol('AMZN')
   }, [now, selectedSymbol])
+  useEffect(() => {
+    if (!now || !scanWindowOpen || !scanData?.scannedAt || !scanData.candidates?.length) return
+    const today = easternDateKey(now)
+    if (easternDateKey(new Date(scanData.scannedAt)) !== today || autoSelectedScanDay.current === today) return
+    autoSelectedScanDay.current = today
+    setSelectedSymbol(scanData.candidates[0].symbol)
+  }, [now, scanData, scanWindowOpen])
   const displayNow = now ?? new Date(0)
   const etTime = now ? new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }).format(now) : '—'
   const etDate = now ? new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' }).format(now) : '—'
