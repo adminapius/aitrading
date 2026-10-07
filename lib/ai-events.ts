@@ -93,7 +93,7 @@ export async function recordDailyAiSummary(dayStart: Date, now: Date) {
   const errorSummary = activity.errorCount
     ? ` ${activity.errorCount} AI error(s) recorded.`
     : ' No AI errors recorded.'
-  const message = `AI calls today — Gemini-AI: ${activity.calls['Gemini-AI']}; Claude-AI: ${activity.calls['Claude-AI']}.${errorSummary}`
+  const message = `Gemini-AI Call: ${activity.calls['Gemini-AI']}, Claude-AI: ${activity.calls['Claude-AI']}.${errorSummary}`
   const response = await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`, {
     method: 'POST',
     headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },

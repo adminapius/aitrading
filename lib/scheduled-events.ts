@@ -100,7 +100,7 @@ export async function recordScheduleEvent(action: ScheduleEventAction, now = new
   await persistScheduleSession(action, now)
 
   const message = action === 'wake'
-    ? "AI trading App is AWAKE NOW let's make this day GREEN DAY!"
+    ? "AI trading App is AWAKE NOW let's make this day GREEN DAY! :)"
     : 'AI trading App is SLEEPING NOW, be back on 7am ET.'
   const insertResponse = await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`, {
     method: 'POST',
@@ -266,7 +266,7 @@ export function scheduledEventSymbol(action: ScheduleEventAction) {
 
 export function scheduledEventMessage(action: ScheduleEventAction) {
   return action === 'wake'
-    ? "AI trading App is AWAKE NOW let's make this day GREEN DAY!"
+    ? "AI trading App is AWAKE NOW let's make this day GREEN DAY! :)"
     : 'AI trading App is SLEEPING NOW, be back on 7am ET.'
 }
 

@@ -52,7 +52,8 @@ export async function GET(request: NextRequest) {
       if (rows.length < batchSize) break
     }
 
-    return NextResponse.json({ events: Array.from(uniqueEvents.values()).slice(0, limit), aiCalls, aiCallsError })
+    const events = Array.from(uniqueEvents.values()).slice(0, limit).reverse()
+    return NextResponse.json({ events, aiCalls, aiCallsError })
   } catch {
     return NextResponse.json({ events: [], aiCalls, aiCallsError, degraded: true, degradedReason: 'Supabase event-history request could not be completed' })
   }
