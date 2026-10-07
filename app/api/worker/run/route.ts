@@ -4,7 +4,7 @@ import { supabaseHeaders, tradingConfig } from '@/lib/trading-config'
 import { sendTradingNotification } from '@/lib/notifications'
 import { recordScheduleEvent, scheduleWindowAction } from '@/lib/scheduled-events'
 import { claimScanLease, ensureScanSession, releaseScanLease } from '@/lib/scan-lock'
-import { expectedScanIntervalSeconds, scanConfig } from '@/lib/scan-config'
+import { minimumScanLeaseIntervalSeconds, scanConfig } from '@/lib/scan-config'
 import { decideEntry, isFlattenWindow, isTradingWindow, normalizeFloatShares, scoreCandidate, strategyGuardrails, type ScanCandidate } from '@/lib/strategy'
 
 export const dynamic = 'force-dynamic'
@@ -64,6 +64,7 @@ async function writeScanEvent(eventType: string, message: string, context: Parti
 
 async function persistWorkerActivity(evaluations: Evaluation[], context: ScanContext) {
   let persistenceWarning: string | null = null
+  let scanRowsWritten = 0
   if (evaluations.length) {
     const scanRows = evaluations.map(({ candidate, decision }) => {
       const averageVolume = candidate.averageVolume ?? 0
@@ -125,6 +126,7 @@ async function persistWorkerActivity(evaluations: Evaluation[], context: ScanCon
       cache: 'no-store',
     })
     if (!scansResponse.ok) persistenceWarning = `Supabase enriched scan write failed (${scansResponse.status})`
+    else scanRowsWritten = scanRows.length
 
     const incompleteRows = evaluations.filter(({ candidate }) => (candidate.enrichmentErrors?.length ?? 0) > 0)
     if (incompleteRows.length) {
@@ -186,7 +188,7 @@ async function persistWorkerActivity(evaluations: Evaluation[], context: ScanCon
   } catch (error) {
     persistenceWarning ??= error instanceof Error ? error.message : 'Supabase scan completion event could not be written'
   }
-  return persistenceWarning
+  return { persistenceWarning, scanRowsWritten }
 }
 
 export async function POST(request: NextRequest) {
@@ -217,7 +219,7 @@ export async function POST(request: NextRequest) {
 
   let leaseStatus: 'acquired' | 'busy' | 'cooldown'
   try {
-    leaseStatus = await claimScanLease(ownerToken, scanConfig.leaseSeconds, expectedScanIntervalSeconds(now))
+    leaseStatus = await claimScanLease(ownerToken, scanConfig.leaseSeconds, minimumScanLeaseIntervalSeconds(now))
   } catch (error) {
     console.error('[worker] scan lease could not be acquired', { scanId, error })
     return NextResponse.json({ status: 'scan_lock_unavailable', error: 'Distributed scan lock is unavailable; no scan was run.' }, { status: 503 })
@@ -229,6 +231,7 @@ export async function POST(request: NextRequest) {
   let sessionId: string | null = null
   let outcome: ScanOutcome = { status: 'failed', scannedCandidates: candidates.length, buyCandidates: 0 }
   let persistenceWarning: string | null = null
+  let scanRowsWritten = 0
   const context: Partial<ScanContext> = { scanId, triggerSource, startedAt: scanStartedAt }
   try {
     sessionId = await ensureScanSession(now)
@@ -278,7 +281,9 @@ export async function POST(request: NextRequest) {
     const buyCount = evaluations.filter(({ decision }) => decision.action === 'buy').length
     const durationMs = Math.max(0, Date.now() - scanStartedAt.getTime())
     const scanContext: ScanContext = { scanId, sessionId, triggerSource, startedAt: scanStartedAt, durationMs }
-    persistenceWarning = await persistWorkerActivity(evaluations, scanContext)
+    const persistence = await persistWorkerActivity(evaluations, scanContext)
+    persistenceWarning = persistence.persistenceWarning
+    scanRowsWritten = persistence.scanRowsWritten
     const notificationResults = body.notify && buyCount
       ? await sendTradingNotification({ title: 'AItrading paper scan', message: `${buyCount} paper decision(s) ready: ${evaluations.filter(({ decision }) => decision.action === 'buy').map(({ decision }) => `BUY ${decision.symbol}`).join(', ')}` })
       : []
@@ -291,6 +296,7 @@ export async function POST(request: NextRequest) {
       triggerSource,
       scanDurationMs: durationMs,
       scannedCandidates: candidates.length,
+      scanRowsWritten,
       decisions: evaluations.filter(({ decision }) => decision.action !== 'hold').map(({ decision }) => decision),
       notificationResults,
       requiresOrderReview: true,

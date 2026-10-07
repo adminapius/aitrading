@@ -29,3 +29,7 @@ export function expectedScanIntervalSeconds(now: Date) {
   }).format(now))
   return hour < 11 ? 15 : 30
 }
+
+export function minimumScanLeaseIntervalSeconds(now: Date) {
+  return Math.max(1, expectedScanIntervalSeconds(now) - 3)
+}
