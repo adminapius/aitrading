@@ -9,7 +9,7 @@ type ScanData = { candidates?: Stock[]; scannedAt?: string; source?: string; err
 type InsightData = { symbol?: string; price?: number; changePercent?: number | null; signal?: string; rationale?: string; analysisSource?: string; headline?: { title: string; source?: string; publishedAt?: string; url?: string } | null; error?: string }
 type PnlHistoryData = { points?: number[]; degraded?: boolean }
 type AccountData = { account?: { equity?: number; cash_balance?: number; realized_pnl?: number; unrealized_pnl?: number } | null; degraded?: boolean; degradedReason?: string }
-type EventData = { events?: Array<{ id: string; level: string; event_type: string; message: string; created_at: string }>; degraded?: boolean; degradedReason?: string }
+type EventData = { events?: Array<{ id: string; level: string; event_type: string; message: string; created_at: string; symbol?: string | null }>; aiCalls?: { 'Gemini-AI': number; 'Claude-AI': number }; aiCallsError?: string; degraded?: boolean; degradedReason?: string }
 type PositionData = { positions?: Array<{ id: string; symbol: string; side: string; quantity: number; entry_price: number; current_price?: number; stop_price?: number; target_price?: number; unrealized_pnl?: number }>; degraded?: boolean; degradedReason?: string }
 type IndexData = { indices?: Array<{ symbol: string; name: string; price: number; changePercent: number }> }
 type LatencyData = { providers?: Array<{ name: string; ok: boolean; ms: number; error?: string }> }
@@ -33,11 +33,6 @@ function isScanWindow(date: Date) {
   const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? 0)
   const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? 0)
   return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(weekday ?? '') && (hour > 7 || (hour === 7 && minute >= 0)) && (hour < 15 || (hour === 15 && minute < 55))
-}
-
-function easternDateKey(date: Date) {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date)
-  return ['year', 'month', 'day'].map((type) => parts.find((part) => part.type === type)?.value).join('-')
 }
 
 function PnlSparkline({ values }: { values: number[] }) {
@@ -111,11 +106,11 @@ function Chart({ symbol }: { symbol: string }) {
 
 export default function Home() {
   const [selectedSymbol, setSelectedSymbol] = useState('AMZN')
+  const scanWindowWasOpen = useRef(false)
   const [now, setNow] = useState<Date | null>(null)
-  const autoSelectedScanDay = useRef<string | null>(null)
   const [filter, setFilter] = useState('')
   const { data: scanData, error: scanError } = useSWR<ScanData>('/api/scan?top=25', fetcher, { refreshInterval: () => isScanWindow(new Date()) ? 30000 : 0, revalidateOnFocus: true })
-  const { data: insightData, isLoading: insightLoading } = useSWR<InsightData>(selectedSymbol ? `/api/insight?symbol=${encodeURIComponent(selectedSymbol)}` : null, fetcher, { revalidateOnFocus: false })
+  const { data: insightData, isLoading: insightLoading } = useSWR<InsightData>(now && isScanWindow(now) && selectedSymbol ? `/api/insight?symbol=${encodeURIComponent(selectedSymbol)}` : null, fetcher, { revalidateOnFocus: false })
   const { data: pnlHistory } = useSWR<PnlHistoryData>('/api/pnl-history', fetcher, { refreshInterval: 30000, revalidateOnFocus: true })
   const { data: indexData } = useSWR<IndexData>('/api/indices', fetcher, { refreshInterval: 15000, revalidateOnFocus: true })
   const { data: latencyData } = useSWR<LatencyData>('/api/latency', fetcher, { refreshInterval: 15000, revalidateOnFocus: true })
@@ -131,7 +126,7 @@ export default function Home() {
   const selected = stocks.find((stock) => stock.symbol === selectedSymbol) ?? null
   const accountPnl = (liveAccount?.realized_pnl ?? 0) + (liveAccount?.unrealized_pnl ?? 0)
   const pnlPoints = [...(pnlHistory?.points?.length ? pnlHistory.points : [0]), accountPnl]
-  const displayedEvents = liveEvents.map((event) => [new Date(event.created_at).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour12: false }), event.event_type, event.message, event.level.toLowerCase()] as const)
+  const displayedEvents = liveEvents.map((event) => ({ ...event, time: new Date(event.created_at).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase().replace(' ', '') }))
 
   useEffect(() => {
     const updateClock = () => setNow(new Date())
@@ -140,15 +135,11 @@ export default function Home() {
     return () => window.clearInterval(timer)
   }, [])
   useEffect(() => {
-    if (now && !isScanWindow(now) && selectedSymbol !== 'AMZN') setSelectedSymbol('AMZN')
-  }, [now, selectedSymbol])
-  useEffect(() => {
-    if (!now || !scanWindowOpen || !scanData?.scannedAt || !scanData.candidates?.length) return
-    const today = easternDateKey(now)
-    if (easternDateKey(new Date(scanData.scannedAt)) !== today || autoSelectedScanDay.current === today) return
-    autoSelectedScanDay.current = today
-    setSelectedSymbol(scanData.candidates[0].symbol)
-  }, [now, scanData, scanWindowOpen])
+    if (!now) return
+    const wasOpen = scanWindowWasOpen.current
+    scanWindowWasOpen.current = scanWindowOpen
+    if (wasOpen && !scanWindowOpen) setSelectedSymbol('AMZN')
+  }, [now, scanWindowOpen])
   const displayNow = now ?? new Date(0)
   const etTime = now ? new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }).format(now) : '—'
   const etDate = now ? new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' }).format(now) : '—'
@@ -183,8 +174,8 @@ export default function Home() {
           <div className="signal-strip"><div className="signal-main"><Sparkles /><div><span>AI SIGNAL · {insightData?.symbol ?? selectedSymbol}</span><strong>{insightLoading ? 'Analyzing selected symbol…' : insightData?.signal ?? 'AI analysis unavailable'}</strong><small>{insightData?.analysisSource ? `${insightData.analysisSource} · ` : ''}{insightData?.rationale ?? insightData?.error ?? 'Analysis only · no paper orders are submitted.'}</small></div></div><div className="signal-stat signal-context"><span>HEADLINE · {insightData?.symbol ?? selectedSymbol}</span>{insightData?.headline?.url ? <a href={insightData.headline.url} target="_blank" rel="noreferrer" title={insightData.headline.title}>{insightData.headline.title}</a> : <strong>{insightLoading ? 'Checking current headlines…' : insightData?.headline?.title ?? 'No recent headline for this symbol.'}</strong>}</div><div className="signal-stat"><span>Selected Mover</span><strong>{selectedSymbol}</strong></div><div className="signal-stat"><span>Price Change</span><strong className={(insightData?.changePercent ?? selected?.changePercent ?? 0) >= 0 ? 'positive' : 'negative'}>{(insightData?.changePercent ?? selected?.changePercent) == null ? '—' : `${(insightData?.changePercent ?? selected?.changePercent ?? 0) >= 0 ? '+' : ''}${(insightData?.changePercent ?? selected?.changePercent ?? 0).toFixed(2)}%`}</strong></div></div>
         </section>
         <aside className="right-rail">
-          <section className="panel watchlist-panel"><div className="panel-title scanner-title"><span>SCANNED STOCKS ({stocks.length})</span><span className="scan-status"><i />{isFlattening ? 'FLATTEN' : scanError && scanWindowOpen ? 'FEED OFF · NEXT SCAN —' : nextScanLabel}</span></div><div className="search-box"><Search /><input placeholder="Filter symbols…" aria-label="Filter symbols" value={filter} onChange={(event) => setFilter(event.target.value)} /></div><div className="watchlist">{filteredStocks.length ? filteredStocks.map((stock) => <button key={stock.symbol} onClick={() => setSelectedSymbol(stock.symbol)} className={`stock-row ${selected?.symbol === stock.symbol ? 'selected' : ''}`}><div className="stock-left"><span className={`stock-mover-change ${stock.changePercent != null && stock.changePercent >= 0 ? 'positive' : 'negative'}`}>{stock.changePercent == null ? '—' : `${stock.changePercent >= 0 ? '+' : ''}${stock.changePercent.toFixed(1)}%`}</span><div><strong>{stock.symbol}</strong><small>Volume {formatVolume(stock.volume)}</small></div></div><div className="stock-price"><strong>${stock.price.toFixed(2)}</strong></div></button>) : <div className="empty-position">{!scanWindowOpen ? 'Scanner sleeps until 7:00 AM ET.' : scanError ? 'Alpaca market mover feed is unavailable.' : scanData ? 'No market movers returned.' : 'Loading live market movers…'}</div>}</div></section>
-          <section className="panel events-panel"><div className="panel-title"><span>LIVE EVENT LOG</span></div><div className="events">{displayedEvents.length ? displayedEvents.map(([time, type, message, tone], index) => <div className="event" key={`${time}-${type}-${index}`}><span className="event-time">{time}</span><span className={`event-type ${type.toLowerCase().replace(/\s+/g, '-')}-${tone}`}>{type}</span><p>{message}</p></div>) : <div className="empty-position">{eventData?.degraded ? eventData.degradedReason ?? 'Event history unavailable' : eventData ? 'No events have been recorded.' : 'Loading event history…'}</div>}</div></section>
+          <section className="panel watchlist-panel"><div className="panel-title scanner-title"><span>SCANNED STOCKS ({stocks.length})</span><span className="scan-status"><i />{isFlattening ? 'FLATTEN' : scanError && scanWindowOpen ? 'FEED OFF · NEXT SCAN —' : nextScanLabel}</span></div><div className="search-box"><Search /><input placeholder="Filter symbols…" aria-label="Filter symbols" value={filter} onChange={(event) => setFilter(event.target.value)} /></div><div className="watchlist">{filteredStocks.length ? filteredStocks.map((stock) => <button key={stock.symbol} onClick={() => setSelectedSymbol(stock.symbol)} className={`stock-row ${selected?.symbol === stock.symbol ? 'selected' : ''}`}><div className="stock-left"><span className={`stock-mover-change ${stock.changePercent != null && stock.changePercent >= 0 ? 'positive' : 'negative'}`}>{stock.changePercent == null ? '—' : `${stock.changePercent >= 0 ? '+' : ''}${stock.changePercent.toFixed(1)}%`}</span><div><strong>{stock.symbol}</strong><small>Volume {formatVolume(stock.volume)}</small></div></div><div className="stock-price"><strong>${stock.price.toFixed(2)}</strong></div></button>) : <div className="empty-position">{!scanWindowOpen ? '' : scanError ? 'Alpaca market mover feed is unavailable.' : scanData ? 'No market movers returned.' : 'Loading live market movers…'}</div>}</div></section>
+          <section className="panel events-panel"><div className="panel-title"><span>LIVE EVENT LOG</span><span className="ai-call-totals" aria-label={`AI calls since 4:00 AM ET — Gemini ${eventData?.aiCalls?.['Gemini-AI'] ?? 'unavailable'}, Claude ${eventData?.aiCalls?.['Claude-AI'] ?? 'unavailable'}`}>AI CALLS · G {eventData?.aiCalls?.['Gemini-AI'] ?? '—'} / C {eventData?.aiCalls?.['Claude-AI'] ?? '—'}</span></div><div className="events">{displayedEvents.length ? displayedEvents.map((event) => <div className="event" key={event.id}><span className="event-time">{event.time}</span><span className={`event-type ${event.event_type.toLowerCase().replace(/[_\s]+/g, '-')}-${event.level.toLowerCase()}`}>{event.event_type}</span><p>{event.message}</p></div>) : <div className="empty-position">{eventData?.degraded ? eventData.degradedReason ?? 'Event history unavailable' : eventData ? '' : 'Loading event history…'}</div>}</div></section>
         </aside>
       </div>
     </main>

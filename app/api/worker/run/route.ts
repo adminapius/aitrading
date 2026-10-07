@@ -164,7 +164,7 @@ async function persistWorkerActivity(evaluations: Evaluation[], checkedAt: Date)
     if (!scansResponse.ok) persistenceWarning = `Supabase enriched scan write failed (${scansResponse.status})`
   }
 
-  const persistedEvaluations = evaluations.filter(({ candidate }) => candidate.symbol !== 'AMZN')
+  const persistedEvaluations = evaluations
   if (persistedEvaluations.length) {
     const signalsResponse = await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_strategy_signals`, {
       method: 'POST',
@@ -204,7 +204,7 @@ async function persistWorkerActivity(evaluations: Evaluation[], checkedAt: Date)
       level: buyCount ? 'success' : 'info',
       event_type: 'STRATEGY_SCAN',
       message: `Evaluated ${evaluations.length} symbols; ${buyCount} passed paper guardrails. No orders were submitted.`,
-      payload: { evaluated: evaluations.length, persistedSignals: persistedEvaluations.length, omittedAmznSignals: evaluations.length - persistedEvaluations.length, buyCandidates: buyCount },
+      payload: { evaluated: evaluations.length, persistedSignals: persistedEvaluations.length, buyCandidates: buyCount },
       created_at: checkedAt.toISOString(),
     }),
     signal: AbortSignal.timeout(5000),

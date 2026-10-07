@@ -10,12 +10,6 @@ type AiEventInput = {
   payload?: Record<string, unknown>
 }
 
-type DailyAiEvent = {
-  event_type: AiEventType
-  symbol: AiProvider | null
-  message: string
-  created_at: string
-}
 
 export async function recordAiEvent({ eventType, provider, message, payload = {} }: AiEventInput) {
   if (getSupabaseConfigurationError()) return false
@@ -40,32 +34,44 @@ export async function recordAiEvent({ eventType, provider, message, payload = {}
   }
 }
 
+async function countDailyAiEvents(dayStart: Date, eventType: 'AI_CALL' | 'AI_ERROR', provider?: AiProvider) {
+  const url = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`)
+  const params = new URLSearchParams({
+    select: 'id',
+    event_type: `eq.${eventType}`,
+    created_at: `gte.${dayStart.toISOString()}`,
+  })
+  if (provider) params.set('symbol', `eq.${provider}`)
+  url.search = params.toString()
+
+  const response = await fetch(url, {
+    headers: { ...supabaseHeaders(), Prefer: 'count=exact', Range: '0-0', 'Range-Unit': 'items' },
+    signal: AbortSignal.timeout(5000),
+    cache: 'no-store',
+  })
+  if (!response.ok) throw new Error(`Supabase AI activity query failed (${response.status}).`)
+
+  const total = response.headers.get('content-range')?.split('/').at(-1)
+  if (!total || total === '*' || !/^\d+$/.test(total)) throw new Error('Supabase did not return an exact AI activity count.')
+  return Number(total)
+}
+
+export async function getDailyAiCallCounts(dayStart: Date) {
+  if (getSupabaseConfigurationError()) throw new Error('Supabase is not configured for AI activity history.')
+
+  const providers: AiProvider[] = ['Gemini-AI', 'Claude-AI']
+  const counts = await Promise.all(providers.map((provider) => countDailyAiEvents(dayStart, 'AI_CALL', provider)))
+  return Object.fromEntries(providers.map((provider, index) => [provider, counts[index]])) as Record<AiProvider, number>
+}
+
 export async function getDailyAiActivity(dayStart: Date) {
   if (getSupabaseConfigurationError()) throw new Error('Supabase is not configured for AI activity history.')
 
-  const url = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`)
-  url.search = new URLSearchParams({
-    select: 'event_type,symbol,message,created_at',
-    event_type: 'in.(AI_CALL,AI_ERROR)',
-    created_at: `gte.${dayStart.toISOString()}`,
-    order: 'created_at.asc',
-    limit: '1000',
-  }).toString()
-
-  const response = await fetch(url, { headers: supabaseHeaders(), signal: AbortSignal.timeout(5000), cache: 'no-store' })
-  if (!response.ok) throw new Error(`Supabase AI activity query failed (${response.status}).`)
-
-  const events = await response.json() as DailyAiEvent[]
-  const providers: AiProvider[] = ['Gemini-AI', 'Claude-AI']
-  const calls = Object.fromEntries(providers.map((provider) => [
-    provider,
-    events.filter((event) => event.event_type === 'AI_CALL' && event.symbol === provider).length,
-  ])) as Record<AiProvider, number>
-  const errors = events
-    .filter((event) => event.event_type === 'AI_ERROR')
-    .map(({ symbol, message, created_at }) => ({ provider: symbol, message, created_at }))
-
-  return { calls, errors }
+  const [calls, errorCount] = await Promise.all([
+    getDailyAiCallCounts(dayStart),
+    countDailyAiEvents(dayStart, 'AI_ERROR'),
+  ])
+  return { calls, errorCount }
 }
 
 export async function recordDailyAiSummary(dayStart: Date, now: Date) {
@@ -84,23 +90,23 @@ export async function recordDailyAiSummary(dayStart: Date, now: Date) {
   if (existing.length) return { recorded: false, duplicate: true }
 
   const activity = await getDailyAiActivity(dayStart)
-  const errorSummary = activity.errors.length
-    ? ` ${activity.errors.length} AI error(s) recorded.`
+  const errorSummary = activity.errorCount
+    ? ` ${activity.errorCount} AI error(s) recorded.`
     : ' No AI errors recorded.'
-  const message = `AI calls today — Gemini-AI: ${activity.calls['Gemini-AI']}; Claude-AI: ${activity.calls['Claude-AI']}.${errorSummary}`
+  const message = `Gemini-AI Call: ${activity.calls['Gemini-AI']}, Claude-AI: ${activity.calls['Claude-AI']}.${errorSummary}`
   const response = await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`, {
     method: 'POST',
     headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
     body: JSON.stringify({
-      level: activity.errors.length ? 'warning' : 'info',
+      level: activity.errorCount ? 'warning' : 'info',
       event_type: 'AI_DAILY_SUMMARY',
       message,
-      payload: { calls: activity.calls, errors: activity.errors, dayStart: dayStart.toISOString() },
+      payload: { calls: activity.calls, errorCount: activity.errorCount, dayStart: dayStart.toISOString() },
       created_at: now.toISOString(),
     }),
     signal: AbortSignal.timeout(5000),
     cache: 'no-store',
   })
   if (!response.ok) throw new Error(`Supabase AI summary write failed (${response.status}).`)
-  return { recorded: true, calls: activity.calls, errors: activity.errors.length }
+  return { recorded: true, calls: activity.calls, errors: activity.errorCount }
 }

@@ -14,6 +14,23 @@ function easternDayStart(now: Date) {
   return new Date(utcGuess - (probeAsLocalUtc - utcGuess))
 }
 
+export function easternFourAmStart(now: Date) {
+  const { year, month, day } = easternSchedule(now)
+  const targetAsUtc = Date.UTC(year, month - 1, day, 4)
+  const probe = easternSchedule(new Date(targetAsUtc))
+  const probeAsUtc = Date.UTC(probe.year, probe.month - 1, probe.day, probe.hour, probe.minute)
+  const firstGuess = new Date(targetAsUtc - (probeAsUtc - targetAsUtc))
+  const verified = easternSchedule(firstGuess)
+  const verifiedAsUtc = Date.UTC(verified.year, verified.month - 1, verified.day, verified.hour, verified.minute)
+  return new Date(firstGuess.getTime() + targetAsUtc - verifiedAsUtc)
+}
+
+export function easternFourAmCutoff(now: Date) {
+  const schedule = easternSchedule(now)
+  const cutoffDate = new Date(Date.UTC(schedule.year, schedule.month - 1, schedule.day - (schedule.minuteOfDay < 4 * 60 ? 1 : 0), 12))
+  return easternFourAmStart(cutoffDate)
+}
+
 async function persistScheduleSession(action: ScheduleEventAction, now: Date) {
   const sessionsUrl = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_sessions`)
   sessionsUrl.search = new URLSearchParams({
@@ -79,11 +96,11 @@ export async function recordScheduleEvent(action: ScheduleEventAction, now = new
   const existing = await existingResponse.json() as Array<{ id: number }>
   if (existing.length) return { recorded: false, duplicate: true }
 
-  if (action === 'sleep') await recordDailyAiSummary(easternDayStart(now), now)
+  if (action === 'sleep') await recordDailyAiSummary(easternFourAmStart(now), now)
   await persistScheduleSession(action, now)
 
   const message = action === 'wake'
-    ? "AI trading App is AWAKE NOW let's make this day GREEN DAY!"
+    ? "AI trading App is AWAKE NOW let's make this day GREEN DAY! :)"
     : 'AI trading App is SLEEPING NOW, be back on 7am ET.'
   const insertResponse = await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`, {
     method: 'POST',
@@ -93,12 +110,6 @@ export async function recordScheduleEvent(action: ScheduleEventAction, now = new
   })
   if (!insertResponse.ok) throw new Error(`Supabase schedule-event write failed (${insertResponse.status})`)
   return { recorded: true }
-}
-
-export function easternFourAmCutoff(now: Date) {
-  const schedule = easternSchedule(now)
-  const cutoffDay = new Date(Date.UTC(schedule.year, schedule.month - 1, schedule.day - (schedule.minuteOfDay < 4 * 60 ? 1 : 0)))
-  return cutoffDay.toISOString().slice(0, 10)
 }
 
 export function easternDateKey(now: Date) {
@@ -119,9 +130,7 @@ export function easternMinuteFromTimestamp(timestamp: string) {
 }
 
 export function shouldShowEventAfterFourAm(timestamp: string, now: Date) {
-  const eventDay = easternDateKeyFromTimestamp(timestamp)
-  const cutoffDay = easternFourAmCutoff(now)
-  return eventDay > cutoffDay || (eventDay === cutoffDay && easternMinuteFromTimestamp(timestamp) >= 4 * 60)
+  return new Date(timestamp).getTime() >= easternFourAmCutoff(now).getTime()
 }
 
 export function eventActionAtSchedule(action: ScheduleEventAction, now: Date) {
@@ -257,7 +266,7 @@ export function scheduledEventSymbol(action: ScheduleEventAction) {
 
 export function scheduledEventMessage(action: ScheduleEventAction) {
   return action === 'wake'
-    ? "AI trading App is AWAKE NOW let's make this day GREEN DAY!"
+    ? "AI trading App is AWAKE NOW let's make this day GREEN DAY! :)"
     : 'AI trading App is SLEEPING NOW, be back on 7am ET.'
 }
 
