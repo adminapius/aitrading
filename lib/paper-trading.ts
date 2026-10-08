@@ -1,10 +1,11 @@
-import { alpacaHeaders, supabaseHeaders, tradingConfig } from '@/lib/trading-config'
-import { scanConfig } from '@/lib/scan-config'
-export { paperExitLevels, paperExitReason, paperExitRequestedPrice } from './paper-exits'
+import { alpacaHeaders, supabaseHeaders, tradingConfig } from './trading-config.ts'
+import { scanConfig } from './scan-config.ts'
+export { paperExitLevels, paperExitReason, paperExitRequestedPrice } from './paper-exits.ts'
 
 export type PaperPosition = {
   id: string
   symbol: string
+  opened_at?: string
   quantity: number | string
   entry_price: number | string
   current_price?: number | string | null

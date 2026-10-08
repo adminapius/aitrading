@@ -32,6 +32,8 @@ export function normalizeFloatShares(value: number | null | undefined, source: S
   return normalized
 }
 
+export type StrategyRegimeName = 'opening-momentum' | 'premarket-continuation' | 'news-reaction' | 'midday-selective' | 'late-continuation' | 'exits-only'
+
 export type TradeDecision = {
   action: 'enter' | 'sell' | 'hold'
   symbol: string

@@ -79,7 +79,9 @@ export async function recordDailyAiSummary(dayStart: Date, now: Date) {
   if (existing.length) return { recorded: false, duplicate: true }
 
   const calls = await getDailyAiCallCounts(dayStart)
-  const message = `Gemini-AI Call: ${calls['Gemini-AI']}, Claude-AI: ${calls['Claude-AI']}.`
+  const message = calls['Gemini-AI'] === 0 && calls['Claude-AI'] === 0
+    ? 'Gemini-AI calls: 0; Claude-AI calls: 0. No selected-symbol AI analysis ran today; scanner decisions use fixed rule-based criteria.'
+    : `Gemini-AI calls: ${calls['Gemini-AI']}; Claude-AI calls: ${calls['Claude-AI']}. Candidate scanning uses fixed rule-based criteria; AI analysis runs only for selected-symbol requests.`
   const response = await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`, {
     method: 'POST',
     headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },

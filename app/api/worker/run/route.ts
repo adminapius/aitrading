@@ -6,7 +6,8 @@ import { recordScheduleEvent, scheduleWindowAction } from '@/lib/scheduled-event
 import { claimScanLease, ensureScanSession, releaseScanLease } from '@/lib/scan-lock'
 import { minimumScanLeaseIntervalSeconds, scanConfig } from '@/lib/scan-config'
 import { closePaperPosition, loadFreshPaperMarketMarks, loadOpenPaperPositions, markPaperPosition, openPaperPosition, paperExecutionGuardrails, paperExitLevels, paperExitReason, paperExitRequestedPrice, positionExposure } from '@/lib/paper-trading'
-import { decideEntry, isFlattenWindow, isTradingWindow, normalizeFloatShares, scoreCandidate, simulatedMarginBuyingPower, strategyGuardrails, type ScanCandidate } from '@/lib/strategy'
+import { decideEntry, isFlattenWindow, isTradingWindow, normalizeFloatShares, scoreCandidate, simulatedMarginBuyingPower, strategyGuardrails, strategyRegime, type ScanCandidate } from '@/lib/strategy'
+import { attachElliottRealExit, runElliottShadowPass } from '@/lib/elliott-wave-shadow'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -86,6 +87,22 @@ async function updateScanRun(scanId: string, fields: Record<string, unknown>) {
     cache: 'no-store',
   })
   if (!response.ok) throw new Error(`Supabase scan heartbeat update failed (${response.status})`)
+}
+
+async function findPaperEntryTradeId(positionId: string) {
+  const url = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_trades`)
+  url.search = new URLSearchParams({
+    select: 'id',
+    position_id: `eq.${positionId}`,
+    side: 'eq.buy',
+    status: 'eq.filled',
+    order: 'filled_at.desc',
+    limit: '1',
+  }).toString()
+  const response = await fetch(url, { headers: supabaseHeaders(), signal: AbortSignal.timeout(5_000), cache: 'no-store' })
+  if (!response.ok) throw new Error(`Paper entry trade lookup failed (${response.status})`)
+  const [trade] = await response.json() as Array<{ id: string }>
+  return trade?.id ?? null
 }
 
 async function persistWorkerActivity(evaluations: Evaluation[], context: ScanContext) {
@@ -210,7 +227,7 @@ async function persistWorkerActivity(evaluations: Evaluation[], context: ScanCon
   try {
     await writeScanEvent(
       'STRATEGY_SCAN',
-      `Evaluated ${evaluations.length} symbols; ${buyCount} passed paper guardrails for paper-only execution.`,
+      `Strategy scan: ${evaluations.length} candidates evaluated; ${buyCount} met entry criteria. Paper guardrails are simulated-account risk/exposure limits; no live brokerage orders were sent.`,
       context,
       { scannedCandidates: evaluations.length, buyCandidates: buyCount, scanDurationMs: context.durationMs },
     )
@@ -264,6 +281,7 @@ export async function POST(request: NextRequest) {
   let persistenceWarning: string | null = null
   let scanRowsWritten = 0
   const paperExecutions: Array<{ symbol: string; status: string; reason?: string; positionId?: string; fillPrice?: number }> = []
+  const realExitComparisons = new Map<string, { exitReason: string; fillPrice: number; realizedPnl: number }>()
   const context: Partial<ScanContext> = { scanId, triggerSource, startedAt: scanStartedAt }
   try {
     await createScanRun(scanId, triggerSource, now)
@@ -326,7 +344,14 @@ export async function POST(request: NextRequest) {
           scanId,
         },
       })
-      if (closeResult.status === 'closed') outcome.positionsExited += 1
+      if (closeResult.status === 'closed') {
+        outcome.positionsExited += 1
+        const realizedPnl = closeResult.realizedPnl ?? (fillPrice - Number(position.entry_price)) * Number(position.quantity)
+        realExitComparisons.set(position.symbol, { exitReason, fillPrice, realizedPnl })
+        await attachElliottRealExit({ positionId: position.id, symbol: position.symbol, exitReason, fillPrice, realizedPnl, at: now }).catch((error) => {
+          console.warn('[worker] Elliott real-exit comparison could not be updated', { symbol: position.symbol, error })
+        })
+      }
       if (closeResult.status !== 'closed' && closeResult.status !== 'already_executed') {
         allOpenPositionsMarked = false
         paperExecutions.push({ symbol: position.symbol, status: closeResult.status, reason: closeResult.reason ?? exitReason })
@@ -418,6 +443,7 @@ export async function POST(request: NextRequest) {
             minimumMarginEquity: strategyGuardrails.minimumMarginEquity,
             reentryCooldownMinutes: strategyGuardrails.reentryCooldownMinutes,
             entryMetadata: {
+              regime: strategyRegime(now).name,
               observedAsk: mark.ask,
               slippage: fillPrice - mark.ask,
               liquidityCap: null,
@@ -430,6 +456,40 @@ export async function POST(request: NextRequest) {
           persistenceWarning ??= reason
           paperExecutions.push({ symbol: candidate.symbol, status: 'execution_error', reason })
         }
+      }
+    }
+
+    let elliottShadow: { analyzed: number; signalsWritten: number } | null = null
+    const eligibleForWaveAnalysis = evaluations.filter(({ decision }) => decision.action === 'enter').map(({ candidate }) => candidate)
+    if (eligibleForWaveAnalysis.length || remainingPositions.length) {
+      try {
+        const actualEntries = new Map<string, { positionId: string; tradeId: string }>()
+        for (const execution of paperExecutions.filter((item) => item.status === 'filled' && item.positionId)) {
+          try {
+            const tradeId = await findPaperEntryTradeId(execution.positionId!)
+            if (tradeId) actualEntries.set(execution.symbol, { positionId: execution.positionId!, tradeId })
+          } catch (error) {
+            console.warn('[worker] Elliott entry link lookup failed', { symbol: execution.symbol, error })
+          }
+        }
+        const newExposure = paperExecutions.filter((item) => item.status === 'filled').reduce((sum, execution) => {
+          const evaluation = evaluations.find(({ candidate }) => candidate.symbol === execution.symbol)
+          return sum + (evaluation?.decision.suggestedShares ?? 0) * (execution.fillPrice ?? evaluation?.candidate.price ?? 0)
+        }, 0)
+        elliottShadow = await runElliottShadowPass({
+          context: { scanId, sessionId, now },
+          candidates: eligibleForWaveAnalysis,
+          marks,
+          actualEntries,
+          actualExits: realExitComparisons,
+          openPositions: remainingPositions,
+          equity,
+          currentExposure: currentExposure + newExposure,
+          flatten,
+        })
+      } catch (error) {
+        persistenceWarning ??= error instanceof Error ? error.message : 'Elliott Wave shadow pass could not be persisted'
+        console.warn('[worker] Elliott Wave shadow pass failed without affecting paper execution', { scanId, error })
       }
     }
 
@@ -462,7 +522,7 @@ export async function POST(request: NextRequest) {
     const durationMs = Math.max(0, Date.now() - now.getTime())
     await writeScanEvent(
       outcome.status === 'completed' ? 'SCAN_COMPLETED' : 'SCAN_FAILED',
-      outcome.status === 'completed' ? `Paper scan completed in ${durationMs}ms.` : `Paper scan failed after ${durationMs}ms.`,
+      outcome.status === 'completed' ? flatten ? `Paper session flatten pass completed in ${durationMs}ms; simulated exits were recorded, no live brokerage orders were sent.` : `Strategy scan completed in ${durationMs}ms; any fills were simulated in the internal ledger, no live brokerage orders were sent.` : `Strategy scan failed after ${durationMs}ms.`,
       { ...context, sessionId: sessionId ?? undefined, durationMs },
       { startedAt: scanStartedAt.toISOString(), endedAt: new Date().toISOString(), scanDurationMs: durationMs, ...outcome },
     ).catch((error) => console.error('[worker] scan end event could not be written', { scanId, error }))

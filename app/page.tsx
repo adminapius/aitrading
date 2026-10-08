@@ -4,6 +4,7 @@ import useSWR from 'swr'
 import { useEffect, useRef, useState } from 'react'
 import { Activity, Search, Sparkles } from 'lucide-react'
 import LiveEventLog from '@/components/live-event-log'
+import ElliottWaveDashboard from '@/components/elliott-wave-dashboard'
 
 type Stock = { symbol: string; price: number; changePercent: number | null; volume: number; bid: number; ask: number; score?: number }
 type ScanData = { candidates?: Stock[]; scannedAt?: string; source?: string; error?: string; persistenceWarning?: string }
@@ -11,7 +12,6 @@ type HealthData = { lastScanAt?: string | null; lastScanStatus?: string | null; 
 type InsightData = { symbol?: string; price?: number; changePercent?: number | null; signal?: string; rationale?: string; analysisSource?: string; headline?: { title: string; source?: string; publishedAt?: string; url?: string } | null; error?: string }
 type PnlHistoryData = { points?: number[]; degraded?: boolean }
 type AccountData = { account?: { equity?: number; cash_balance?: number; realized_pnl?: number; unrealized_pnl?: number } | null; degraded?: boolean; degradedReason?: string }
-type EventData = { events?: Array<{ id: string; level: string; event_type: string; message: string; created_at: string; symbol?: string | null }>; degraded?: boolean; degradedReason?: string }
 type PositionData = { positions?: Array<{ id: string; symbol: string; side: string; quantity: number; entry_price: number; current_price?: number; stop_price?: number; target_price?: number; unrealized_pnl?: number }>; degraded?: boolean; degradedReason?: string }
 type IndexData = { indices?: Array<{ symbol: string; name: string; price: number; changePercent: number }> }
 type LatencyData = { providers?: Array<{ name: string; ok: boolean; ms: number; error?: string }> }
@@ -126,12 +126,10 @@ export default function Home() {
   const { data: indexData } = useSWR<IndexData>('/api/indices', fetcher, { refreshInterval: 15000, revalidateOnFocus: true })
   const { data: latencyData } = useSWR<LatencyData>('/api/latency', fetcher, { refreshInterval: 15000, revalidateOnFocus: true })
   const { data: accountData } = useSWR<AccountData>('/api/account', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
-  const { data: eventData, error: eventError } = useSWR<EventData>('/api/events?limit=100', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
   const { data: positionData } = useSWR<PositionData>('/api/positions', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
   const { data: healthData } = useSWR<HealthData>('/api/health', healthFetcher, { refreshInterval: 5000, revalidateOnFocus: true })
   const liveAccount = accountData?.account
   const livePositions = positionData?.positions ?? []
-  const liveEvents = eventData?.events ?? []
   const clockNow = now ?? new Date()
   const scanWindowOpen = isScanWindow(clockNow)
   const stocks = scanWindowOpen ? scanData?.candidates ?? [] : []
@@ -189,7 +187,7 @@ export default function Home() {
     <main className="terminal">
       <header className="topbar">
         <div className="brand"><div className="brand-mark"><Activity /></div><div><strong>AI<span> trading</span></strong><small>FIND.TRADE.WIN.</small></div></div>
-        <div className="top-status"><span className="live-pill"><i /> PAPER SIMULATION · NO BROKER ORDERS</span><span className={`session-pill ${isMarketOpen ? 'market-open' : 'market-closed'}`}><span className="pulse" /> MARKET {isMarketOpen ? 'OPEN' : 'CLOSED'}</span><span className="clock">{etDate} · {etTime} ET</span></div>
+        <div className="top-status"><span className="live-pill" title="Simulated trades are recorded in the internal paper ledger; no live brokerage orders are sent."><i /> PAPER SIMULATION · NO BROKER ORDERS</span><span className={`session-pill ${isMarketOpen ? 'market-open' : 'market-closed'}`}><span className="pulse" /> MARKET {isMarketOpen ? 'OPEN' : 'CLOSED'}</span><span className="clock">{etDate} · {etTime} ET</span></div>
         <div className="top-actions"><div className="avatar" aria-label="AI trading terminal">AIt</div></div>
       </header>
       <div className="workspace">
@@ -205,9 +203,10 @@ export default function Home() {
         </section>
         <aside className="right-rail">
           <section className="panel watchlist-panel"><div className="panel-title scanner-title"><span>SCANNED STOCKS ({stocks.length})</span><span className="scan-status" title={`Effective cadence ${scanIntervalSeconds}s${healthData?.pollIntervalSeconds ? ` · Scheduler poll ${healthData.pollIntervalSeconds}s` : ''}`}><i />{isFlattening ? 'FLATTEN' : scanError && scanWindowOpen ? 'FEED OFF · NEXT SCAN —' : nextScanLabel}</span></div><div className="search-box"><Search /><input placeholder="Filter symbols…" aria-label="Filter symbols" value={filter} onChange={(event) => setFilter(event.target.value)} /></div><div className="watchlist">{filteredStocks.length ? filteredStocks.map((stock) => <button key={stock.symbol} onClick={() => setSelectedSymbol(stock.symbol)} className={`stock-row ${selected?.symbol === stock.symbol ? 'selected' : ''}`}><div className="stock-left">{topThreeRanks.has(stock.symbol) ? <span className="top-rank" aria-label={`Top-three rank ${topThreeRanks.get(stock.symbol)}`}>#{topThreeRanks.get(stock.symbol)}</span> : null}<span className={`stock-mover-change ${stock.changePercent != null && stock.changePercent >= 0 ? 'positive' : 'negative'}`}>{stock.changePercent == null ? '—' : `${stock.changePercent >= 0 ? '+' : ''}${stock.changePercent.toFixed(1)}%`}</span><div><strong>{stock.symbol}</strong><small>Volume {formatVolume(stock.volume)}</small></div></div><div className="stock-price"><strong>${stock.price.toFixed(2)}</strong></div></button>) : <div className="empty-position">{!scanWindowOpen ? '' : scanError ? 'Alpaca market mover feed is unavailable.' : scanData ? 'No market movers returned.' : 'Loading live market movers…'}</div>}</div></section>
-          <LiveEventLog events={liveEvents} isAwake={scanWindowOpen} degraded={Boolean(eventData?.degraded)} connectionError={Boolean(eventError)} loading={!eventData && !eventError} />
+          <LiveEventLog isAwake={scanWindowOpen} />
         </aside>
       </div>
+      <ElliottWaveDashboard />
     </main>
   )
 }
