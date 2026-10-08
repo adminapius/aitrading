@@ -1,24 +1,24 @@
 import { NextResponse } from 'next/server'
 import { alpacaHeaders, configuredServices, supabaseHeaders, tradingConfig } from '@/lib/trading-config'
+import { expectedScanIntervalSeconds } from '@/lib/scan-config'
 
 export const dynamic = 'force-dynamic'
 
-const scanStaleThresholdSeconds = 120
-
 async function checkLatestScanAt() {
-  const url = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_watchlist_scans`)
-  url.search = new URLSearchParams({ select: 'scanned_at', order: 'scanned_at.desc', limit: '1' }).toString()
+  const url = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_scan_runs`)
+  url.search = new URLSearchParams({ select: 'started_at,status,error', order: 'started_at.desc', limit: '1' }).toString()
   const response = await fetch(url, {
     headers: supabaseHeaders(),
     signal: AbortSignal.timeout(5_000),
     cache: 'no-store',
   })
   if (!response.ok) throw new Error(`Supabase scan freshness request failed (${response.status})`)
-  const rows = (await response.json()) as Array<{ scanned_at?: string | null }>
-  return rows[0]?.scanned_at ?? null
+  const rows = (await response.json()) as Array<{ started_at?: string | null; status?: string; error?: string | null }>
+  return rows[0] ?? null
 }
 
 function getScanFreshness(now: Date, lastScanAt: string | null) {
+  const scanStaleThresholdSeconds = expectedScanIntervalSeconds(now) * 4
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/New_York',
     year: 'numeric',
@@ -41,7 +41,7 @@ function getScanFreshness(now: Date, lastScanAt: string | null) {
   const minuteOfDay = hour * 60 + minute
   const inScanWindow = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(weekday) && minuteOfDay >= 7 * 60 && minuteOfDay < 15 * 60 + 55
 
-  if (!inScanWindow) return { inScanWindow, staleSeconds: null, stale: false }
+  if (!inScanWindow) return { inScanWindow, staleSeconds: null, stale: false, scanWindowStartedAt: null }
 
   const localTimestamp = Date.UTC(year, month - 1, day, hour, minute, second)
   const currentTimestamp = Math.floor(now.getTime() / 1_000) * 1_000
@@ -53,7 +53,7 @@ function getScanFreshness(now: Date, lastScanAt: string | null) {
     : scanWindowStartedAt
   const staleSeconds = Math.max(0, Math.floor((now.getTime() - freshnessStartedAt) / 1_000))
 
-  return { inScanWindow, staleSeconds, stale: staleSeconds > scanStaleThresholdSeconds }
+  return { inScanWindow, staleSeconds, stale: staleSeconds > scanStaleThresholdSeconds, scanWindowStartedAt }
 }
 
 async function checkSupabase() {
@@ -78,7 +78,7 @@ async function checkRailway() {
   ])
   if (!liveness.ok) throw new Error(`Railway liveness check returned ${liveness.status}`)
 
-  const readinessBody = await readiness.json().catch(() => null) as { service?: string; ready?: boolean; missing?: string[] } | null
+  const readinessBody = await readiness.json().catch(() => null) as { service?: string; ready?: boolean; missing?: string[]; scanIntervalSeconds?: number; pollIntervalSeconds?: number } | null
   const ready = readiness.ok && readinessBody?.ready === true
 
   return {
@@ -87,6 +87,7 @@ async function checkRailway() {
     ready,
     status: readiness.status,
     ...(readinessBody?.service ? { service: readinessBody.service } : {}),
+    pollIntervalSeconds: readinessBody?.pollIntervalSeconds ?? readinessBody?.scanIntervalSeconds ?? null,
     ...(readinessBody?.missing?.length ? { missing: readinessBody.missing } : {}),
     ...(!ready ? { error: `Railway worker readiness check returned ${readiness.status}` } : {}),
   }
@@ -115,14 +116,24 @@ export async function GET() {
   const paperAccount = supabaseConnected ? supabase.value : null
   const paperAccountReady = paperAccount !== null
   const railwayHealthy = !tradingConfig.railwayServiceUrl || (railway.status === 'fulfilled' && railway.value.reachable && railway.value.ready)
-  const lastScanAt = latestScan.status === 'fulfilled' ? latestScan.value : null
+  const latestScanRun = latestScan.status === 'fulfilled' ? latestScan.value : null
+  const lastScanAt = latestScanRun?.started_at ?? null
+  const lastScanStatus = latestScanRun?.status ?? null
   const scanFreshness = getScanFreshness(now, lastScanAt)
+  const scanIntervalSeconds = expectedScanIntervalSeconds(now)
+  const pollIntervalSeconds = railway.status === 'fulfilled' && 'pollIntervalSeconds' in railway.value ? railway.value.pollIntervalSeconds ?? null : null
   const scanFreshnessAvailable = latestScan.status === 'fulfilled'
-  const scanFreshnessDegraded = scanFreshness.inScanWindow && (!scanFreshnessAvailable || scanFreshness.stale)
+  const scanFailed = lastScanStatus === 'failed'
+    && lastScanAt !== null
+    && scanFreshness.scanWindowStartedAt !== null
+    && Date.parse(lastScanAt) >= scanFreshness.scanWindowStartedAt
+  const scanFreshnessDegraded = scanFreshness.inScanWindow && (!scanFreshnessAvailable || scanFreshness.stale || scanFailed)
   const scanDegradedReason = scanFreshnessDegraded
     ? !scanFreshnessAvailable
-      ? 'Watchlist scan freshness could not be checked.'
-      : `No watchlist scan row has been written for more than ${scanStaleThresholdSeconds} seconds.`
+      ? 'Worker scan freshness could not be checked.'
+      : scanFailed
+        ? latestScanRun?.error ?? 'The latest worker scan failed.'
+        : `No worker scan heartbeat has been written for more than ${scanIntervalSeconds * 4} seconds.`
     : undefined
   const requiredHealthy = paperAccountReady && alpaca.status === 'fulfilled' && railwayHealthy && !scanFreshnessDegraded
   return NextResponse.json({
@@ -131,6 +142,9 @@ export async function GET() {
     degraded: scanFreshnessDegraded,
     ...(scanDegradedReason ? { degradedReason: scanDegradedReason } : {}),
     lastScanAt,
+    lastScanStatus,
+    scanIntervalSeconds,
+    pollIntervalSeconds,
     staleSeconds: scanFreshnessAvailable ? scanFreshness.staleSeconds : null,
     checkedAt: now.toISOString(),
     mode: tradingConfig.mode,

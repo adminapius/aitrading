@@ -17,6 +17,7 @@ export const scanConfig = {
   maxQuoteAgeSeconds: positiveNumber('SCAN_MAX_QUOTE_AGE_SECONDS', 120),
   relativeVolumeBarMinutes: 15,
   relativeVolumeLookbackSessions: 10,
+  minimumRelativeVolumeBaselineVolume: positiveNumber('SCAN_MIN_RVOL_BASELINE_VOLUME', 10_000),
   atrPeriod: 14,
   leaseSeconds: 90,
 } as const

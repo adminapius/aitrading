@@ -5,8 +5,9 @@ import { useEffect, useRef, useState } from 'react'
 import { Activity, Search, Sparkles } from 'lucide-react'
 import LiveEventLog from '@/components/live-event-log'
 
-type Stock = { symbol: string; price: number; changePercent: number | null; volume: number; bid: number; ask: number }
+type Stock = { symbol: string; price: number; changePercent: number | null; volume: number; bid: number; ask: number; score?: number }
 type ScanData = { candidates?: Stock[]; scannedAt?: string; source?: string; error?: string; persistenceWarning?: string }
+type HealthData = { lastScanAt?: string | null; lastScanStatus?: string | null; scanIntervalSeconds?: number; pollIntervalSeconds?: number | null }
 type InsightData = { symbol?: string; price?: number; changePercent?: number | null; signal?: string; rationale?: string; analysisSource?: string; headline?: { title: string; source?: string; publishedAt?: string; url?: string } | null; error?: string }
 type PnlHistoryData = { points?: number[]; degraded?: boolean }
 type AccountData = { account?: { equity?: number; cash_balance?: number; realized_pnl?: number; unrealized_pnl?: number } | null; degraded?: boolean; degradedReason?: string }
@@ -19,6 +20,15 @@ const fetcher = (url: string) => fetch(url).then((response) => {
   if (!response.ok) throw new Error(`Request failed: ${response.status}`)
   return response.json()
 })
+
+const healthFetcher = (url: string) => fetch(url).then((response) => response.json())
+
+function latencyHealthClass(provider?: { ok: boolean; ms: number }) {
+  if (!provider) return ''
+  if (!provider.ok || provider.ms >= 1_000) return 'health-bad'
+  if (provider.ms >= 350) return 'health-warn'
+  return 'health-good'
+}
 
 function formatMoney(value: number | undefined, fallback: string) {
   return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('en-US', { style: 'currency', currency: 'USD' }) : fallback
@@ -118,6 +128,7 @@ export default function Home() {
   const { data: accountData } = useSWR<AccountData>('/api/account', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
   const { data: eventData, error: eventError } = useSWR<EventData>('/api/events?limit=100', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
   const { data: positionData } = useSWR<PositionData>('/api/positions', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
+  const { data: healthData } = useSWR<HealthData>('/api/health', healthFetcher, { refreshInterval: 5000, revalidateOnFocus: true })
   const liveAccount = accountData?.account
   const livePositions = positionData?.positions ?? []
   const liveEvents = eventData?.events ?? []
@@ -154,15 +165,31 @@ export default function Home() {
   const isMarketOpen = Boolean(now && isWeekday && (etHour > 9 || (etHour === 9 && etMinute >= 30)) && etHour < 16)
   const isFlattening = Boolean(now && isWeekday && (etHour > 15 || (etHour === 15 && etMinute >= 55)))
   const filteredStocks = stocks.filter((stock) => stock.symbol.toLowerCase().includes(filter.toLowerCase()))
-  const secondsUntilNextScan = scanData?.scannedAt && now && scanWindowOpen
-    ? Math.min(30, Math.max(0, Math.ceil(30 - (now.getTime() - new Date(scanData.scannedAt).getTime()) / 1000)))
+  const topThreeRanks = new Map<string, number>([...stocks]
+    .filter((stock) => typeof stock.score === 'number' && Number.isFinite(stock.score) && stock.score > 0)
+    .sort((left, right) => (right.score ?? 0) - (left.score ?? 0) || left.symbol.localeCompare(right.symbol))
+    .slice(0, 3)
+    .map((stock, index) => [stock.symbol, index + 1] as const))
+  const scanIntervalSeconds = healthData?.scanIntervalSeconds ?? (etHour < 11 ? 15 : 30)
+  const lastHeartbeatAt = healthData?.lastScanAt ?? null
+  const heartbeatAgeSeconds = lastHeartbeatAt && now ? Math.max(0, (now.getTime() - Date.parse(lastHeartbeatAt)) / 1000) : null
+  const secondsUntilNextScan = heartbeatAgeSeconds != null && scanWindowOpen
+    ? Math.max(0, Math.ceil(scanIntervalSeconds - heartbeatAgeSeconds % scanIntervalSeconds))
     : null
-  const nextScanLabel = isFlattening ? 'FLATTEN' : scanWindowOpen && secondsUntilNextScan != null ? `NEXT SCAN ${secondsUntilNextScan}s` : 'SLEEPING'
+  const nextScanLabel = isFlattening
+    ? 'FLATTEN'
+    : scanWindowOpen && heartbeatAgeSeconds != null && heartbeatAgeSeconds > scanIntervalSeconds * 4
+      ? 'SCAN STALE'
+      : scanWindowOpen && healthData?.lastScanStatus === 'failed'
+        ? 'SCAN FAILED'
+        : scanWindowOpen && secondsUntilNextScan != null
+          ? `NEXT SCAN ${secondsUntilNextScan}s`
+          : scanWindowOpen ? 'WAITING FOR HEARTBEAT' : 'SLEEPING'
   return (
     <main className="terminal">
       <header className="topbar">
         <div className="brand"><div className="brand-mark"><Activity /></div><div><strong>AI<span> trading</span></strong><small>FIND.TRADE.WIN.</small></div></div>
-        <div className="top-status"><span className="live-pill"><i /> PAPER ONLY · NO ORDERS SUBMITTED</span><span className={`session-pill ${isMarketOpen ? 'market-open' : 'market-closed'}`}><span className="pulse" /> MARKET {isMarketOpen ? 'OPEN' : 'CLOSED'}</span><span className="clock">{etDate} · {etTime} ET</span></div>
+        <div className="top-status"><span className="live-pill"><i /> PAPER SIMULATION · NO BROKER ORDERS</span><span className={`session-pill ${isMarketOpen ? 'market-open' : 'market-closed'}`}><span className="pulse" /> MARKET {isMarketOpen ? 'OPEN' : 'CLOSED'}</span><span className="clock">{etDate} · {etTime} ET</span></div>
         <div className="top-actions"><div className="avatar" aria-label="AI trading terminal">AIt</div></div>
       </header>
       <div className="workspace">
@@ -170,14 +197,14 @@ export default function Home() {
           <section className="panel balance-panel"><div className="section-kicker"><span>ACCOUNT EQUITY</span><div className="balance">{formatMoney(liveAccount?.equity, 'Unavailable')}</div><div className="balance-meta"><span className={liveAccount ? 'positive' : 'negative'}>{liveAccount ? formatMoney((liveAccount.realized_pnl ?? 0) + (liveAccount.unrealized_pnl ?? 0), '$0.00') : accountData?.degradedReason?.includes('URL') ? 'Supabase URL missing' : accountData?.degradedReason ?? 'Ledger unavailable'}</span><span>paper account</span></div></div><div className="sparkline" aria-label="Paper account P&L trend"><PnlSparkline values={pnlPoints} /></div><div className="metric-row"><span>Cash balance</span><strong>{formatMoney(liveAccount?.cash_balance, 'Unavailable')}</strong></div><div className="metric-row"><span>Realized P&amp;L</span><strong className={liveAccount ? 'positive' : ''}>{formatMoney(liveAccount?.realized_pnl, 'Unavailable')}</strong></div></section>
           <section className="panel"><div className="panel-title"><span>OPEN POSITION</span><span className="count-badge">{positionData?.degraded ? '—' : positionData?.positions?.length ?? 0}</span></div>{livePositions.length ? <div className="positions-scroll">{livePositions.map((position) => <div className="position-card" key={position.id}><div className="position-head"><div><strong>{position.symbol}</strong><small>{position.side.toUpperCase()} · {Number(position.quantity).toLocaleString()} SHARES</small></div><span className={Number(position.unrealized_pnl ?? 0) >= 0 ? 'positive' : 'negative'}>{formatMoney(position.unrealized_pnl, '—')}</span></div><div className="position-stats"><div><span>Entry</span><b>${Number(position.entry_price).toFixed(2)}</b></div><div><span>Mark</span><b>${Number(position.current_price ?? position.entry_price).toFixed(2)}</b></div><div><span>Stop risk</span><b>{position.stop_price != null && Number(position.entry_price) > 0 ? `${(Math.abs((Number(position.entry_price) - Number(position.stop_price)) / Number(position.entry_price) * 100)).toFixed(1)}%` : '—'}</b></div></div><div className="risk-label"><span>Stop {position.stop_price != null ? `$${Number(position.stop_price).toFixed(2)}` : '—'}</span><span>Target {position.target_price != null ? `$${Number(position.target_price).toFixed(2)}` : '—'}</span></div></div>)}</div> : <div className="empty-position">{positionData?.degraded ? positionData.degradedReason ?? 'Positions unavailable' : positionData ? 'No open paper positions' : 'Loading positions…'}</div>}</section>
           <section className="panel indices-panel"><div className="panel-title"><span>U.S. MARKET INDICES</span><span className="live-label">LIVE</span></div><div className="indices-list">{(indexData?.indices ?? []).map((index) => <div className="index-row" key={index.symbol}><span>{index.name}</span><strong>{index.price ? index.price.toFixed(2) : '—'}</strong><em className={index.changePercent >= 0 ? 'positive' : 'negative'}>{index.changePercent >= 0 ? '+' : ''}{index.changePercent.toFixed(2)}%</em></div>)}</div></section>
-          <div className="terminal-foot"><strong>APP HEALTH:</strong><span className="health-values">{(['Alpaca', 'FMP', 'Supabase'] as const).map((name) => { const provider = latencyData?.providers?.find((item) => item.name === name); const abbreviation = name === 'Alpaca' ? 'A' : name === 'FMP' ? 'F' : 'S'; return <strong key={name} className={provider?.ok ? 'health-good' : provider ? 'health-bad' : ''} title={provider?.error ?? `${name} latency`}>{abbreviation}:{provider ? provider.ok ? `${provider.ms}ms` : 'OFF' : '…'}</strong> })}</span></div>
+          <div className="terminal-foot"><strong>APP HEALTH:</strong><span className="health-values">{(['Alpaca', 'FMP', 'Supabase'] as const).map((name) => { const provider = latencyData?.providers?.find((item) => item.name === name); const abbreviation = name === 'Alpaca' ? 'A' : name === 'FMP' ? 'F' : 'S'; return <strong key={name} className={latencyHealthClass(provider)} title={provider ? `${name} latency ${provider.ms}ms${provider.error ? `: ${provider.error}` : ''}` : `${name} latency unavailable`}>{abbreviation}:{provider ? provider.ok ? `${provider.ms}ms` : 'OFF' : '…'}</strong> })}</span></div>
         </aside>
         <section className="center-workspace">
           <div className="full-chart"><Chart symbol={selectedSymbol} /></div>
           <div className="signal-strip"><div className="signal-main"><Sparkles /><div><span>AI SIGNAL · {insightData?.symbol ?? selectedSymbol ?? '—'}</span><strong>{!selectedSymbol ? 'Select a scanned stock' : insightLoading ? 'Analyzing selected symbol…' : insightData?.signal ?? 'AI analysis unavailable'}</strong><small>{!selectedSymbol ? 'Analysis runs only for a stock you select.' : insightData?.analysisSource ? `${insightData.analysisSource} · ` : ''}{selectedSymbol ? insightData?.rationale ?? insightData?.error ?? 'Analysis only · no paper orders are submitted.' : ''}</small></div></div><div className="signal-stat signal-context"><span>HEADLINE · {insightData?.symbol ?? selectedSymbol ?? '—'}</span>{insightData?.headline?.url ? <a href={insightData.headline.url} target="_blank" rel="noreferrer" title={insightData.headline.title}>{insightData.headline.title}</a> : <strong>{!selectedSymbol ? 'No stock selected.' : insightLoading ? 'Checking current headlines…' : insightData?.headline?.title ?? 'No recent headline for this symbol.'}</strong>}</div><div className="signal-stat"><span>Selected Mover</span><strong>{selectedSymbol ?? '—'}</strong></div><div className="signal-stat"><span>Price Change</span><strong className={(insightData?.changePercent ?? selected?.changePercent ?? 0) >= 0 ? 'positive' : 'negative'}>{(insightData?.changePercent ?? selected?.changePercent) == null ? '—' : `${(insightData?.changePercent ?? selected?.changePercent ?? 0) >= 0 ? '+' : ''}${(insightData?.changePercent ?? selected?.changePercent ?? 0).toFixed(2)}%`}</strong></div></div>
         </section>
         <aside className="right-rail">
-          <section className="panel watchlist-panel"><div className="panel-title scanner-title"><span>SCANNED STOCKS ({stocks.length})</span><span className="scan-status"><i />{isFlattening ? 'FLATTEN' : scanError && scanWindowOpen ? 'FEED OFF · NEXT SCAN —' : nextScanLabel}</span></div><div className="search-box"><Search /><input placeholder="Filter symbols…" aria-label="Filter symbols" value={filter} onChange={(event) => setFilter(event.target.value)} /></div><div className="watchlist">{filteredStocks.length ? filteredStocks.map((stock) => <button key={stock.symbol} onClick={() => setSelectedSymbol(stock.symbol)} className={`stock-row ${selected?.symbol === stock.symbol ? 'selected' : ''}`}><div className="stock-left"><span className={`stock-mover-change ${stock.changePercent != null && stock.changePercent >= 0 ? 'positive' : 'negative'}`}>{stock.changePercent == null ? '—' : `${stock.changePercent >= 0 ? '+' : ''}${stock.changePercent.toFixed(1)}%`}</span><div><strong>{stock.symbol}</strong><small>Volume {formatVolume(stock.volume)}</small></div></div><div className="stock-price"><strong>${stock.price.toFixed(2)}</strong></div></button>) : <div className="empty-position">{!scanWindowOpen ? '' : scanError ? 'Alpaca market mover feed is unavailable.' : scanData ? 'No market movers returned.' : 'Loading live market movers…'}</div>}</div></section>
+          <section className="panel watchlist-panel"><div className="panel-title scanner-title"><span>SCANNED STOCKS ({stocks.length})</span><span className="scan-status" title={`Effective cadence ${scanIntervalSeconds}s${healthData?.pollIntervalSeconds ? ` · Scheduler poll ${healthData.pollIntervalSeconds}s` : ''}`}><i />{isFlattening ? 'FLATTEN' : scanError && scanWindowOpen ? 'FEED OFF · NEXT SCAN —' : nextScanLabel}</span></div><div className="search-box"><Search /><input placeholder="Filter symbols…" aria-label="Filter symbols" value={filter} onChange={(event) => setFilter(event.target.value)} /></div><div className="watchlist">{filteredStocks.length ? filteredStocks.map((stock) => <button key={stock.symbol} onClick={() => setSelectedSymbol(stock.symbol)} className={`stock-row ${selected?.symbol === stock.symbol ? 'selected' : ''}`}><div className="stock-left">{topThreeRanks.has(stock.symbol) ? <span className="top-rank" aria-label={`Top-three rank ${topThreeRanks.get(stock.symbol)}`}>#{topThreeRanks.get(stock.symbol)}</span> : null}<span className={`stock-mover-change ${stock.changePercent != null && stock.changePercent >= 0 ? 'positive' : 'negative'}`}>{stock.changePercent == null ? '—' : `${stock.changePercent >= 0 ? '+' : ''}${stock.changePercent.toFixed(1)}%`}</span><div><strong>{stock.symbol}</strong><small>Volume {formatVolume(stock.volume)}</small></div></div><div className="stock-price"><strong>${stock.price.toFixed(2)}</strong></div></button>) : <div className="empty-position">{!scanWindowOpen ? '' : scanError ? 'Alpaca market mover feed is unavailable.' : scanData ? 'No market movers returned.' : 'Loading live market movers…'}</div>}</div></section>
           <LiveEventLog events={liveEvents} isAwake={scanWindowOpen} degraded={Boolean(eventData?.degraded)} connectionError={Boolean(eventError)} loading={!eventData && !eventError} />
         </aside>
       </div>

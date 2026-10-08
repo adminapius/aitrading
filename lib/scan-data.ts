@@ -149,10 +149,12 @@ function computeIntradayMetrics(symbol: string, historicalBars: Bar[], currentBa
   const averageVolume = historicalSessions.length
     ? historicalSessions.reduce((sum, buckets) => sum + [...buckets.entries()].reduce((total, [minute, bucketVolume]) => total + (minute <= today.minute ? bucketVolume : 0), 0), 0) / historicalSessions.length
     : null
+  const relativeVolumeReliable = averageVolume != null && averageVolume >= scanConfig.minimumRelativeVolumeBaselineVolume
   return {
     volume: currentBuckets.size ? volume : null,
     averageVolume,
-    relativeVolume: volume > 0 && averageVolume != null && averageVolume > 0 ? volume / averageVolume : null,
+    relativeVolumeReliable,
+    relativeVolume: volume > 0 && relativeVolumeReliable ? volume / averageVolume! : null,
     vwap: volume > 0 ? weightedVwap / volume : null,
   }
 }
@@ -228,7 +230,11 @@ async function getFloat(symbol: string, now: Date) {
     const payload = await response.json() as Array<Record<string, unknown>>
     const row = Array.isArray(payload) ? payload[0] : undefined
     const value = numberOrNull(row?.floatShares ?? row?.float_shares ?? row?.freeFloat)
-    if (!value) throw new Error('FMP returned no positive float-shares value')
+    if (!value) return null
+    if (value < 100_000 || value > 2_000_000_000) {
+      console.warn('[scanner] float value outside sane share range; treating as missing for the trading day', { symbol, source: 'fmp', value })
+      return null
+    }
     return value
   })
 }
@@ -313,8 +319,12 @@ export async function loadEnrichedCandidates(symbols: string[], snapshots: Recor
     }),
     getNews(activeSymbols, now).catch((error) => ({ error: error instanceof Error ? error.message : 'Alpaca news unavailable' })),
     mapLimit(activeSymbols, 5, async (symbol) => {
-      try { return { symbol, value: await getFloat(symbol, now), error: null } }
-      catch (error) { return { symbol, value: null, error: error instanceof Error ? error.message : 'float unavailable' } }
+      try {
+        const value = await getFloat(symbol, now)
+        return { symbol, value, error: value == null ? 'FMP has no validated float value; missing result cached for this ET trading day' : null }
+      } catch (error) {
+        return { symbol, value: null, error: error instanceof Error ? error.message : 'float unavailable' }
+      }
     }),
   ])
 
@@ -371,7 +381,7 @@ export async function loadEnrichedCandidates(symbols: string[], snapshots: Recor
     if (historicalIntraday?.error) errors.push(`historical_intraday_bars: ${historicalIntraday.error}`)
     if (currentIntradayResult.error) errors.push(`current_intraday_bars: ${currentIntradayResult.error}`)
     if (dailyBars?.error) errors.push(`daily_bars: ${dailyBars.error}`)
-    if (metrics.relativeVolume == null) errors.push('relative_volume: same-time-of-day 15-minute history is insufficient')
+    if (metrics.relativeVolume == null) errors.push(metrics.relativeVolumeReliable ? 'relative_volume: same-time-of-day 15-minute history is insufficient' : `relative_volume: same-time baseline ${Math.round(metrics.averageVolume ?? 0)} is below the ${scanConfig.minimumRelativeVolumeBaselineVolume} minimum; RVOL marked unreliable`)
     if (floatResult?.error) errors.push(`float_shares: ${floatResult.error}`)
     if (atr == null) errors.push(`atr: fewer than ${scanConfig.atrPeriod + 1} daily bars available`)
     if (metrics.vwap == null) errors.push('vwap: current-session intraday volume is unavailable')
@@ -389,6 +399,8 @@ export async function loadEnrichedCandidates(symbols: string[], snapshots: Recor
       volume: metrics.volume ?? undefined,
       averageVolume: metrics.averageVolume ?? undefined,
       relativeVolume: metrics.relativeVolume ?? undefined,
+      relativeVolumeReliable: metrics.relativeVolumeReliable,
+      relativeVolumeBaselineVolume: metrics.averageVolume ?? undefined,
       float: floatResult?.value ?? undefined,
       floatSource: floatResult?.value != null ? 'fmp' : undefined,
       changePercent: currentClose && previousClose ? ((currentClose - previousClose) / previousClose) * 100 : undefined,
@@ -398,6 +410,7 @@ export async function loadEnrichedCandidates(symbols: string[], snapshots: Recor
       catalystType: story?.headline ? catalystKind(story.headline) : undefined,
       catalystSummary: story?.headline ? `${story.headline}${story.summary ? ` — ${story.summary}` : ''}`.slice(0, 500) : undefined,
       lastTradeAt: tradeAt!.toISOString(),
+      quoteAt: quoteAt!.toISOString(),
       lastTradePrice: lastTradePrice!,
       spreadPct,
       enrichmentErrors: errors,
