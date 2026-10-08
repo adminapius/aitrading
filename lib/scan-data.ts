@@ -410,6 +410,7 @@ export async function loadEnrichedCandidates(symbols: string[], snapshots: Recor
       catalystType: story?.headline ? catalystKind(story.headline) : undefined,
       catalystSummary: story?.headline ? `${story.headline}${story.summary ? ` — ${story.summary}` : ''}`.slice(0, 500) : undefined,
       lastTradeAt: tradeAt!.toISOString(),
+      quoteAt: quoteAt!.toISOString(),
       lastTradePrice: lastTradePrice!,
       spreadPct,
       enrichmentErrors: errors,

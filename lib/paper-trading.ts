@@ -179,13 +179,6 @@ export function paperExitReason(position: PaperPosition, mark: PaperMarketMark, 
   return null
 }
 
-export function simulatedMarginBuyingPower(equityValue: unknown, cashValue: unknown, currentExposure: number, minimumEquity: number) {
-  const equity = numeric(equityValue) ?? 0
-  const cash = numeric(cashValue) ?? 0
-  if (equity < minimumEquity) return Math.max(0, cash)
-  return Math.max(0, cash + equity * 2 - currentExposure)
-}
-
 export function positionExposure(positions: PaperPosition[]) {
   return positions.reduce((sum, position) => sum + (numeric(position.quantity) ?? 0) * (numeric(position.current_price) ?? numeric(position.entry_price) ?? 0), 0)
 }

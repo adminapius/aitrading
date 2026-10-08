@@ -29,12 +29,12 @@ create unique index if not exists ait_trades_idempotency_key_idx
   on public.ait_trades (idempotency_key)
   where idempotency_key is not null;
 
+alter table public.ait_strategy_signals
+  drop constraint if exists ait_strategy_signals_action_check;
+
 update public.ait_strategy_signals
 set action = 'enter'
 where action = 'buy';
-
-alter table public.ait_strategy_signals
-  drop constraint if exists ait_strategy_signals_action_check;
 
 alter table public.ait_strategy_signals
   add constraint ait_strategy_signals_action_check
@@ -110,7 +110,12 @@ begin
   where id = p_position_id;
 
   select
-    account_row.cash_balance + coalesce(sum(quantity * coalesce(current_price, entry_price)), 0),
+    account_row.cash_balance + coalesce(sum(
+      case
+        when metadata ->> 'marginReserve' ~ '^[0-9]+([.][0-9]+)?$' then (metadata ->> 'marginReserve')::numeric
+        else quantity * entry_price
+      end + (coalesce(current_price, entry_price) - entry_price) * quantity
+    ), 0),
     coalesce(sum((coalesce(current_price, entry_price) - entry_price) * quantity), 0)
   into marked_equity, marked_unrealized
   from public.ait_positions
@@ -158,19 +163,26 @@ declare
   current_position_count integer;
   daily_pnl numeric(14,2);
   order_notional numeric(14,2);
+  required_margin numeric(14,2);
   position_id uuid;
   blocked_reason text;
 begin
-  if p_symbol is null or p_symbol !~ '^[A-Z][A-Z0-9.-]{0,9}$'
+  if p_session_id is null or p_scan_id is null
+     or p_symbol is null or p_symbol !~ '^[A-Z][A-Z0-9.-]{0,9}$'
      or p_quantity is null or p_quantity < 1
      or p_requested_price is null or p_requested_price <= 0
      or p_fill_price is null or p_fill_price <= 0
+     or p_stop_price is null or p_stop_price <= 0 or p_stop_price >= p_fill_price
+     or p_target_price is null or p_target_price <= p_fill_price
      or p_risk_per_share is null or p_risk_per_share <= 0
-     or p_idempotency_key is null or length(p_idempotency_key) > 200
-     or p_max_position_fraction <= 0 or p_max_aggregate_exposure_fraction <= 0
-     or p_risk_per_trade_fraction <= 0 or p_max_daily_loss_fraction <= 0
-     or p_max_open_positions < 1 or p_minimum_margin_equity <= 0
-     or p_reentry_cooldown_minutes < 0 then
+     or p_idempotency_key is null or length(p_idempotency_key) < 1 or length(p_idempotency_key) > 200
+     or p_max_position_fraction is null or p_max_position_fraction <= 0 or p_max_position_fraction > 1
+     or p_max_aggregate_exposure_fraction is null or p_max_aggregate_exposure_fraction <= 0 or p_max_aggregate_exposure_fraction > 2
+     or p_risk_per_trade_fraction is null or p_risk_per_trade_fraction <= 0 or p_risk_per_trade_fraction > 0.1
+     or p_max_daily_loss_fraction is null or p_max_daily_loss_fraction <= 0 or p_max_daily_loss_fraction > 1
+     or p_max_open_positions is null or p_max_open_positions < 1 or p_max_open_positions > 10
+     or p_minimum_margin_equity is null or p_minimum_margin_equity <= 0
+     or p_reentry_cooldown_minutes is null or p_reentry_cooldown_minutes < 0 or p_reentry_cooldown_minutes > 1440 then
     return jsonb_build_object('status', 'invalid_order');
   end if;
 
@@ -190,6 +202,14 @@ begin
   for update;
   if not found then return jsonb_build_object('status', 'account_missing'); end if;
 
+  select * into prior_trade
+  from public.ait_trades
+  where idempotency_key = p_idempotency_key
+  limit 1;
+  if found then
+    return jsonb_build_object('status', 'already_executed', 'tradeId', prior_trade.id, 'positionId', prior_trade.position_id);
+  end if;
+
   if (extract(isodow from now() at time zone 'America/New_York')::integer > 5)
      or ((now() at time zone 'America/New_York')::time < time '07:00')
      or ((now() at time zone 'America/New_York')::time >= time '15:55') then
@@ -203,7 +223,12 @@ begin
   session_start_equity := coalesce(session_start_equity, account_row.starting_balance);
 
   select
-    account_row.cash_balance + coalesce(sum(quantity * coalesce(current_price, entry_price)), 0),
+    account_row.cash_balance + coalesce(sum(
+      case
+        when metadata ->> 'marginReserve' ~ '^[0-9]+([.][0-9]+)?$' then (metadata ->> 'marginReserve')::numeric
+        else quantity * entry_price
+      end + (coalesce(current_price, entry_price) - entry_price) * quantity
+    ), 0),
     coalesce(sum(quantity * coalesce(current_price, entry_price)), 0),
     count(*)::integer
   into current_equity, current_exposure, current_position_count
@@ -214,9 +239,7 @@ begin
   current_position_count := coalesce(current_position_count, 0);
   daily_pnl := current_equity - session_start_equity;
 
-  if current_equity < p_minimum_margin_equity then
-    blocked_reason := 'margin minimum equity not met';
-  elsif daily_pnl <= -(session_start_equity * p_max_daily_loss_fraction) then
+  if daily_pnl <= -(session_start_equity * p_max_daily_loss_fraction) then
     blocked_reason := 'daily loss guardrail reached';
   elsif exists (select 1 from public.ait_positions where status = 'open' and symbol = p_symbol) then
     blocked_reason := 'position already open for symbol';
@@ -235,14 +258,20 @@ begin
   end if;
 
   order_notional := p_quantity * p_fill_price;
+  required_margin := case
+    when current_equity >= p_minimum_margin_equity then round(order_notional / 2, 2)
+    else order_notional
+  end;
   if blocked_reason is null and order_notional > current_equity * p_max_position_fraction then
     blocked_reason := 'maximum position fraction exceeded';
   elsif blocked_reason is null and order_notional > current_equity * p_max_aggregate_exposure_fraction - current_exposure then
     blocked_reason := 'maximum aggregate exposure exceeded';
   elsif blocked_reason is null and p_quantity * p_risk_per_share > current_equity * p_risk_per_trade_fraction then
     blocked_reason := 'risk per trade limit exceeded';
-  elsif blocked_reason is null and order_notional > account_row.cash_balance then
+  elsif blocked_reason is null and current_equity >= p_minimum_margin_equity and order_notional > greatest(0, current_equity * 2 - current_exposure) then
     blocked_reason := 'paper margin buying power is insufficient';
+  elsif blocked_reason is null and required_margin > account_row.cash_balance then
+    blocked_reason := case when current_equity >= p_minimum_margin_equity then 'paper margin reserve exceeds available cash' else 'cash-only buying power is insufficient below the margin equity threshold' end;
   end if;
 
   if blocked_reason is not null then
@@ -258,7 +287,7 @@ begin
   ) values (
     p_symbol, 'long', p_quantity, p_fill_price, p_fill_price, p_stop_price, p_target_price,
     0, 'open', clock_timestamp(),
-    jsonb_build_object('scanId', p_scan_id, 'riskPerShare', p_risk_per_share, 'executionMode', 'paper-margin')
+    jsonb_build_object('scanId', p_scan_id, 'riskPerShare', p_risk_per_share, 'marginReserve', required_margin, 'executionMode', case when current_equity >= p_minimum_margin_equity then 'paper-margin-2x' else 'paper-cash-only' end)
   ) returning id into position_id;
 
   insert into public.ait_trades (
@@ -267,12 +296,12 @@ begin
   ) values (
     p_session_id, position_id, p_symbol, 'buy', p_quantity, p_requested_price, p_fill_price,
     'filled', null, 'paper-market', clock_timestamp(), clock_timestamp(),
-    jsonb_build_object('scanId', p_scan_id, 'executionMode', 'paper-margin', 'liveTradingEnabled', false),
+    jsonb_build_object('scanId', p_scan_id, 'executionMode', case when current_equity >= p_minimum_margin_equity then 'paper-margin-2x' else 'paper-cash-only' end, 'liveTradingEnabled', false),
     p_idempotency_key
   );
 
   update public.ait_papermoney
-  set cash_balance = round(cash_balance - order_notional, 2),
+  set cash_balance = round(cash_balance - required_margin, 2),
       equity = round(current_equity, 2),
       updated_at = clock_timestamp()
   where id = account_row.id;
@@ -304,11 +333,13 @@ declare
   updated_cash numeric(14,2);
   updated_equity numeric(14,2);
   updated_unrealized numeric(14,2);
+  margin_reserve numeric(14,2);
   closed_trade_id uuid;
 begin
-  if p_fill_price is null or p_fill_price <= 0
-     or p_idempotency_key is null or length(p_idempotency_key) > 200
-     or p_exit_reason is null or length(p_exit_reason) > 200 then
+  if p_session_id is null or p_position_id is null
+     or p_fill_price is null or p_fill_price <= 0
+     or p_idempotency_key is null or length(p_idempotency_key) < 1 or length(p_idempotency_key) > 200
+     or p_exit_reason is null or length(p_exit_reason) < 1 or length(p_exit_reason) > 200 then
     return jsonb_build_object('status', 'invalid_exit');
   end if;
 
@@ -326,6 +357,12 @@ begin
   for update;
   if not found then return jsonb_build_object('status', 'account_missing'); end if;
 
+  select * into prior_trade
+  from public.ait_trades
+  where idempotency_key = p_idempotency_key
+  limit 1;
+  if found then return jsonb_build_object('status', 'already_executed', 'tradeId', prior_trade.id); end if;
+
   select * into position_row
   from public.ait_positions
   where id = p_position_id and status = 'open'
@@ -333,7 +370,11 @@ begin
   if not found then return jsonb_build_object('status', 'position_closed'); end if;
 
   realized := round((p_fill_price - position_row.entry_price) * position_row.quantity, 2);
-  updated_cash := account_row.cash_balance + (position_row.quantity * p_fill_price);
+  margin_reserve := case
+    when position_row.metadata ->> 'marginReserve' ~ '^[0-9]+([.][0-9]+)?$' then (position_row.metadata ->> 'marginReserve')::numeric
+    else position_row.entry_price * position_row.quantity
+  end;
+  updated_cash := account_row.cash_balance + margin_reserve + realized;
 
   update public.ait_positions
   set current_price = p_fill_price,
@@ -354,7 +395,12 @@ begin
   ) returning id into closed_trade_id;
 
   select
-    updated_cash + coalesce(sum(quantity * coalesce(current_price, entry_price)), 0),
+    updated_cash + coalesce(sum(
+      case
+        when metadata ->> 'marginReserve' ~ '^[0-9]+([.][0-9]+)?$' then (metadata ->> 'marginReserve')::numeric
+        else quantity * entry_price
+      end + (coalesce(current_price, entry_price) - entry_price) * quantity
+    ), 0),
     coalesce(sum((coalesce(current_price, entry_price) - entry_price) * quantity), 0)
   into updated_equity, updated_unrealized
   from public.ait_positions
@@ -376,6 +422,8 @@ begin
 end;
 $$;
 
+revoke all on function public.ensure_ait_scan_session(date, timestamptz) from public, anon, authenticated;
+grant execute on function public.ensure_ait_scan_session(date, timestamptz) to service_role;
 revoke all on function public.mark_ait_paper_position(uuid, numeric) from public, anon, authenticated;
 revoke all on function public.open_ait_paper_position(uuid, uuid, text, integer, numeric, numeric, numeric, numeric, numeric, text, numeric, numeric, numeric, numeric, integer, numeric, integer) from public, anon, authenticated;
 revoke all on function public.close_ait_paper_position(uuid, uuid, numeric, text, text) from public, anon, authenticated;

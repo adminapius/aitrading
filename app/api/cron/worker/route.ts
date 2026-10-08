@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
     workerResponse = await fetch(new URL('/api/worker/run', request.url), {
       method: 'POST',
       headers: { authorization: `Bearer ${workerSecret}`, 'content-type': 'application/json', 'x-trigger-source': 'vercel-cron', ...(scanId ? { 'x-scan-id': scanId } : {}) },
-      body: JSON.stringify({ candidates, triggerSource: 'vercel-cron', scanId, scanStartedAt }),
+      body: JSON.stringify({ candidates, triggerSource: 'vercel-cron', scanId, scanStartedAt, ...(scanError ? { scanError } : {}) }),
       signal: AbortSignal.timeout(20000),
       cache: 'no-store',
     })

@@ -17,6 +17,7 @@ export type ScanCandidate = {
   relativeVolumeReliable?: boolean
   relativeVolumeBaselineVolume?: number
   lastTradeAt?: string
+  quoteAt?: string
   lastTradePrice?: number
   spreadPct?: number
   enrichmentErrors?: string[]
@@ -112,6 +113,12 @@ export function decideEntry(candidate: ScanCandidate, equity: number, now = new 
 export function shouldExit(entryPrice: number, currentPrice: number, atr = entryPrice * 0.02) {
   const change = currentPrice - entryPrice
   return { exit: change >= atr * 1.5 || change <= -atr, reason: change >= atr * 1.5 ? 'profit target reached' : change <= -atr ? 'protective stop reached' : 'hold' }
+}
+
+export function simulatedMarginBuyingPower(equity: number, cash: number, currentExposure: number, minimumEquity: number) {
+  if (![equity, cash, currentExposure, minimumEquity].every(Number.isFinite) || equity <= 0 || cash < 0 || currentExposure < 0 || minimumEquity <= 0) return 0
+  if (equity < minimumEquity) return cash
+  return Math.max(0, equity * 2 - currentExposure)
 }
 
 export const strategyGuardrails = {
