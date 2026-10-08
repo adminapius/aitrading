@@ -1,7 +1,7 @@
-import { paperExecutionGuardrails } from './paper-trading.ts'
-import { paperExitReason, paperExitRequestedPrice } from './paper-exits.ts'
-import { elliottWaveConfig } from './elliott-wave-config.ts'
-import { strategyGuardrails } from './strategy.ts'
+import { paperExecutionGuardrails } from './paper-trading'
+import { paperExitReason, paperExitRequestedPrice } from './paper-exits'
+import { elliottWaveConfig } from './elliott-wave-config'
+import { strategyGuardrails } from './strategy'
 
 export type ElliottBar = {
   t: string

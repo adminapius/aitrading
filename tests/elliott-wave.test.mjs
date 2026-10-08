@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { advanceShadowOutcome, analyzeElliottWave, createElliottSignalDrafts } from '../lib/elliott-wave.ts'
+import { advanceShadowOutcome, analyzeElliottWave, createElliottSignalDrafts } from '../lib/elliott-wave'
+import { isBarCacheFresh, mergeIncrementalBars, updateTrackedWaveCandidates } from '../lib/elliott-wave-shadow'
 
 const sessionStart = Date.parse('2026-10-08T13:00:00.000Z')
 
@@ -60,6 +61,32 @@ function shadowSignal(overrides = {}) {
 }
 
 const liveMark = (price, bid = price - 0.05, ask = price + 0.05) => ({ price, bid, ask })
+
+test('incremental bars replace the latest candle and keep timestamps ordered', () => {
+  const firstBar = { t: '2026-10-08T14:00:00.000Z', h: 10.2, l: 9.8, c: 10, v: 100, vw: 10 }
+  const revisedBar = { ...firstBar, h: 10.4, c: 10.3, v: 150 }
+  const nextBar = { ...firstBar, t: '2026-10-08T14:01:00.000Z', c: 10.2 }
+  const merged = mergeIncrementalBars([firstBar], [revisedBar, nextBar])
+
+  assert.deepEqual(merged, [revisedBar, nextBar])
+  assert.equal(isBarCacheFresh({ fetchedMinute: Math.floor(Date.parse(firstBar.t) / 60_000) }, new Date('2026-10-08T14:00:59.000Z')), true)
+  assert.equal(isBarCacheFresh({ fetchedMinute: Math.floor(Date.parse(firstBar.t) / 60_000) }, new Date('2026-10-08T14:01:00.000Z')), false)
+})
+
+test('eligible symbols remain wave-tracked through gate failures until timeout or invalidation', () => {
+  const startedAt = new Date('2026-10-08T14:00:00.000Z')
+  const candidate = { symbol: 'TEST', price: 10, relativeVolume: 5 }
+  const tracked = new Map()
+
+  assert.deepEqual(updateTrackedWaveCandidates({ tracked, eligibleCandidates: [candidate], now: startedAt }), [candidate])
+  const latestCandidate = { ...candidate, price: 9.8, relativeVolume: 2 }
+  assert.deepEqual(updateTrackedWaveCandidates({ tracked, eligibleCandidates: [], observedCandidates: [latestCandidate], now: new Date(startedAt.getTime() + 44 * 60_000) }), [latestCandidate])
+  assert.equal(tracked.get('TEST').startedAt, startedAt.getTime())
+  assert.deepEqual(updateTrackedWaveCandidates({ tracked, eligibleCandidates: [], now: new Date(startedAt.getTime() + 45 * 60_000) }), [])
+
+  updateTrackedWaveCandidates({ tracked, eligibleCandidates: [candidate], now: startedAt })
+  assert.deepEqual(updateTrackedWaveCandidates({ tracked, eligibleCandidates: [], invalidatedSymbols: ['TEST'], now: new Date(startedAt.getTime() + 1_000) }), [])
+})
 
 // These paths deliberately use synthetic, closed one-minute candles, not hand-built pivots.
 test('recognizes a valid 0-1-2-3-4-5 impulse and calculates bounded confidence', () => {

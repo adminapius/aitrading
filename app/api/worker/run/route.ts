@@ -459,38 +459,37 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    let elliottShadow: { analyzed: number; signalsWritten: number } | null = null
+    let elliottShadow: { analyzed: number; signalsWritten: number; barRequests: number; budgetExceeded: boolean } | null = null
     const eligibleForWaveAnalysis = evaluations.filter(({ decision }) => decision.action === 'enter').map(({ candidate }) => candidate)
-    if (eligibleForWaveAnalysis.length || remainingPositions.length) {
-      try {
-        const actualEntries = new Map<string, { positionId: string; tradeId: string }>()
-        for (const execution of paperExecutions.filter((item) => item.status === 'filled' && item.positionId)) {
-          try {
-            const tradeId = await findPaperEntryTradeId(execution.positionId!)
-            if (tradeId) actualEntries.set(execution.symbol, { positionId: execution.positionId!, tradeId })
-          } catch (error) {
-            console.warn('[worker] Elliott entry link lookup failed', { symbol: execution.symbol, error })
-          }
+    try {
+      const actualEntries = new Map<string, { positionId: string; tradeId: string }>()
+      for (const execution of paperExecutions.filter((item) => item.status === 'filled' && item.positionId)) {
+        try {
+          const tradeId = await findPaperEntryTradeId(execution.positionId!)
+          if (tradeId) actualEntries.set(execution.symbol, { positionId: execution.positionId!, tradeId })
+        } catch (error) {
+          console.warn('[worker] Elliott entry link lookup failed', { symbol: execution.symbol, error })
         }
-        const newExposure = paperExecutions.filter((item) => item.status === 'filled').reduce((sum, execution) => {
-          const evaluation = evaluations.find(({ candidate }) => candidate.symbol === execution.symbol)
-          return sum + (evaluation?.decision.suggestedShares ?? 0) * (execution.fillPrice ?? evaluation?.candidate.price ?? 0)
-        }, 0)
-        elliottShadow = await runElliottShadowPass({
-          context: { scanId, sessionId, now },
-          candidates: eligibleForWaveAnalysis,
-          marks,
-          actualEntries,
-          actualExits: realExitComparisons,
-          openPositions: remainingPositions,
-          equity,
-          currentExposure: currentExposure + newExposure,
-          flatten,
-        })
-      } catch (error) {
-        persistenceWarning ??= error instanceof Error ? error.message : 'Elliott Wave shadow pass could not be persisted'
-        console.warn('[worker] Elliott Wave shadow pass failed without affecting paper execution', { scanId, error })
       }
+      const newExposure = paperExecutions.filter((item) => item.status === 'filled').reduce((sum, execution) => {
+        const evaluation = evaluations.find(({ candidate }) => candidate.symbol === execution.symbol)
+        return sum + (evaluation?.decision.suggestedShares ?? 0) * (execution.fillPrice ?? evaluation?.candidate.price ?? 0)
+      }, 0)
+      elliottShadow = await runElliottShadowPass({
+        context: { scanId, sessionId, now },
+        candidates: eligibleForWaveAnalysis,
+        observedCandidates: evaluations.map(({ candidate }) => candidate),
+        marks,
+        actualEntries,
+        actualExits: realExitComparisons,
+        openPositions: remainingPositions,
+        equity,
+        currentExposure: currentExposure + newExposure,
+        flatten,
+      })
+    } catch (error) {
+      persistenceWarning ??= error instanceof Error ? error.message : 'Elliott Wave shadow pass could not be persisted'
+      console.warn('[worker] Elliott Wave shadow pass failed without affecting paper execution', { scanId, error })
     }
 
     const filledEntries = paperExecutions.filter((execution) => execution.status === 'filled')
@@ -511,6 +510,7 @@ export async function POST(request: NextRequest) {
       decisions: evaluations.filter(({ decision }) => decision.action !== 'hold').map(({ decision }) => decision),
       paperExecutions,
       notificationResults,
+      elliottShadow,
       liveTradingEnabled: false,
       ...(persistenceWarning ? { persistenceWarning } : {}),
     })

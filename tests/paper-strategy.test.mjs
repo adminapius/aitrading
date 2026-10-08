@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { expectedScanIntervalSeconds } from '../lib/scan-config.ts'
-import { decideEntry, normalizeFloatShares, simulatedMarginBuyingPower, strategyGuardrails } from '../lib/strategy.ts'
-import { paperExitLevels, paperExitReason, paperExitRequestedPrice } from '../lib/paper-exits.ts'
+import { expectedScanIntervalSeconds } from '../lib/scan-config'
+import { decideEntry, normalizeFloatShares, simulatedMarginBuyingPower, strategyGuardrails } from '../lib/strategy'
+import { paperExitLevels, paperExitReason, paperExitRequestedPrice } from '../lib/paper-exits'
 
 const openingBellCandidate = {
   symbol: 'TEST',
