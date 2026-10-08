@@ -148,7 +148,8 @@ create or replace function public.open_ait_paper_position(
   p_max_daily_loss_fraction numeric,
   p_max_open_positions integer,
   p_minimum_margin_equity numeric,
-  p_reentry_cooldown_minutes integer
+  p_reentry_cooldown_minutes integer,
+  p_entry_metadata jsonb
 ) returns jsonb
 language plpgsql
 security definer
@@ -182,7 +183,8 @@ begin
      or p_max_daily_loss_fraction is null or p_max_daily_loss_fraction <= 0 or p_max_daily_loss_fraction > 1
      or p_max_open_positions is null or p_max_open_positions < 1 or p_max_open_positions > 10
      or p_minimum_margin_equity is null or p_minimum_margin_equity <= 0
-     or p_reentry_cooldown_minutes is null or p_reentry_cooldown_minutes < 0 or p_reentry_cooldown_minutes > 1440 then
+     or p_reentry_cooldown_minutes is null or p_reentry_cooldown_minutes < 0 or p_reentry_cooldown_minutes > 1440
+     or (p_entry_metadata is not null and jsonb_typeof(p_entry_metadata) <> 'object') then
     return jsonb_build_object('status', 'invalid_order');
   end if;
 
@@ -287,7 +289,7 @@ begin
   ) values (
     p_symbol, 'long', p_quantity, p_fill_price, p_fill_price, p_stop_price, p_target_price,
     0, 'open', clock_timestamp(),
-    jsonb_build_object('scanId', p_scan_id, 'riskPerShare', p_risk_per_share, 'marginReserve', required_margin, 'executionMode', case when current_equity >= p_minimum_margin_equity then 'paper-margin-2x' else 'paper-cash-only' end)
+    coalesce(p_entry_metadata, '{}'::jsonb) || jsonb_build_object('scanId', p_scan_id, 'riskPerShare', p_risk_per_share, 'marginReserve', required_margin, 'executionMode', case when current_equity >= p_minimum_margin_equity then 'paper-margin-2x' else 'paper-cash-only' end)
   ) returning id into position_id;
 
   insert into public.ait_trades (
@@ -296,7 +298,7 @@ begin
   ) values (
     p_session_id, position_id, p_symbol, 'buy', p_quantity, p_requested_price, p_fill_price,
     'filled', null, 'paper-market', clock_timestamp(), clock_timestamp(),
-    jsonb_build_object('scanId', p_scan_id, 'executionMode', case when current_equity >= p_minimum_margin_equity then 'paper-margin-2x' else 'paper-cash-only' end, 'liveTradingEnabled', false),
+    coalesce(p_entry_metadata, '{}'::jsonb) || jsonb_build_object('scanId', p_scan_id, 'executionMode', case when current_equity >= p_minimum_margin_equity then 'paper-margin-2x' else 'paper-cash-only' end, 'liveTradingEnabled', false),
     p_idempotency_key
   );
 
@@ -319,7 +321,8 @@ create or replace function public.close_ait_paper_position(
   p_position_id uuid,
   p_fill_price numeric,
   p_exit_reason text,
-  p_idempotency_key text
+  p_idempotency_key text,
+  p_exit_metadata jsonb
 ) returns jsonb
 language plpgsql
 security definer
@@ -334,12 +337,14 @@ declare
   updated_equity numeric(14,2);
   updated_unrealized numeric(14,2);
   margin_reserve numeric(14,2);
+  requested_price numeric;
   closed_trade_id uuid;
 begin
   if p_session_id is null or p_position_id is null
      or p_fill_price is null or p_fill_price <= 0
      or p_idempotency_key is null or length(p_idempotency_key) < 1 or length(p_idempotency_key) > 200
-     or p_exit_reason is null or length(p_exit_reason) < 1 or length(p_exit_reason) > 200 then
+     or p_exit_reason is null or length(p_exit_reason) < 1 or length(p_exit_reason) > 200
+     or p_exit_metadata is null or jsonb_typeof(p_exit_metadata) <> 'object' then
     return jsonb_build_object('status', 'invalid_exit');
   end if;
 
@@ -369,6 +374,19 @@ begin
   for update;
   if not found then return jsonb_build_object('status', 'position_closed'); end if;
 
+  requested_price := case p_exit_reason
+    when 'protective stop reached' then coalesce(position_row.stop_price, p_fill_price)
+    when 'profit target reached' then coalesce(position_row.target_price, p_fill_price)
+    when 'scheduled session flatten' then case
+      when p_exit_metadata ->> 'observedBid' ~ '^[0-9]+([.][0-9]+)?$' then (p_exit_metadata ->> 'observedBid')::numeric
+      else p_fill_price
+    end
+    else case
+      when p_exit_metadata ->> 'observedBid' ~ '^[0-9]+([.][0-9]+)?$' then (p_exit_metadata ->> 'observedBid')::numeric
+      else p_fill_price
+    end
+  end;
+
   realized := round((p_fill_price - position_row.entry_price) * position_row.quantity, 2);
   margin_reserve := case
     when position_row.metadata ->> 'marginReserve' ~ '^[0-9]+([.][0-9]+)?$' then (position_row.metadata ->> 'marginReserve')::numeric
@@ -381,16 +399,16 @@ begin
       unrealized_pnl = 0,
       status = 'closed',
       closed_at = clock_timestamp(),
-      metadata = metadata || jsonb_build_object('exitReason', p_exit_reason)
+      metadata = metadata || p_exit_metadata || jsonb_build_object('exitReason', p_exit_reason)
   where id = p_position_id;
 
   insert into public.ait_trades (
     session_id, position_id, symbol, side, quantity, requested_price, filled_price,
     status, order_type, submitted_at, filled_at, realized_pnl, metadata, idempotency_key
   ) values (
-    p_session_id, p_position_id, position_row.symbol, 'sell', position_row.quantity, p_fill_price, p_fill_price,
+    p_session_id, p_position_id, position_row.symbol, 'sell', position_row.quantity, requested_price, p_fill_price,
     'filled', 'paper-market', clock_timestamp(), clock_timestamp(), realized,
-    jsonb_build_object('exitReason', p_exit_reason, 'executionMode', 'paper-margin', 'liveTradingEnabled', false),
+    p_exit_metadata || jsonb_build_object('exitReason', p_exit_reason, 'executionMode', 'paper-margin', 'liveTradingEnabled', false),
     p_idempotency_key
   ) returning id into closed_trade_id;
 
@@ -425,15 +443,15 @@ $$;
 revoke all on function public.ensure_ait_scan_session(date, timestamptz) from public, anon, authenticated;
 grant execute on function public.ensure_ait_scan_session(date, timestamptz) to service_role;
 revoke all on function public.mark_ait_paper_position(uuid, numeric) from public, anon, authenticated;
-revoke all on function public.open_ait_paper_position(uuid, uuid, text, integer, numeric, numeric, numeric, numeric, numeric, text, numeric, numeric, numeric, numeric, integer, numeric, integer) from public, anon, authenticated;
-revoke all on function public.close_ait_paper_position(uuid, uuid, numeric, text, text) from public, anon, authenticated;
+revoke all on function public.open_ait_paper_position(uuid, uuid, text, integer, numeric, numeric, numeric, numeric, numeric, text, numeric, numeric, numeric, numeric, integer, numeric, integer, jsonb) from public, anon, authenticated;
+revoke all on function public.close_ait_paper_position(uuid, uuid, numeric, text, text, jsonb) from public, anon, authenticated;
 grant execute on function public.mark_ait_paper_position(uuid, numeric) to service_role;
-grant execute on function public.open_ait_paper_position(uuid, uuid, text, integer, numeric, numeric, numeric, numeric, numeric, text, numeric, numeric, numeric, numeric, integer, numeric, integer) to service_role;
-grant execute on function public.close_ait_paper_position(uuid, uuid, numeric, text, text) to service_role;
+grant execute on function public.open_ait_paper_position(uuid, uuid, text, integer, numeric, numeric, numeric, numeric, numeric, text, numeric, numeric, numeric, numeric, integer, numeric, integer, jsonb) to service_role;
+grant execute on function public.close_ait_paper_position(uuid, uuid, numeric, text, text, jsonb) to service_role;
 
 comment on table public.ait_scan_runs is 'One heartbeat per worker scan, including zero-candidate and failed scans.';
-comment on function public.open_ait_paper_position(uuid, uuid, text, integer, numeric, numeric, numeric, numeric, numeric, text, numeric, numeric, numeric, numeric, integer, numeric, integer) is 'Atomically enters a paper long position with sizing, margin, loss, cooldown, exposure, and idempotency guardrails; never contacts a broker.';
-comment on function public.close_ait_paper_position(uuid, uuid, numeric, text, text) is 'Atomically closes a paper long position and updates the ledger; never contacts a broker.';
+comment on function public.open_ait_paper_position(uuid, uuid, text, integer, numeric, numeric, numeric, numeric, numeric, text, numeric, numeric, numeric, numeric, integer, numeric, integer, jsonb) is 'Atomically enters a paper long position with sizing, margin, loss, cooldown, exposure, and idempotency guardrails; never contacts a broker.';
+comment on function public.close_ait_paper_position(uuid, uuid, numeric, text, text, jsonb) is 'Atomically closes a paper long position and updates the ledger; never contacts a broker.';
 
 -- Post-migration verification:
 -- select column_name from information_schema.columns where table_schema = 'public' and table_name = 'ait_scan_runs' order by ordinal_position;

@@ -1,5 +1,6 @@
 import { alpacaHeaders, supabaseHeaders, tradingConfig } from '@/lib/trading-config'
 import { scanConfig } from '@/lib/scan-config'
+export { paperExitLevels, paperExitReason, paperExitRequestedPrice } from './paper-exits'
 
 export type PaperPosition = {
   id: string
@@ -93,6 +94,7 @@ export async function openPaperPosition(input: {
   maxOpenPositions: number
   minimumMarginEquity: number
   reentryCooldownMinutes: number
+  entryMetadata: Record<string, unknown>
 }) {
   return callPaperRpc('open_ait_paper_position', {
     p_session_id: input.sessionId,
@@ -112,6 +114,7 @@ export async function openPaperPosition(input: {
     p_max_open_positions: input.maxOpenPositions,
     p_minimum_margin_equity: input.minimumMarginEquity,
     p_reentry_cooldown_minutes: input.reentryCooldownMinutes,
+    p_entry_metadata: input.entryMetadata,
   })
 }
 
@@ -121,6 +124,7 @@ export async function closePaperPosition(input: {
   fillPrice: number
   exitReason: string
   idempotencyKey: string
+  exitMetadata: Record<string, unknown>
 }) {
   return callPaperRpc('close_ait_paper_position', {
     p_session_id: input.sessionId,
@@ -128,6 +132,7 @@ export async function closePaperPosition(input: {
     p_fill_price: input.fillPrice,
     p_exit_reason: input.exitReason,
     p_idempotency_key: input.idempotencyKey,
+    p_exit_metadata: input.exitMetadata,
   })
 }
 
@@ -163,20 +168,6 @@ export function normalizePaperMarketMarks(value: unknown, now = new Date()) {
     if (isFreshPaperMarketMark(item, now)) marks.set(item.symbol, item)
   }
   return marks
-}
-
-export function paperExitReason(position: PaperPosition, mark: PaperMarketMark, flatten: boolean) {
-  if (flatten) return 'scheduled session flatten'
-  const entry = numeric(position.entry_price)
-  const stop = numeric(position.stop_price)
-  const target = numeric(position.target_price)
-  if (entry == null) return null
-  if (stop != null && mark.price <= stop) return 'protective stop reached'
-  if (target != null && mark.price >= target) return 'profit target reached'
-  const riskPerShare = numeric(position.metadata?.riskPerShare) ?? entry * 0.02
-  if (mark.price - entry <= -riskPerShare) return 'protective stop reached'
-  if (mark.price - entry >= riskPerShare * 1.5) return 'profit target reached'
-  return null
 }
 
 export function positionExposure(positions: PaperPosition[]) {

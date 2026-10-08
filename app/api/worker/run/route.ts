@@ -5,7 +5,7 @@ import { sendTradingNotification } from '@/lib/notifications'
 import { recordScheduleEvent, scheduleWindowAction } from '@/lib/scheduled-events'
 import { claimScanLease, ensureScanSession, releaseScanLease } from '@/lib/scan-lock'
 import { minimumScanLeaseIntervalSeconds, scanConfig } from '@/lib/scan-config'
-import { closePaperPosition, loadFreshPaperMarketMarks, loadOpenPaperPositions, markPaperPosition, openPaperPosition, paperExecutionGuardrails, paperExitReason, positionExposure } from '@/lib/paper-trading'
+import { closePaperPosition, loadFreshPaperMarketMarks, loadOpenPaperPositions, markPaperPosition, openPaperPosition, paperExecutionGuardrails, paperExitLevels, paperExitReason, paperExitRequestedPrice, positionExposure } from '@/lib/paper-trading'
 import { decideEntry, isFlattenWindow, isTradingWindow, normalizeFloatShares, scoreCandidate, simulatedMarginBuyingPower, strategyGuardrails, type ScanCandidate } from '@/lib/strategy'
 
 export const dynamic = 'force-dynamic'
@@ -300,12 +300,31 @@ export async function POST(request: NextRequest) {
       const exitReason = paperExitReason(position, mark, flatten)
       if (!exitReason) continue
 
+      const fillPrice = mark.bid * (1 - paperExecutionGuardrails().slippageFraction)
+      const exitLevels = paperExitLevels(position)
+      const requestedPrice = paperExitRequestedPrice(position, mark, exitReason)
+      const gapPastStopDollars = exitLevels.stopPrice == null ? 0 : Math.max(0, exitLevels.stopPrice - fillPrice)
       const closeResult = await closePaperPosition({
         sessionId,
         positionId: position.id,
-        fillPrice: mark.bid * (1 - paperExecutionGuardrails().slippageFraction),
+        fillPrice,
         exitReason,
         idempotencyKey: `close:${position.id}`,
+        exitMetadata: {
+          stopPrice: exitLevels.stopPrice,
+          targetPrice: exitLevels.targetPrice,
+          observedBid: mark.bid,
+          observedAsk: mark.ask,
+          fillPrice,
+          slippage: requestedPrice - fillPrice,
+          gapPastStop: {
+            dollars: gapPastStopDollars,
+            r: exitLevels.riskPerShare && exitLevels.riskPerShare > 0 ? gapPastStopDollars / exitLevels.riskPerShare : null,
+          },
+          quoteAgeSeconds: Math.max(0, (now.getTime() - Date.parse(mark.at)) / 1_000),
+          haltBlocked: false,
+          scanId,
+        },
       })
       if (closeResult.status === 'closed') outcome.positionsExited += 1
       if (closeResult.status !== 'closed' && closeResult.status !== 'already_executed') {
@@ -347,7 +366,7 @@ export async function POST(request: NextRequest) {
           ? { action: 'hold' as const, symbol: originalCandidate.symbol, confidence: 0, reason: 'Latest trade became stale before execution; no paper order was opened.', riskPerShare: originalCandidate.atr ?? 0, suggestedShares: 0 }
           : decideEntry({ ...originalCandidate, price: mark.ask, bid: mark.bid, ask: mark.ask, quoteAt: mark.at, spreadPct: ((mark.ask - mark.bid) / ((mark.ask + mark.bid) / 2)) * 100 }, equity, now, remainingAllocation)
       const candidate = mark ? { ...originalCandidate, price: mark.ask, bid: mark.bid, ask: mark.ask, quoteAt: mark.at, spreadPct: ((mark.ask - mark.bid) / ((mark.ask + mark.bid) / 2)) * 100 } : originalCandidate
-      evaluations.push({ candidate, decision, requestedPrice: originalCandidate.price })
+      evaluations.push({ candidate, decision, requestedPrice: mark?.ask ?? originalCandidate.price })
       console.info('[worker] strategy decision', {
         scanId,
         triggerSource,
@@ -398,6 +417,12 @@ export async function POST(request: NextRequest) {
             maxOpenPositions: strategyGuardrails.maxOpenPositions,
             minimumMarginEquity: strategyGuardrails.minimumMarginEquity,
             reentryCooldownMinutes: strategyGuardrails.reentryCooldownMinutes,
+            entryMetadata: {
+              observedAsk: mark.ask,
+              slippage: fillPrice - mark.ask,
+              liquidityCap: null,
+              liquidityCapBound: false,
+            },
           })
           paperExecutions.push({ symbol: candidate.symbol, status: result.status, reason: result.reason, positionId: result.positionId, fillPrice: result.fillPrice })
         } catch (error) {
