@@ -1,7 +1,9 @@
-import type { StrategyRegimeName } from './strategy.ts'
+import type { StrategyRegimeName } from './strategy'
 
 export const elliottWaveConfig = {
   enabled: true,
+  shadowPassBudgetMs: 4_000,
+  trackingWindowMinutes: 45,
   uses: {
     exhaustionFilter: true,
     wave3Entry: true,
