@@ -224,18 +224,6 @@ html, body { overflow-x: hidden; }
 .event-log-filters button span { color: #66788d; font-size: 9px; }
 .event-log-filters button.is-selected span { color: #7acabe; }
 .event-log-filters button:focus-visible { outline: 2px solid #2dd4bf; outline-offset: 2px; }
-.event-log-query-filters { display: grid; grid-template-columns: minmax(90px, .65fr) minmax(120px, 1fr); gap: 7px; margin: 10px 0 7px; }
-.event-log-query-filters label { display: flex; flex-direction: column; gap: 4px; color: #718096; font: 8px monospace; letter-spacing: .45px; text-transform: uppercase; }
-.event-log-query-filters input, .event-log-query-filters select { width: 100%; min-width: 0; min-height: 30px; padding: 0 7px; border: 1px solid #1c2a3a; border-radius: 3px; background: #0a111b; color: #d5dee8; font: 10px monospace; }
-.event-log-query-filters input:focus-visible, .event-log-query-filters select:focus-visible { outline: 2px solid #2dd4bf; outline-offset: 2px; }
-.event-log-query-filters input::placeholder { color: #66778b; }
-.event-log-search { display: flex; align-items: center; gap: 7px; min-height: 31px; margin: 0 0 5px; padding: 0 8px; border: 1px solid #1c2a3a; border-radius: 3px; background: #0a111b; color: #6f8094; }
-.event-log-search > svg { flex: 0 0 auto; width: 13px; height: 13px; }
-.event-log-search input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: #d5dee8; font: 10px monospace; }
-.event-log-search input::placeholder { color: #66778b; }
-.event-log-search input::-webkit-search-cancel-button { display: none; }
-.event-log-search button { display: grid; flex: 0 0 auto; place-items: center; width: 24px; height: 24px; border: 0; background: transparent; color: #8290a2; }
-.event-log-search button svg { width: 13px; height: 13px; }
 .event-log-feed { flex: 1 1 0; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #294052 #0c131e; }
 .event-log-feed::-webkit-scrollbar { width: 5px; }
 .event-log-feed::-webkit-scrollbar-thumb { background: #294052; border-radius: 4px; }
