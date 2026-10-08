@@ -31,6 +31,25 @@ export function easternFourAmCutoff(now: Date) {
   return easternFourAmStart(cutoffDate)
 }
 
+function easternBoundary(now: Date, hour: number, minute: number) {
+  const { year, month, day } = easternSchedule(now)
+  const targetAsUtc = Date.UTC(year, month - 1, day, hour, minute)
+  const probe = easternSchedule(new Date(targetAsUtc))
+  const probeAsUtc = Date.UTC(probe.year, probe.month - 1, probe.day, probe.hour, probe.minute)
+  const firstGuess = new Date(targetAsUtc - (probeAsUtc - targetAsUtc))
+  const verified = easternSchedule(firstGuess)
+  const verifiedAsUtc = Date.UTC(verified.year, verified.month - 1, verified.day, verified.hour, verified.minute)
+  return new Date(firstGuess.getTime() + targetAsUtc - verifiedAsUtc)
+}
+
+export function easternSevenAmStart(now: Date) {
+  return easternBoundary(now, 7, 0)
+}
+
+export function easternSleepStart(now: Date) {
+  return easternBoundary(now, 15, 55)
+}
+
 async function persistScheduleSession(action: ScheduleEventAction, now: Date) {
   const sessionsUrl = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_sessions`)
   sessionsUrl.search = new URLSearchParams({
