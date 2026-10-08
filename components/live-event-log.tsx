@@ -1,6 +1,6 @@
 'use client'
 
-import { useDeferredValue, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import useSWRInfinite from 'swr/infinite'
 import { Activity, Search, X } from 'lucide-react'
 
@@ -21,18 +21,9 @@ type EventPage = {
   degradedReason?: string
 }
 
-type EventFilter = 'all' | 'scan' | 'ai' | 'execution' | 'system' | 'alerts'
-type EventCategory = Exclude<EventFilter, 'all'>
+type EventCategory = 'scan' | 'ai' | 'execution' | 'system' | 'alerts'
 
 const PAGE_SIZE = 200
-const filters: { id: EventFilter; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'scan', label: 'Scan' },
-  { id: 'ai', label: 'AI' },
-  { id: 'execution', label: 'Orders' },
-  { id: 'system', label: 'System' },
-  { id: 'alerts', label: 'Alerts' },
-]
 
 const eventFetcher = async (url: string): Promise<EventPage> => {
   const response = await fetch(url)
@@ -80,35 +71,24 @@ function formatEventType(value: string) {
 }
 
 export function LiveEventLog({ isAwake }: { isAwake: boolean }) {
-  const [activeFilter, setActiveFilter] = useState<EventFilter>('all')
-  const [levelFilter, setLevelFilter] = useState('')
-  const [eventTypeFilter, setEventTypeFilter] = useState('')
   const [query, setQuery] = useState('')
-  const deferredEventType = useDeferredValue(eventTypeFilter.trim())
   const { data, error, isLoading, isValidating, size, setSize } = useSWRInfinite<EventPage>(
     (pageIndex, previousPage) => {
       if (previousPage && !previousPage.hasMore) return null
       const params = new URLSearchParams({ limit: String(PAGE_SIZE) })
       if (pageIndex > 0 && previousPage?.nextCursor) params.set('before', previousPage.nextCursor)
-      if (levelFilter) params.set('level', levelFilter)
-      if (deferredEventType) params.set('event_type', deferredEventType)
       return `/api/events?${params}`
     },
     eventFetcher,
     { refreshInterval: 5_000, revalidateOnFocus: true, revalidateFirstPage: true, revalidateAll: false },
   )
   const events = useMemo(() => data?.flatMap((page) => page.events) ?? [], [data])
-  const eventCounts = useMemo(() => events.reduce<Record<EventCategory, number>>((counts, event) => {
-    counts[getEventCategory(event)] += 1
-    return counts
-  }, { scan: 0, ai: 0, execution: 0, system: 0, alerts: 0 }), [events])
-  const visibleEvents = events.filter((event) => {
-    const matchesFilter = activeFilter === 'all' || getEventCategory(event) === activeFilter
+  const visibleEvents = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
-    const matchesQuery = !normalizedQuery || [event.symbol, event.event_type, event.level, event.message]
-      .some((value) => value?.toLowerCase().includes(normalizedQuery))
-    return matchesFilter && matchesQuery
-  })
+    if (!normalizedQuery) return events
+    return events.filter((event) => [event.symbol, event.event_type, event.level, event.message]
+      .some((value) => value?.toLowerCase().includes(normalizedQuery)))
+  }, [events, query])
   const latestPage = data?.at(-1)
   const feedOffline = Boolean(error || data?.[0]?.degraded)
   const loadingOlder = isValidating && !isLoading
@@ -128,45 +108,14 @@ export function LiveEventLog({ isAwake }: { isAwake: boolean }) {
         <span>TODAY · 7AM–3:55PM ET</span>
         <span><Activity aria-hidden="true" /> POLL 5S</span>
       </div>
-      <nav className="event-log-filters" aria-label="Filter event category">
-        {filters.map((filter) => {
-          const count = filter.id === 'all' ? events.length : eventCounts[filter.id]
-          return (
-            <button
-              aria-pressed={activeFilter === filter.id}
-              className={activeFilter === filter.id ? 'is-selected' : ''}
-              key={filter.id}
-              onClick={() => setActiveFilter(filter.id)}
-              type="button"
-            >
-              {filter.label}<span>{count}</span>
-            </button>
-          )
-        })}
-      </nav>
-      <div className="event-log-query-filters">
-        <label>
-          <span>Level</span>
-          <select aria-label="Filter by level" onChange={(event) => setLevelFilter(event.target.value)} value={levelFilter}>
-            <option value="">All levels</option>
-            <option value="info">Info</option>
-            <option value="warning">Warning</option>
-            <option value="error">Error</option>
-          </select>
-        </label>
-        <label>
-          <span>Event type</span>
-          <input aria-label="Filter by event type" autoComplete="off" onChange={(event) => setEventTypeFilter(event.target.value)} placeholder="Any event type" value={eventTypeFilter} />
-        </label>
-      </div>
       <div className="event-log-search">
         <Search aria-hidden="true" />
-        <label className="sr-only" htmlFor="event-log-search">Search loaded event messages and symbols</label>
+        <label className="sr-only" htmlFor="event-log-search">Search loaded messages, symbols, levels, and event types</label>
         <input
           autoComplete="off"
           id="event-log-search"
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search loaded messages or symbols"
+          placeholder="Search loaded messages, symbols, levels, or event types"
           type="search"
           value={query}
         />
@@ -199,7 +148,7 @@ export function LiveEventLog({ isAwake }: { isAwake: boolean }) {
                 ? 'Connecting to the event feed…'
                 : events.length === 0
                   ? isAwake ? 'No events recorded yet today. The next scanner update will appear here.' : 'No events recorded today.'
-                  : 'No events match these filters. Try another category or search.'}
+                  : 'No loaded events match this search.'}
           </div>
         )}
       </div>
