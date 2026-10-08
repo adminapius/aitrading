@@ -3,6 +3,7 @@
 import useSWR from 'swr'
 import { useEffect, useRef, useState } from 'react'
 import { Activity, Search, Sparkles } from 'lucide-react'
+import LiveEventLog from '@/components/live-event-log'
 
 type Stock = { symbol: string; price: number; changePercent: number | null; volume: number; bid: number; ask: number }
 type ScanData = { candidates?: Stock[]; scannedAt?: string; source?: string; error?: string; persistenceWarning?: string }
@@ -115,7 +116,7 @@ export default function Home() {
   const { data: indexData } = useSWR<IndexData>('/api/indices', fetcher, { refreshInterval: 15000, revalidateOnFocus: true })
   const { data: latencyData } = useSWR<LatencyData>('/api/latency', fetcher, { refreshInterval: 15000, revalidateOnFocus: true })
   const { data: accountData } = useSWR<AccountData>('/api/account', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
-  const { data: eventData } = useSWR<EventData>('/api/events?limit=100', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
+  const { data: eventData, error: eventError } = useSWR<EventData>('/api/events?limit=100', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
   const { data: positionData } = useSWR<PositionData>('/api/positions', fetcher, { refreshInterval: 5000, revalidateOnFocus: true })
   const liveAccount = accountData?.account
   const livePositions = positionData?.positions ?? []
@@ -126,7 +127,6 @@ export default function Home() {
   const selected = selectedSymbol ? stocks.find((stock) => stock.symbol === selectedSymbol) ?? null : null
   const accountPnl = (liveAccount?.realized_pnl ?? 0) + (liveAccount?.unrealized_pnl ?? 0)
   const pnlPoints = [...(pnlHistory?.points?.length ? pnlHistory.points : [0]), accountPnl]
-  const displayedEvents = liveEvents.map((event) => ({ ...event, time: new Date(event.created_at).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase().replace(' ', '') }))
 
   useEffect(() => {
     const updateClock = () => setNow(new Date())
@@ -178,7 +178,7 @@ export default function Home() {
         </section>
         <aside className="right-rail">
           <section className="panel watchlist-panel"><div className="panel-title scanner-title"><span>SCANNED STOCKS ({stocks.length})</span><span className="scan-status"><i />{isFlattening ? 'FLATTEN' : scanError && scanWindowOpen ? 'FEED OFF · NEXT SCAN —' : nextScanLabel}</span></div><div className="search-box"><Search /><input placeholder="Filter symbols…" aria-label="Filter symbols" value={filter} onChange={(event) => setFilter(event.target.value)} /></div><div className="watchlist">{filteredStocks.length ? filteredStocks.map((stock) => <button key={stock.symbol} onClick={() => setSelectedSymbol(stock.symbol)} className={`stock-row ${selected?.symbol === stock.symbol ? 'selected' : ''}`}><div className="stock-left"><span className={`stock-mover-change ${stock.changePercent != null && stock.changePercent >= 0 ? 'positive' : 'negative'}`}>{stock.changePercent == null ? '—' : `${stock.changePercent >= 0 ? '+' : ''}${stock.changePercent.toFixed(1)}%`}</span><div><strong>{stock.symbol}</strong><small>Volume {formatVolume(stock.volume)}</small></div></div><div className="stock-price"><strong>${stock.price.toFixed(2)}</strong></div></button>) : <div className="empty-position">{!scanWindowOpen ? '' : scanError ? 'Alpaca market mover feed is unavailable.' : scanData ? 'No market movers returned.' : 'Loading live market movers…'}</div>}</div></section>
-          <section className="panel events-panel"><div className="panel-title"><span>LIVE EVENT LOG</span></div><div className="events">{displayedEvents.length ? displayedEvents.map((event) => <div className="event" key={event.id}><span className="event-time">{event.time}</span><span className={`event-type ${event.event_type.toLowerCase().replace(/[_\s]+/g, '-')}-${event.level.toLowerCase()}`}>{event.event_type}</span><p>{event.message}</p></div>) : <div className="empty-position">{eventData?.degraded ? eventData.degradedReason ?? 'Event history unavailable' : eventData ? '' : 'Loading event history…'}</div>}</div></section>
+          <LiveEventLog events={liveEvents} isAwake={scanWindowOpen} degraded={Boolean(eventData?.degraded)} connectionError={Boolean(eventError)} loading={!eventData && !eventError} />
         </aside>
       </div>
     </main>
