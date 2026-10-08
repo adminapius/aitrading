@@ -22,8 +22,16 @@ type EventPage = {
 }
 
 type EventCategory = 'scan' | 'ai' | 'execution' | 'system' | 'alerts'
+type EventFilter = 'all' | 'buy' | 'sell' | 'ai' | 'errors'
 
 const PAGE_SIZE = 200
+const eventFilters: { id: EventFilter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'buy', label: 'Buy' },
+  { id: 'sell', label: 'Sell' },
+  { id: 'ai', label: 'AI' },
+  { id: 'errors', label: 'Errors' },
+]
 
 const eventFetcher = async (url: string): Promise<EventPage> => {
   const response = await fetch(url)
@@ -40,6 +48,17 @@ function getEventCategory(event: EventRecord): EventCategory {
   if (/ai/.test(type)) return 'ai'
   if (/order|trade|position|flatten|execution/.test(type)) return 'execution'
   return 'system'
+}
+
+function matchesEventFilter(event: EventRecord, filter: EventFilter) {
+  if (filter === 'all') return true
+
+  const type = event.event_type.toLowerCase()
+  const text = `${event.event_type} ${event.message}`.toLowerCase()
+  if (filter === 'ai') return getEventCategory(event) === 'ai'
+  if (filter === 'errors') return event.level.toLowerCase() === 'error' || /error/.test(type)
+  if (filter === 'buy') return /\b(buy|long)\b/.test(text)
+  return /\b(sell|short)\b/.test(text)
 }
 
 function formatEventTime(value: string) {
@@ -71,6 +90,7 @@ function formatEventType(value: string) {
 }
 
 export function LiveEventLog({ isAwake }: { isAwake: boolean }) {
+  const [activeFilter, setActiveFilter] = useState<EventFilter>('all')
   const [levelFilter, setLevelFilter] = useState('')
   const [eventTypeFilter, setEventTypeFilter] = useState('')
   const [query, setQuery] = useState('')
@@ -87,12 +107,13 @@ export function LiveEventLog({ isAwake }: { isAwake: boolean }) {
     { refreshInterval: 5_000, revalidateOnFocus: true, revalidateFirstPage: true, revalidateAll: false },
   )
   const events = useMemo(() => data?.flatMap((page) => page.events) ?? [], [data])
+  const filteredEvents = useMemo(() => events.filter((event) => matchesEventFilter(event, activeFilter)), [events, activeFilter])
   const visibleEvents = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
-    if (!normalizedQuery) return events
-    return events.filter((event) => [event.symbol, event.event_type, event.level, event.message]
+    if (!normalizedQuery) return filteredEvents
+    return filteredEvents.filter((event) => [event.symbol, event.event_type, event.level, event.message]
       .some((value) => value?.toLowerCase().includes(normalizedQuery)))
-  }, [events, query])
+  }, [filteredEvents, query])
   const latestPage = data?.at(-1)
   const feedOffline = Boolean(error || data?.[0]?.degraded)
   const loadingOlder = isValidating && !isLoading
@@ -112,6 +133,22 @@ export function LiveEventLog({ isAwake }: { isAwake: boolean }) {
         <span>TODAY · 7AM–3:55PM ET</span>
         <span><Activity aria-hidden="true" /> POLL 5S</span>
       </div>
+      <nav className="event-log-filters" aria-label="Filter events">
+        {eventFilters.map((filter) => {
+          const count = events.filter((event) => matchesEventFilter(event, filter.id)).length
+          return (
+            <button
+              aria-pressed={activeFilter === filter.id}
+              className={activeFilter === filter.id ? 'is-selected' : ''}
+              key={filter.id}
+              onClick={() => setActiveFilter(filter.id)}
+              type="button"
+            >
+              {filter.label}<span>{count}</span>
+            </button>
+          )
+        })}
+      </nav>
       <div className="event-log-query-filters">
         <label>
           <span>Level</span>
@@ -165,9 +202,10 @@ export function LiveEventLog({ isAwake }: { isAwake: boolean }) {
               ? data?.[0]?.degradedReason ?? 'The event feed is unavailable. Reconnecting automatically.'
               : isLoading
                 ? 'Connecting to the event feed…'
-                : events.length === 0
+                  : events.length === 0 && activeFilter === 'all' && !query.trim() && !levelFilter && !eventTypeFilter.trim()
                   ? isAwake ? 'No events recorded yet today. The next scanner update will appear here.' : 'No events recorded today.'
-                  : 'No loaded events match this search.'}
+                  : 'No loaded events match these filters.'}
+
           </div>
         )}
       </div>
