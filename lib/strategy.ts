@@ -14,6 +14,8 @@ export type ScanCandidate = {
   socialScore?: number
   companyName?: string
   relativeVolume?: number
+  relativeVolumeReliable?: boolean
+  relativeVolumeBaselineVolume?: number
   lastTradeAt?: string
   lastTradePrice?: number
   spreadPct?: number
@@ -24,11 +26,13 @@ export type ScanCandidate = {
 
 export function normalizeFloatShares(value: number | null | undefined, source: ScanCandidate['floatSource'] = 'fmp') {
   if (!Number.isFinite(value) || value == null) return undefined
-  return source === 'finnhub' ? value * 1_000_000 : value
+  const normalized = source === 'finnhub' ? value * 1_000_000 : value
+  if (normalized < 100_000 || normalized > 2_000_000_000) return undefined
+  return normalized
 }
 
 export type TradeDecision = {
-  action: 'buy' | 'sell' | 'hold'
+  action: 'enter' | 'sell' | 'hold'
   symbol: string
   confidence: number
   reason: string
@@ -36,10 +40,13 @@ export type TradeDecision = {
   suggestedShares: number
 }
 
-const MAX_POSITION_FRACTION = 0.9
-const MAX_AGGREGATE_EXPOSURE_FRACTION = 0.9
+const MAX_POSITION_FRACTION = 0.25
+const MAX_AGGREGATE_EXPOSURE_FRACTION = 0.75
 const MAX_DAILY_LOSS_FRACTION = 0.04
-const RISK_PER_TRADE_FRACTION = 0.02
+const RISK_PER_TRADE_FRACTION = 0.01
+const MAX_OPEN_POSITIONS = 3
+const MIN_MARGIN_EQUITY = 2_000
+const REENTRY_COOLDOWN_MINUTES = Math.max(0, Math.min(240, Number(process.env.REENTRY_COOLDOWN_MINUTES) || 30))
 
 function easternTime(now = new Date()) {
   const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(now)
@@ -59,7 +66,7 @@ export function strategyRegime(now = new Date()) {
 
 export function scoreCandidate(candidate: ScanCandidate, now = new Date()) {
   const regime = strategyRegime(now)
-  const rvol = candidate.relativeVolume ?? (candidate.averageVolume ? (candidate.volume ?? 0) / candidate.averageVolume : 0)
+  const rvol = candidate.relativeVolumeReliable === false ? 0 : candidate.relativeVolume ?? (candidate.averageVolume ? (candidate.volume ?? 0) / candidate.averageVolume : 0)
   const dollarVolume = (candidate.volume ?? 0) * candidate.price
   const spread = candidate.bid && candidate.ask && candidate.price > 0 ? (candidate.ask - candidate.bid) / candidate.price : Infinity
   const catalysts = Number(Boolean(candidate.hasNews)) + Number((candidate.socialScore ?? 0) >= 60)
@@ -88,6 +95,7 @@ export function decideEntry(candidate: ScanCandidate, equity: number, now = new 
   const normalizedFloat = normalizeFloatShares(candidate.float, candidate.floatSource)
   const spread = candidate.bid && candidate.ask && candidate.price > 0 ? (candidate.ask - candidate.bid) / candidate.price : Infinity
   const entryGatesPass =
+    candidate.relativeVolumeReliable !== false &&
     (candidate.changePercent ?? 0) > 2 &&
     candidate.price > (candidate.vwap ?? Infinity) &&
     relativeVolume >= regime.rvol &&
@@ -98,7 +106,7 @@ export function decideEntry(candidate: ScanCandidate, equity: number, now = new 
     Boolean(candidate.hasNews) &&
     Number.isFinite(candidate.atr) && Number(candidate.atr) > 0
   if (regime.name === 'exits-only' || !entryGatesPass || score < regime.score || suggestedShares < 1) return { action: 'hold', symbol: candidate.symbol, confidence: score / 100, reason: `${regime.name}: candidate failed a required price, volume, relative-volume, catalyst, ATR, or spread gate.`, riskPerShare, suggestedShares: 0 }
-  return { action: 'buy', symbol: candidate.symbol, confidence: Math.min(score / 100, 0.99), reason: `${regime.name}: required catalyst, relative-volume, liquidity, price action, ATR, and spread gates passed.`, riskPerShare, suggestedShares }
+  return { action: 'enter', symbol: candidate.symbol, confidence: Math.min(score / 100, 0.99), reason: `${regime.name}: required catalyst, relative-volume, liquidity, price action, ATR, and spread gates passed.`, riskPerShare, suggestedShares }
 }
 
 export function shouldExit(entryPrice: number, currentPrice: number, atr = entryPrice * 0.02) {
@@ -113,6 +121,9 @@ export const strategyGuardrails = {
   maxAggregateExposureFraction: MAX_AGGREGATE_EXPOSURE_FRACTION,
   maxDailyLossFraction: MAX_DAILY_LOSS_FRACTION,
   riskPerTradeFraction: RISK_PER_TRADE_FRACTION,
+  maxOpenPositions: MAX_OPEN_POSITIONS,
+  minimumMarginEquity: MIN_MARGIN_EQUITY,
+  reentryCooldownMinutes: REENTRY_COOLDOWN_MINUTES,
   entryMonitorSeconds: 10,
   liveTradingEnabled: false,
 }
