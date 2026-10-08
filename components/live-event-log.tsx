@@ -71,12 +71,16 @@ function formatEventType(value: string) {
 }
 
 export function LiveEventLog({ isAwake }: { isAwake: boolean }) {
+  const [levelFilter, setLevelFilter] = useState('')
+  const [eventTypeFilter, setEventTypeFilter] = useState('')
   const [query, setQuery] = useState('')
   const { data, error, isLoading, isValidating, size, setSize } = useSWRInfinite<EventPage>(
     (pageIndex, previousPage) => {
       if (previousPage && !previousPage.hasMore) return null
       const params = new URLSearchParams({ limit: String(PAGE_SIZE) })
       if (pageIndex > 0 && previousPage?.nextCursor) params.set('before', previousPage.nextCursor)
+      if (levelFilter) params.set('level', levelFilter)
+      if (eventTypeFilter.trim()) params.set('event_type', eventTypeFilter.trim())
       return `/api/events?${params}`
     },
     eventFetcher,
@@ -107,6 +111,21 @@ export function LiveEventLog({ isAwake }: { isAwake: boolean }) {
       <div className="event-log-subhead">
         <span>TODAY · 7AM–3:55PM ET</span>
         <span><Activity aria-hidden="true" /> POLL 5S</span>
+      </div>
+      <div className="event-log-query-filters">
+        <label>
+          <span>Level</span>
+          <select aria-label="Filter by level" onChange={(event) => setLevelFilter(event.target.value)} value={levelFilter}>
+            <option value="">All levels</option>
+            <option value="info">Info</option>
+            <option value="warning">Warning</option>
+            <option value="error">Error</option>
+          </select>
+        </label>
+        <label>
+          <span>Event type</span>
+          <input aria-label="Filter by event type" autoComplete="off" onChange={(event) => setEventTypeFilter(event.target.value)} placeholder="Any event type" value={eventTypeFilter} />
+        </label>
       </div>
       <div className="event-log-search">
         <Search aria-hidden="true" />
@@ -157,7 +176,6 @@ export function LiveEventLog({ isAwake }: { isAwake: boolean }) {
           {loadingOlder ? 'Loading older events…' : 'Load older events'}
         </button>
       )}
-      <div className="event-log-footnote">Newest first · paginated 200 at a time · today&apos;s full operating session</div>
     </section>
   )
 }
