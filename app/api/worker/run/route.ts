@@ -38,7 +38,8 @@ function isAuthorized(request: NextRequest) {
 
 type Evaluation = { candidate: ScanCandidate; decision: ReturnType<typeof decideEntry>; requestedPrice?: number }
 type ScanContext = { scanId: string; sessionId: string; triggerSource: string; startedAt: Date; durationMs: number }
-type ScanOutcome = { status: 'completed' | 'failed'; scannedCandidates: number; enterCandidates: number; positionsExited: number; error?: string }
+type ElliottShadowStats = { analyzed: number; signalsWritten: number; barRequests: number; budgetExceeded: boolean }
+type ScanOutcome = { status: 'completed' | 'failed'; scannedCandidates: number; enterCandidates: number; positionsExited: number; error?: string; elliottShadow?: ElliottShadowStats | null }
 
 function safeTriggerSource(value: unknown) {
   return value === 'railway-scheduler' || value === 'vercel-cron' || value === 'manual' || value === 'api' ? value : 'api'
@@ -459,7 +460,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    let elliottShadow: { analyzed: number; signalsWritten: number; barRequests: number; budgetExceeded: boolean } | null = null
+    let elliottShadow: ElliottShadowStats | null = null
     const eligibleForWaveAnalysis = evaluations.filter(({ decision }) => decision.action === 'enter').map(({ candidate }) => candidate)
     try {
       const actualEntries = new Map<string, { positionId: string; tradeId: string }>()
@@ -496,7 +497,7 @@ export async function POST(request: NextRequest) {
     const notificationResults = body.notify && filledEntries.length
       ? await sendTradingNotification({ title: 'AItrading paper entries', message: `Paper-only entries filled: ${filledEntries.map(({ symbol }) => symbol).join(', ')}` })
       : []
-    outcome = { status: 'completed', scannedCandidates: candidates.length, enterCandidates: enterCount, positionsExited: outcome.positionsExited }
+    outcome = { status: 'completed', scannedCandidates: candidates.length, enterCandidates: enterCount, positionsExited: outcome.positionsExited, elliottShadow }
     return NextResponse.json({
       status: flatten ? 'paper_flatten_complete' : 'paper_execution_complete',
       mode: 'paper-margin-simulation',
@@ -535,6 +536,7 @@ export async function POST(request: NextRequest) {
         buy_candidates: outcome.enterCandidates,
         scan_duration_ms: durationMs,
         error: outcome.error ?? null,
+        ...(outcome.elliottShadow ? { metadata: { elliottShadow: outcome.elliottShadow } } : {}),
       }).catch((error) => console.error('[worker] scan heartbeat could not be finalized', { scanId, error }))
     }
     await releaseScanLease(ownerToken).catch((error) => console.error('[worker] scan lease release failed', { scanId, error }))
