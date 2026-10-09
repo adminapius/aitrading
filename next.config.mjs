@@ -3,6 +3,9 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  outputFileTracingIncludes: {
+    '/backtest': ['./backtests/2026-10-6m/summary.json'],
+  },
   images: {
     unoptimized: true,
   },

@@ -139,15 +139,26 @@ function fiveMinuteAtrByBar(bars: ElliottBar[]) {
     })
   }
   const output = new Map<number, number>()
+  const period = elliottWaveConfig.pivot.fiveMinuteAtrPeriod
   for (const bar of bars) {
-    const completedBars = completed.filter((item) => item.end <= Date.parse(bar.t) + MINUTE_MS)
-    const recent = completedBars.slice(-elliottWaveConfig.pivot.fiveMinuteAtrPeriod)
-    if (!recent.length) continue
-    const ranges = recent.map((item, index) => {
-      const previousClose = completedBars[completedBars.length - recent.length + index - 1]?.close ?? item.close
-      return Math.max(item.high - item.low, Math.abs(item.high - previousClose), Math.abs(item.low - previousClose))
-    })
-    output.set(Date.parse(bar.t), ranges.reduce((sum, value) => sum + value, 0) / ranges.length)
+    const cutoff = Date.parse(bar.t) + MINUTE_MS
+    let low = 0
+    let high = completed.length
+    while (low < high) {
+      const middle = (low + high) >> 1
+      if (completed[middle].end <= cutoff) low = middle + 1
+      else high = middle
+    }
+    const completedCount = low
+    const firstRecent = Math.max(0, completedCount - period)
+    if (completedCount === firstRecent) continue
+    let total = 0
+    for (let index = firstRecent; index < completedCount; index += 1) {
+      const item = completed[index]
+      const previousClose = completed[index - 1]?.close ?? item.close
+      total += Math.max(item.high - item.low, Math.abs(item.high - previousClose), Math.abs(item.low - previousClose))
+    }
+    output.set(Date.parse(bar.t), total / (completedCount - firstRecent))
   }
   return output
 }

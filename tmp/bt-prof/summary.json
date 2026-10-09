@@ -49,10 +49,10 @@
     "fmpCached": 1,
     "retries": 0,
     "byKind": {},
-    "runtimeSeconds": 85,
+    "runtimeSeconds": 30,
     "cacheOnly": true
   },
-  "generatedAt": "2026-10-09T00:13:01.804Z",
+  "generatedAt": "2026-10-09T00:14:55.771Z",
   "startingEquity": 2000,
   "runs": [
     {
