@@ -9,8 +9,15 @@ export const DECISION_START_MINUTE = 7 * 60
 export const FLATTEN_MINUTE = 15 * 60 + 55
 export const TOP_GAINERS = Number(process.env.BACKTEST_TOP_GAINERS ?? 25)
 export const POOL_MIN_DAILY_GAIN = 0.1
-const FIFTEEN_START = '2026-03-10T00:00:00Z'
-const FIFTEEN_END = '2026-10-08T00:00:00Z'
+// Relative-volume baselines need 15-minute bars from before the first simulated day; the window was previously hard-coded to 2026-03-10..2026-10-08, which silently disabled the scanner for any earlier period.
+let FIFTEEN_START = '2026-03-10T00:00:00Z'
+let FIFTEEN_END = '2026-10-08T00:00:00Z'
+
+export function setFifteenMinuteWindow(historyStart: string, periodEnd: string) {
+  FIFTEEN_START = `${historyStart}T00:00:00Z`
+  FIFTEEN_END = new Date(Date.parse(`${periodEnd}T00:00:00Z`) + 86_400_000).toISOString().replace('.000Z', 'Z')
+  fifteenMemory.clear()
+}
 
 export type MinuteBar = { t: number; o: number; h: number; l: number; c: number; v: number; vw: number }
 

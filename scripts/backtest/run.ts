@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { strategyGuardrails } from '../../lib/strategy'
 import { elliottWaveConfig } from '../../lib/elliott-wave-config'
 import { apiStats, flushQuoteCache, HISTORICAL_FEED, setCacheOnly } from './data'
-import { loadDay, prefetchDay, TOP_GAINERS } from './market'
+import { loadDay, prefetchDay, setFifteenMinuteWindow, TOP_GAINERS } from './market'
 import { writeReport } from './report'
 import { createRunState, DEFAULT_SLIPPAGE_OVER5, DEFAULT_SLIPPAGE_SUB5, LIQUIDITY_CAP_FRACTION, simulateDay, type RunSpec } from './simulate'
 import { buildUniverse, floatCoverage, floatLookups } from './universe'
@@ -56,6 +56,7 @@ async function main() {
   else assertOutsideMarketHours()
 
   const historyStart = new Date(Date.parse(`${PERIOD_START}T00:00:00Z`) - HISTORY_LOOKBACK_DAYS * 86_400_000).toISOString().slice(0, 10)
+  setFifteenMinuteWindow(historyStart, PERIOD_END)
   const universe = await buildUniverse({ historyStart, end: PERIOD_END, periodStart: PERIOD_START, simFrom: args.get('sim-from'), simTo: args.get('sim-to') })
   // --sim-from/--sim-to narrow the simulated days while keeping the full-period universe (and its bar cache) intact.
   const simFrom = args.get('sim-from') ?? PERIOD_START
