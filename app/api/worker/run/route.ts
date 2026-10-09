@@ -5,9 +5,10 @@ import { sendTradingNotification } from '@/lib/notifications'
 import { recordScheduleEvent, scheduleWindowAction } from '@/lib/scheduled-events'
 import { claimScanLease, ensureScanSession, releaseScanLease } from '@/lib/scan-lock'
 import { minimumScanLeaseIntervalSeconds, scanConfig } from '@/lib/scan-config'
-import { closePaperPosition, loadFreshPaperMarketMarks, loadOpenPaperPositions, markPaperPosition, openPaperPosition, paperExecutionGuardrails, paperExitLevels, paperExitReason, paperExitRequestedPrice, positionExposure } from '@/lib/paper-trading'
+import { closePaperPosition, loadPaperMarketMarksWithDiagnostics, loadOpenPaperPositions, markPaperPosition, openPaperPosition, paperExecutionGuardrails, paperExitLevels, paperExitReason, paperExitRequestedPrice, positionExposure } from '@/lib/paper-trading'
 import { decideEntry, isFlattenWindow, isTradingWindow, normalizeFloatShares, scoreCandidate, simulatedMarginBuyingPower, strategyGuardrails, strategyRegime, type ScanCandidate } from '@/lib/strategy'
 import { attachElliottRealExit, runElliottShadowPass } from '@/lib/elliott-wave-shadow'
+import { isExecutableQuoteMark, type PaperMarkDiagnosis } from '@/lib/paper-marks'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -49,13 +50,53 @@ function validScanId(value: unknown) {
   return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value) ? value : randomUUID()
 }
 
+const WARNING_EVENT_TYPES = new Set(['POSITION_EXIT_MARK_UNAVAILABLE', 'POSITION_MARK_STALE_ALERT'])
+const MARK_ALERT_DEDUPE_MINUTES = 10
+
+/** True when a stale-mark alert for this position was already sent within the dedupe window. */
+async function markAlertRecentlySent(positionId: string, now: Date) {
+  const url = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`)
+  url.search = new URLSearchParams({
+    select: 'id',
+    event_type: 'eq.POSITION_MARK_STALE_ALERT',
+    'payload->>positionId': `eq.${positionId}`,
+    created_at: `gte.${new Date(now.getTime() - MARK_ALERT_DEDUPE_MINUTES * 60_000).toISOString()}`,
+    limit: '1',
+  }).toString()
+  const response = await fetch(url, { headers: supabaseHeaders(), signal: AbortSignal.timeout(5_000), cache: 'no-store' })
+  if (!response.ok) return false
+  return ((await response.json()) as unknown[]).length > 0
+}
+
+/**
+ * An open position with no valid mark means neither a fresh quote nor a fresh trade exists within
+ * the freshness threshold (>= 120s by default), so its stop/target cannot be checked. Alert once per
+ * position per dedupe window.
+ */
+async function alertUnmarkedPosition(position: { id: string; symbol: string }, diagnosis: PaperMarkDiagnosis | undefined, context: Partial<ScanContext>, now: Date) {
+  if (await markAlertRecentlySent(position.id, now).catch(() => false)) return
+  const detail = diagnosis
+    ? `quote age ${diagnosis.quoteAgeSeconds ?? 'n/a'}s, trade age ${diagnosis.tradeAgeSeconds ?? 'n/a'}s (${diagnosis.reason ?? 'unknown'})`
+    : 'no snapshot returned'
+  await writeScanEvent('POSITION_MARK_STALE_ALERT', `Open position ${position.symbol} has no valid price; stop/target not being checked. ${detail}`, context, {
+    symbol: position.symbol,
+    positionId: position.id,
+    diagnosis: diagnosis ?? null,
+  }).catch((error) => console.error('[worker] stale-mark alert event could not be written', { symbol: position.symbol, error }))
+  await sendTradingNotification({
+    title: `AItrading: ${position.symbol} unprotected`,
+    message: `Open paper position ${position.symbol} has no valid price; its stop/target is not being checked. ${detail}`,
+  }).catch((error) => console.error('[worker] stale-mark alert notification failed', { symbol: position.symbol, error }))
+}
+
 async function writeScanEvent(eventType: string, message: string, context: Partial<ScanContext>, payload: Record<string, unknown>) {
   const response = await fetch(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`, {
     method: 'POST',
     headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
     body: JSON.stringify({
-      level: eventType === 'SCAN_FAILED' ? 'error' : 'info',
+      level: eventType === 'SCAN_FAILED' ? 'error' : WARNING_EVENT_TYPES.has(eventType) ? 'warning' : 'info',
       event_type: eventType,
+      symbol: typeof payload.symbol === 'string' ? payload.symbol : null,
       message: message.slice(0, 240),
       session_id: context.sessionId ?? null,
       payload: { scanId: context.scanId, triggerSource: context.triggerSource, ...payload },
@@ -297,17 +338,20 @@ export async function POST(request: NextRequest) {
     }).catch((error) => console.error('[worker] scan start event could not be written', { scanId, error }))
 
     const openPositions = await loadOpenPaperPositions()
-    const marks = await loadFreshPaperMarketMarks([...openPositions.map((position) => position.symbol), ...candidates.map((candidate) => candidate.symbol)], now)
+    const { marks, diagnostics: markDiagnostics } = await loadPaperMarketMarksWithDiagnostics([...openPositions.map((position) => position.symbol), ...candidates.map((candidate) => candidate.symbol)], now)
     let allOpenPositionsMarked = true
     for (const position of openPositions) {
       const mark = marks.get(position.symbol)
       if (!mark) {
         allOpenPositionsMarked = false
-        await writeScanEvent('POSITION_EXIT_MARK_UNAVAILABLE', `No fresh quote available to manage ${position.symbol}; position remains open.`, context, {
+        const diagnosis = markDiagnostics.get(position.symbol)
+        await writeScanEvent('POSITION_EXIT_MARK_UNAVAILABLE', `No fresh quote or trade available to manage ${position.symbol}; position remains open.`, context, {
           symbol: position.symbol,
           positionId: position.id,
           flatten,
+          diagnosis: diagnosis ?? null,
         }).catch(() => undefined)
+        await alertUnmarkedPosition(position, diagnosis, context, now)
         continue
       }
 
@@ -341,6 +385,7 @@ export async function POST(request: NextRequest) {
             r: exitLevels.riskPerShare && exitLevels.riskPerShare > 0 ? gapPastStopDollars / exitLevels.riskPerShare : null,
           },
           quoteAgeSeconds: Math.max(0, (now.getTime() - Date.parse(mark.at)) / 1_000),
+          markSource: mark.source ?? 'quote',
           haltBlocked: false,
           scanId,
         },
@@ -383,7 +428,9 @@ export async function POST(request: NextRequest) {
     let remainingAllocation = allOpenPositionsMarked ? Math.min(exposureHeadroom, marginBuyingPower) : 0
     const evaluations: Evaluation[] = []
     for (const originalCandidate of candidates) {
-      const mark = marks.get(originalCandidate.symbol)
+      // Entries need a fresh executable quote; trade-derived marks only manage open positions.
+      const candidateMark = marks.get(originalCandidate.symbol)
+      const mark = isExecutableQuoteMark(candidateMark) ? candidateMark : undefined
       const lastTradeAt = originalCandidate.lastTradeAt ? Date.parse(originalCandidate.lastTradeAt) : Number.NaN
       const tradeAgeSeconds = (now.getTime() - lastTradeAt) / 1_000
       const decision = !mark
@@ -418,7 +465,8 @@ export async function POST(request: NextRequest) {
     if (!flatten) {
       for (const { candidate, decision, requestedPrice } of evaluations) {
         if (decision.action !== 'enter') continue
-        const mark = marks.get(candidate.symbol)
+        const candidateMark = marks.get(candidate.symbol)
+        const mark = isExecutableQuoteMark(candidateMark) ? candidateMark : undefined
         if (!mark || !allOpenPositionsMarked) {
           paperExecutions.push({ symbol: candidate.symbol, status: 'blocked', reason: 'Open positions could not all be marked with fresh quotes.' })
           continue
