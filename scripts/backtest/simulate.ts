@@ -14,6 +14,7 @@ export type EntryContext = {
   spreadPct: number
   entryIndex: number
   minutesSinceFirstSeen: number
+  priorEntries: Array<{ exitKind: ExitKind; hitTarget: boolean }>
 }
 export type RunSpec = {
   id: string
@@ -22,8 +23,12 @@ export type RunSpec = {
   label: string
   // Returns a block reason to skip an otherwise-valid A/B entry (diagnostic rule variants only).
   entryFilter?: (context: EntryContext) => string | null
+  // 'managed': breakeven at +0.75R, half off at +1.5R, trail rest under swing low capped at 2R, 15-minute time stop.
+  exitMode?: 'managed'
 }
-export type ExitKind = 'stop' | 'target' | 'flatten' | 'gap'
+export type ExitKind = 'stop' | 'target' | 'flatten' | 'gap' | 'time'
+
+export const MANAGED_EXIT = { breakevenAtR: 0.75, partialAtR: 1.5, partialFraction: 0.5, finalTargetR: 2, timeStopMinutes: 15, timeStopMinR: 0.5 }
 
 export type Trade = {
   run: string
@@ -76,7 +81,8 @@ type Position = {
   slippageFraction: number
   spreadSource: 'quote' | 'default'
   liquidityCapped: boolean
-  phase: 'standard' | 'wave3' | 'wave4'
+  phase: 'standard' | 'wave3' | 'wave4' | 'managed'
+  breakevenArmed: boolean
   t1Hit: boolean
   t1Shares: number
   trailingStop: number
@@ -222,8 +228,51 @@ function finalize(state: RunState, market: DayMarket, position: Position, kind: 
   return trade
 }
 
+// Stop is checked first on every bar; levels armed by a bar (breakeven, trail, 2R cap) apply from the next bar.
+function evaluateManagedBar(market: DayMarket, shared: SharedDayContext, position: Position, bar: MinuteBar, minute: number, exitAt: number): ExitKind | null {
+  const risk = position.riskPerShare
+  const level = (r: number) => position.entryPrice + risk * r
+  // Raw price whose slipped exit fill equals the slipped entry fill.
+  const breakevenStop = position.entryPrice / (1 - position.slippageFraction)
+
+  if (bar.o <= position.trailingStop) {
+    closeShares(position, position.remaining, bar.o)
+    return 'gap'
+  }
+  if (bar.l <= position.trailingStop) {
+    closeShares(position, position.remaining, position.trailingStop)
+    return 'stop'
+  }
+  if (position.t1Hit) {
+    if (bar.h >= position.t2!) {
+      closeShares(position, position.remaining, Math.max(position.t2!, bar.o))
+      return 'target'
+    }
+    const swing = analysisFor(shared, market, position.symbol, minute, 0, 0).latestSwingLow
+    if (swing != null && swing < bar.c) position.trailingStop = Math.max(position.trailingStop, swing)
+  } else if (bar.h >= position.target!) {
+    const shares = Math.min(position.remaining, Math.max(1, position.t1Shares))
+    closeShares(position, shares, Math.max(position.target!, bar.o))
+    position.t1Hit = true
+    position.breakevenArmed = true
+    position.trailingStop = Math.max(position.trailingStop, breakevenStop)
+    return position.remaining <= 0 ? 'target' : null
+  }
+  if (!position.breakevenArmed && bar.h >= level(MANAGED_EXIT.breakevenAtR)) {
+    position.breakevenArmed = true
+    position.trailingStop = Math.max(position.trailingStop, breakevenStop)
+  }
+  const reachedMinR = Math.max(position.maxHigh, bar.h) >= level(MANAGED_EXIT.timeStopMinR)
+  if (!reachedMinR && exitAt - position.entryAt >= MANAGED_EXIT.timeStopMinutes * MINUTE) {
+    closeShares(position, position.remaining, bar.c)
+    return 'time'
+  }
+  return null
+}
+
 function evaluateBar(state: RunState, market: DayMarket, shared: SharedDayContext, position: Position, bar: MinuteBar, minute: number): ExitKind | null {
   const exitAt = bar.t + MINUTE
+  if (position.phase === 'managed') return evaluateManagedBar(market, shared, position, bar, minute, exitAt)
   if (position.phase === 'standard') {
     const levels = paperExitLevels({ entry_price: position.entryPrice, stop_price: position.stop, target_price: position.target, metadata: { riskPerShare: position.riskPerShare } })
     const record = { entry_price: position.entryPrice, stop_price: levels.stopPrice, target_price: levels.targetPrice, metadata: { riskPerShare: position.riskPerShare } }
@@ -279,6 +328,7 @@ export async function simulateDay(state: RunState, market: DayMarket, shared: Sh
   const tracked = new Map<string, { candidate: MinuteCandidate; startedAt: number }>()
   const firstSeenMinute = new Map<string, number>()
   const entriesBySymbol = new Map<string, number>()
+  const priorEntriesBySymbol = new Map<string, EntryContext['priorEntries']>()
   const dayStartEquity = state.equity
   let realizedToday = 0
 
@@ -289,6 +339,7 @@ export async function simulateDay(state: RunState, market: DayMarket, shared: Sh
 
   const closePosition = (position: Position, kind: ExitKind, at: number) => {
     const trade = finalize(state, market, position, kind, at)
+    priorEntriesBySymbol.set(position.symbol, [...(priorEntriesBySymbol.get(position.symbol) ?? []), { exitKind: kind, hitTarget: kind === 'target' || position.t1Hit }])
     realizedToday += trade.pnl
     state.equity += trade.pnl
     cooldownUntil.set(position.symbol, at + strategyGuardrails.reentryCooldownMinutes * MINUTE)
@@ -348,8 +399,10 @@ export async function simulateDay(state: RunState, market: DayMarket, shared: Sh
       const shares = Math.min(input.shares, cap, allocationCap)
       if (shares < 1) return bump(state, cap < 1 ? 'skip_liquidity' : 'skip_allocation')
       const riskPerShare = input.riskPerShare ?? fill - input.stop
-      const stop = input.phase === 'standard' ? Math.max(0.01, fill - riskPerShare) : input.stop
-      const target = input.phase === 'standard' ? fill + riskPerShare * 1.5 : input.target
+      const fixedRisk = input.phase === 'standard' || input.phase === 'managed'
+      const stop = fixedRisk ? Math.max(0.01, fill - riskPerShare) : input.stop
+      const target = fixedRisk ? fill + riskPerShare * (input.phase === 'managed' ? MANAGED_EXIT.partialAtR : 1.5) : input.target
+      const t2 = input.phase === 'managed' ? fill + riskPerShare * MANAGED_EXIT.finalTargetR : input.t2
       if (!(fill > stop)) return bump(state, 'skip_fill_below_stop')
       positions.push({
         symbol: candidate.symbol,
@@ -361,15 +414,16 @@ export async function simulateDay(state: RunState, market: DayMarket, shared: Sh
         remaining: shares,
         stop,
         target,
-        t2: input.t2,
+        t2,
         riskPerShare,
         initialRisk: (fill - stop) * shares,
         slippageFraction: slip,
         spreadSource: mark ? 'quote' : 'default',
         liquidityCapped: shares === cap && cap < input.shares,
         phase: input.phase,
+        breakevenArmed: false,
         t1Hit: false,
-        t1Shares: Math.floor(shares * elliottWaveConfig.setup.wave3FirstTargetFraction),
+        t1Shares: Math.floor(shares * (input.phase === 'managed' ? MANAGED_EXIT.partialFraction : elliottWaveConfig.setup.wave3FirstTargetFraction)),
         trailingStop: stop,
         realized: 0,
         exitShares: 0,
@@ -412,6 +466,7 @@ export async function simulateDay(state: RunState, market: DayMarket, shared: Sh
             spreadPct: mark.spreadPct,
             entryIndex: (entriesBySymbol.get(candidate.symbol) ?? 0) + 1,
             minutesSinceFirstSeen: minute - (firstSeenMinute.get(candidate.symbol) ?? minute),
+            priorEntries: priorEntriesBySymbol.get(candidate.symbol) ?? [],
           })
           if (blocked) { bump(state, `filtered_${blocked}`); continue }
         }
@@ -420,7 +475,7 @@ export async function simulateDay(state: RunState, market: DayMarket, shared: Sh
           const analysis = analysisFor(shared, market, candidate.symbol, minute, candidate.relativeVolume ?? 0, regime.rvol)
           if (uses.exhaustionFilter && isWave5FilterActive(analysis)) { bump(state, 'blocked_wave5'); continue }
         }
-        openAt(candidate, mark, { shares: decision.suggestedShares, stop: 0, target: null, t2: null, riskPerShare: decision.riskPerShare, phase: 'standard', reason: decision.reason })
+        openAt(candidate, mark, { shares: decision.suggestedShares, stop: 0, target: null, t2: null, riskPerShare: decision.riskPerShare, phase: spec.exitMode === 'managed' ? 'managed' : 'standard', reason: decision.reason })
       }
       continue
     }

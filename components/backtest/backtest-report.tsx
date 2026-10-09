@@ -13,7 +13,7 @@ export type BacktestMetrics = {
   maxDrawdownPct: number
   longestLosingStreak: number
   averageHoldMinutes: number | null
-  exitMix: Record<'stop' | 'target' | 'flatten' | 'gap', number>
+  exitMix: Record<'stop' | 'target' | 'flatten' | 'gap', number> & { time?: number }
 }
 
 type TradeNote = { date: string; symbol: string; pnl: number; r: number; exitKind: string; regime: string; reason: string }

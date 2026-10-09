@@ -76,6 +76,13 @@ const changeBucket = (trade: Row) => {
   if (change == null) return 'unknown'
   return change < 20 ? '<20%' : change < 50 ? '20-50%' : change < 100 ? '50-100%' : '>100%'
 }
+const FINE_CHANGE_ORDER = ['<10%', '10-20%', '20-30%', '30-40%', '40-50%', '50-75%', '75-100%', '>100%', 'unknown']
+const fineChangeBucket = (trade: Row) => {
+  const change = num(trade.changePctAtEntry)
+  if (change == null) return 'unknown'
+  const edges: Array<[number, string]> = [[10, '<10%'], [20, '10-20%'], [30, '20-30%'], [40, '30-40%'], [50, '40-50%'], [75, '50-75%'], [100, '75-100%']]
+  return edges.find(([edge]) => change < edge)?.[1] ?? '>100%'
+}
 const reentryBucket = (trade: Row) => (Number(trade.entryIndex) <= 1 ? 'first entry' : `re-entry #${Math.min(Number(trade.entryIndex), 4) === 4 ? '4+' : trade.entryIndex}`)
 const seenBucket = (trade: Row) => {
   const minutes = num(trade.minutesSinceFirstSeen)
@@ -91,6 +98,7 @@ const dimensions = {
   float: bucketBy(floatBucket, ['<5M', '5-20M', '20-50M', '>50M', 'unknown']),
   spreadAtEntry: bucketBy(spreadBucket, ['<0.25%', '0.25-0.5%', '0.5-1%', '>=1%', 'unknown']),
   dayGainAtEntry: bucketBy(changeBucket, ['<20%', '20-50%', '50-100%', '>100%', 'unknown']),
+  dayGainAtEntryFine: bucketBy(fineChangeBucket, FINE_CHANGE_ORDER),
   entryOrdinal: bucketBy(reentryBucket, ['first entry', 're-entry #2', 're-entry #3', 're-entry #4+']),
   minutesSinceFirstSeen: bucketBy(seenBucket, ['<5m', '5-15m', '15-30m', '30-60m', '60-120m', '>=120m', 'unknown']),
 }

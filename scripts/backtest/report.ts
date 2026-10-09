@@ -15,7 +15,7 @@ export type Metrics = {
   maxDrawdownPct: number
   longestLosingStreak: number
   averageHoldMinutes: number | null
-  exitMix: Record<'stop' | 'target' | 'flatten' | 'gap', number>
+  exitMix: Record<'stop' | 'target' | 'flatten' | 'gap' | 'time', number>
 }
 
 const round = (value: number | null, digits = 4) => value == null || !Number.isFinite(value) ? value : Number(value.toFixed(digits))
@@ -39,7 +39,7 @@ export function metrics(trades: Trade[], startEquity = STARTING_EQUITY): Metrics
     streak = trade.pnl <= 0 ? streak + 1 : 0
     longest = Math.max(longest, streak)
   }
-  const exitMix = { stop: 0, target: 0, flatten: 0, gap: 0 }
+  const exitMix = { stop: 0, target: 0, flatten: 0, gap: 0, time: 0 }
   for (const trade of trades) exitMix[trade.exitKind] += 1
   const share = (count: number) => trades.length ? round(count / trades.length)! : 0
   return {
@@ -55,7 +55,7 @@ export function metrics(trades: Trade[], startEquity = STARTING_EQUITY): Metrics
     maxDrawdownPct: round(maxDrawdownPct)!,
     longestLosingStreak: longest,
     averageHoldMinutes: trades.length ? round(trades.reduce((sum, trade) => sum + trade.holdMinutes, 0) / trades.length, 1) : null,
-    exitMix: { stop: share(exitMix.stop), target: share(exitMix.target), flatten: share(exitMix.flatten), gap: share(exitMix.gap) },
+    exitMix: { stop: share(exitMix.stop), target: share(exitMix.target), flatten: share(exitMix.flatten), gap: share(exitMix.gap), time: share(exitMix.time) },
   }
 }
 

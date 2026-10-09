@@ -96,6 +96,18 @@ Losers 495: reached +0.5R first 175, reached +1R first 54, never positive 123. A
 | 50-100% | 206 | 36% | -0.11 | -$331 | -$177 |  |
 | >100% | 287 | 33% | -0.17 | -$477 | -$203 |  |
 
+## dayGainAtEntryFine
+| Segment | Trades | Win % | Avg R | P&L | Zero-slip P&L | Note |
+|---|---:|---:|---:|---:|---:|---|
+| <10% | 9 | 44% | 0.24 | $9 | $11 | unreliable (<30) |
+| 10-20% | 41 | 34% | -0.06 | -$25 | -$1 |  |
+| 20-30% | 84 | 48% | 0.14 | $156 | $207 |  |
+| 30-40% | 75 | 32% | -0.20 | -$104 | -$44 |  |
+| 40-50% | 73 | 37% | -0.06 | -$99 | -$56 |  |
+| 50-75% | 138 | 39% | -0.04 | -$133 | -$23 |  |
+| 75-100% | 68 | 31% | -0.25 | -$198 | -$154 |  |
+| >100% | 287 | 33% | -0.17 | -$477 | -$203 |  |
+
 ## entryOrdinal
 | Segment | Trades | Win % | Avg R | P&L | Zero-slip P&L | Note |
 |---|---:|---:|---:|---:|---:|---|
@@ -126,8 +138,8 @@ Losers 495: reached +0.5R first 175, reached +1R first 54, never positive 123. A
 ## Top 5 profitable segments
 | Dimension | Segment | Trades | Win % | Avg R | P&L | Zero-slip P&L | Note |
 |---|---|---:|---:|---:|---:|---:|---|
+| dayGainAtEntryFine | 20-30% | 84 | 48% | 0.14 | $156 | $207 |  |
 | timeOfDay | 10:15-10:30 | 28 | 64% | 0.46 | $149 | $180 | unreliable (<30) |
 | timeOfDay | 08:45-09:00 | 23 | 57% | 0.38 | $134 | $154 | unreliable (<30) |
 | minutesSinceFirstSeen | 30-60m | 76 | 47% | 0.19 | $85 | $134 |  |
 | timeOfDay | 15:00-15:15 | 15 | 47% | 0.17 | $44 | $58 | unreliable (<30) |
-| timeOfDay | 10:45-11:00 | 35 | 46% | 0.09 | $27 | $65 |  |

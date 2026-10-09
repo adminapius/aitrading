@@ -585,6 +585,80 @@
         "reliable": true
       }
     ],
+    "dayGainAtEntryFine": [
+      {
+        "segment": "<10%",
+        "trades": 9,
+        "winRate": 0.4444444444444444,
+        "avgR": 0.24099488888888893,
+        "totalPnl": 8.512712,
+        "zeroSlipPnl": 11.183656999999998,
+        "reliable": false
+      },
+      {
+        "segment": "10-20%",
+        "trades": 41,
+        "winRate": 0.34146341463414637,
+        "avgR": -0.06203526829268291,
+        "totalPnl": -24.667527000000003,
+        "zeroSlipPnl": -0.5018329999999906,
+        "reliable": true
+      },
+      {
+        "segment": "20-30%",
+        "trades": 84,
+        "winRate": 0.47619047619047616,
+        "avgR": 0.13894885714285715,
+        "totalPnl": 156.483966,
+        "zeroSlipPnl": 206.683277,
+        "reliable": true
+      },
+      {
+        "segment": "30-40%",
+        "trades": 75,
+        "winRate": 0.32,
+        "avgR": -0.20223374666666669,
+        "totalPnl": -104.33123800000001,
+        "zeroSlipPnl": -43.93826499999997,
+        "reliable": true
+      },
+      {
+        "segment": "40-50%",
+        "trades": 73,
+        "winRate": 0.3698630136986301,
+        "avgR": -0.057142520547945205,
+        "totalPnl": -99.49925399999998,
+        "zeroSlipPnl": -56.43031800000002,
+        "reliable": true
+      },
+      {
+        "segment": "50-75%",
+        "trades": 138,
+        "winRate": 0.391304347826087,
+        "avgR": -0.041098072463768134,
+        "totalPnl": -132.81011200000003,
+        "zeroSlipPnl": -22.825437999999977,
+        "reliable": true
+      },
+      {
+        "segment": "75-100%",
+        "trades": 68,
+        "winRate": 0.3088235294117647,
+        "avgR": -0.24538963235294103,
+        "totalPnl": -198.47751199999993,
+        "zeroSlipPnl": -154.442222,
+        "reliable": true
+      },
+      {
+        "segment": ">100%",
+        "trades": 287,
+        "winRate": 0.3344947735191638,
+        "avgR": -0.16551043902439028,
+        "totalPnl": -477.21556899999996,
+        "zeroSlipPnl": -202.86789599999972,
+        "reliable": true
+      }
+    ],
     "entryOrdinal": [
       {
         "segment": "first entry",
@@ -734,6 +808,16 @@
   ],
   "bestSegments": [
     {
+      "dimension": "dayGainAtEntryFine",
+      "segment": "20-30%",
+      "trades": 84,
+      "winRate": 0.47619047619047616,
+      "avgR": 0.13894885714285715,
+      "totalPnl": 156.483966,
+      "zeroSlipPnl": 206.683277,
+      "reliable": true
+    },
+    {
       "dimension": "timeOfDay",
       "segment": "10:15-10:30",
       "trades": 28,
@@ -772,16 +856,6 @@
       "totalPnl": 44.493202000000004,
       "zeroSlipPnl": 57.883142,
       "reliable": false
-    },
-    {
-      "dimension": "timeOfDay",
-      "segment": "10:45-11:00",
-      "trades": 35,
-      "winRate": 0.45714285714285713,
-      "avgR": 0.0933882,
-      "totalPnl": 27.42887099999999,
-      "zeroSlipPnl": 64.68876200000001,
-      "reliable": true
     }
   ],
   "minReliableTrades": 30
