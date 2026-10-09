@@ -1,0 +1,2077 @@
+{
+  "period": {
+    "start": "2026-08-03",
+    "end": "2026-10-07",
+    "tradingDays": 47,
+    "session": "07:00-15:55 ET decisions, 15:55 flatten"
+  },
+  "sourceCommit": "925bdc9",
+  "feed": "sip",
+  "universe": {
+    "symbols": 14144,
+    "inactiveOrDelisted": 1835,
+    "averageSymbolsLoadedPerDay": 347
+  },
+  "assumptions": {
+    "topGainers": 25,
+    "liquidityCapFraction": 0.05,
+    "defaultSlippageSub5": 0.005,
+    "defaultSlippageOver5": 0.0025,
+    "guardrails": {
+      "mode": "paper",
+      "flattenBeforeEt": "15:55",
+      "maxPositionFraction": 0.25,
+      "maxAggregateExposureFraction": 0.75,
+      "maxDailyLossFraction": 0.04,
+      "riskPerTradeFraction": 0.01,
+      "maxOpenPositions": 3,
+      "minimumMarginEquity": 2000,
+      "reentryCooldownMinutes": 30,
+      "entryMonitorSeconds": 10,
+      "liveTradingEnabled": false
+    },
+    "elliott": {
+      "trackingWindowMinutes": 45,
+      "minimumConfidence": {
+        "opening-momentum": 0,
+        "premarket-continuation": 70,
+        "news-reaction": 70,
+        "midday-selective": 80,
+        "late-continuation": 80,
+        "exits-only": 101
+      }
+    }
+  },
+  "api": {
+    "alpaca": 12875,
+    "alpacaCached": 19040,
+    "fmp": 0,
+    "fmpCached": 1,
+    "retries": 0,
+    "byKind": {
+      "quotes": 12875
+    },
+    "runtimeSeconds": 1197,
+    "cacheOnly": false
+  },
+  "generatedAt": "2026-10-09T01:58:49.863Z",
+  "startingEquity": 2000,
+  "runs": [
+    {
+      "id": "A",
+      "strategy": "A",
+      "label": "A. Current rule",
+      "slippageMultiplier": 1,
+      "endingEquity": 1150.03,
+      "returnPct": -0.425,
+      "summary": {
+        "trades": 523,
+        "winRate": 0.3461,
+        "averageWin": 15.35,
+        "averageLoss": -10.61,
+        "averageR": -0.1617,
+        "expectancy": -1.63,
+        "profitFactor": 0.766,
+        "totalPnl": -849.97,
+        "maxDrawdown": 870.6,
+        "maxDrawdownPct": 0.4333,
+        "longestLosingStreak": 12,
+        "averageHoldMinutes": 76.3,
+        "exitMix": {
+          "stop": 0.5335,
+          "target": 0.2964,
+          "flatten": 0.1568,
+          "gap": 0.0134
+        }
+      },
+      "monthly": {
+        "2026-08": {
+          "trades": 263,
+          "winRate": 0.3422,
+          "averageWin": 17.23,
+          "averageLoss": -11.94,
+          "averageR": -0.1871,
+          "expectancy": -1.96,
+          "profitFactor": 0.751,
+          "totalPnl": -515.12,
+          "maxDrawdown": 564.83,
+          "maxDrawdownPct": 0.2811,
+          "longestLosingStreak": 9,
+          "averageHoldMinutes": 63,
+          "exitMix": {
+            "stop": 0.5475,
+            "target": 0.3042,
+            "flatten": 0.1293,
+            "gap": 0.019
+          }
+        },
+        "2026-09": {
+          "trades": 213,
+          "winRate": 0.3615,
+          "averageWin": 13.78,
+          "averageLoss": -9.64,
+          "averageR": -0.1202,
+          "expectancy": -1.18,
+          "profitFactor": 0.809,
+          "totalPnl": -250.61,
+          "maxDrawdown": 281.43,
+          "maxDrawdownPct": 0.1407,
+          "longestLosingStreak": 9,
+          "averageHoldMinutes": 86.5,
+          "exitMix": {
+            "stop": 0.5117,
+            "target": 0.3005,
+            "flatten": 0.1784,
+            "gap": 0.0094
+          }
+        },
+        "2026-10": {
+          "trades": 47,
+          "winRate": 0.2979,
+          "averageWin": 11.94,
+          "averageLoss": -7.62,
+          "averageR": -0.2074,
+          "expectancy": -1.79,
+          "profitFactor": 0.665,
+          "totalPnl": -84.24,
+          "maxDrawdown": 128.2,
+          "maxDrawdownPct": 0.0631,
+          "longestLosingStreak": 12,
+          "averageHoldMinutes": 103.8,
+          "exitMix": {
+            "stop": 0.5532,
+            "target": 0.234,
+            "flatten": 0.2128,
+            "gap": 0
+          }
+        }
+      },
+      "byRegime": {
+        "late-continuation": {
+          "trades": 119,
+          "winRate": 0.3025,
+          "averageWin": 12.47,
+          "averageLoss": -9.83,
+          "averageR": -0.3447,
+          "expectancy": -3.08,
+          "profitFactor": 0.55,
+          "totalPnl": -367.02,
+          "maxDrawdown": 382.44,
+          "maxDrawdownPct": 0.19,
+          "longestLosingStreak": 9,
+          "averageHoldMinutes": 36.3,
+          "exitMix": {
+            "stop": 0.5546,
+            "target": 0.2269,
+            "flatten": 0.1933,
+            "gap": 0.0252
+          }
+        },
+        "midday-selective": {
+          "trades": 84,
+          "winRate": 0.3929,
+          "averageWin": 11.56,
+          "averageLoss": -6.72,
+          "averageR": 0.0486,
+          "expectancy": 0.46,
+          "profitFactor": 1.113,
+          "totalPnl": 38.85,
+          "maxDrawdown": 63.89,
+          "maxDrawdownPct": 0.0307,
+          "longestLosingStreak": 8,
+          "averageHoldMinutes": 42.4,
+          "exitMix": {
+            "stop": 0.5476,
+            "target": 0.3571,
+            "flatten": 0.0833,
+            "gap": 0.0119
+          }
+        },
+        "news-reaction": {
+          "trades": 80,
+          "winRate": 0.375,
+          "averageWin": 8.38,
+          "averageLoss": -6.55,
+          "averageR": -0.1121,
+          "expectancy": -0.95,
+          "profitFactor": 0.768,
+          "totalPnl": -76.06,
+          "maxDrawdown": 85.89,
+          "maxDrawdownPct": 0.0429,
+          "longestLosingStreak": 7,
+          "averageHoldMinutes": 151.8,
+          "exitMix": {
+            "stop": 0.5125,
+            "target": 0.3,
+            "flatten": 0.1875,
+            "gap": 0
+          }
+        },
+        "opening-momentum": {
+          "trades": 146,
+          "winRate": 0.3219,
+          "averageWin": 21.08,
+          "averageLoss": -14.06,
+          "averageR": -0.2309,
+          "expectancy": -2.75,
+          "profitFactor": 0.712,
+          "totalPnl": -401.4,
+          "maxDrawdown": 422.35,
+          "maxDrawdownPct": 0.2112,
+          "longestLosingStreak": 10,
+          "averageHoldMinutes": 67.1,
+          "exitMix": {
+            "stop": 0.5479,
+            "target": 0.2877,
+            "flatten": 0.1438,
+            "gap": 0.0205
+          }
+        },
+        "premarket-continuation": {
+          "trades": 94,
+          "winRate": 0.3723,
+          "averageWin": 20.18,
+          "averageLoss": -12.72,
+          "averageR": -0.0526,
+          "expectancy": -0.47,
+          "profitFactor": 0.941,
+          "totalPnl": -44.35,
+          "maxDrawdown": 126.57,
+          "maxDrawdownPct": 0.0614,
+          "longestLosingStreak": 7,
+          "averageHoldMinutes": 107,
+          "exitMix": {
+            "stop": 0.4894,
+            "target": 0.3404,
+            "flatten": 0.1702,
+            "gap": 0
+          }
+        }
+      },
+      "best": [
+        {
+          "date": "2026-09-23",
+          "symbol": "ARTL",
+          "pnl": 52.58,
+          "r": 4.003,
+          "exitKind": "target",
+          "regime": "opening-momentum",
+          "reason": "target after 21m in opening-momentum; entry 6.3359 -> exit 8.6219; catalyst: Artelo Biosciences Files Provisional Patent Application For ART27.13 As Monotherapy And In Combination With GLP-1 Recept"
+        },
+        {
+          "date": "2026-09-15",
+          "symbol": "RETO",
+          "pnl": 40.13,
+          "r": 5.856,
+          "exitKind": "target",
+          "regime": "midday-selective",
+          "reason": "target after 32m in midday-selective; entry 2.4454 -> exit 3.5920; catalyst: ReTo Eco-Solutions Shared Halted On Circuit Breaker To The Upside; Stock Now Up 271.69%"
+        },
+        {
+          "date": "2026-08-21",
+          "symbol": "JUNS",
+          "pnl": 39.39,
+          "r": 2.623,
+          "exitKind": "target",
+          "regime": "opening-momentum",
+          "reason": "target after 28m in opening-momentum; entry 8.5500 -> exit 10.7384; catalyst: Jupiter Neurosciences Stock Surges Friday: What's Driving the Action?"
+        },
+        {
+          "date": "2026-08-03",
+          "symbol": "EZRA",
+          "pnl": 29.04,
+          "r": 1.472,
+          "exitKind": "target",
+          "regime": "premarket-continuation",
+          "reason": "target after 4m in premarket-continuation; entry 2.9049 -> exit 3.1924; catalyst: Reliance Global Group Enters Into Non-Binding LOI To Sell Assets Of Its Altruis Benefit Consulting Subsidiary For $11M I"
+        },
+        {
+          "date": "2026-08-24",
+          "symbol": "PMI",
+          "pnl": 28.8,
+          "r": 1.848,
+          "exitKind": "target",
+          "regime": "opening-momentum",
+          "reason": "target after 12m in opening-momentum; entry 4.5600 -> exit 5.3383; catalyst: Why Is Picard Medical Stock Gaining Monday?"
+        }
+      ],
+      "worst": [
+        {
+          "date": "2026-08-10",
+          "symbol": "SCKT",
+          "pnl": -56.04,
+          "r": -8.858,
+          "exitKind": "gap",
+          "regime": "opening-momentum",
+          "reason": "gap after 11m in opening-momentum; entry 2.0850 -> exit 1.8256; catalyst: US Stocks Edge Lower; Monday.Com Shares Tumble After Q2 Results"
+        },
+        {
+          "date": "2026-08-12",
+          "symbol": "OFAL",
+          "pnl": -34.5,
+          "r": -1.988,
+          "exitKind": "gap",
+          "regime": "opening-momentum",
+          "reason": "gap after 16m in opening-momentum; entry 2.5450 -> exit 2.2256; catalyst: Nasdaq Surges 150 Points; US Inflation Rate Slows To 3.4% In July"
+        },
+        {
+          "date": "2026-08-24",
+          "symbol": "DAIC",
+          "pnl": -28.99,
+          "r": -1.863,
+          "exitKind": "gap",
+          "regime": "opening-momentum",
+          "reason": "gap after 17m in opening-momentum; entry 1.7200 -> exit 1.4358; catalyst: CID HoldCo  Shares Resumed Trade, Then Again Halted On Circuit Breaker To The Upside, Stock Now Up 441.31%"
+        },
+        {
+          "date": "2026-09-23",
+          "symbol": "VSA",
+          "pnl": -27.36,
+          "r": -4.799,
+          "exitKind": "gap",
+          "regime": "late-continuation",
+          "reason": "gap after 6m in late-continuation; entry 6.7350 -> exit 5.9955; catalyst: VisionSys AI Shares Halted On Circuit Breaker To The Upside, Stock Now Up 87.88%"
+        },
+        {
+          "date": "2026-09-22",
+          "symbol": "JAGX",
+          "pnl": -22.34,
+          "r": -3.883,
+          "exitKind": "gap",
+          "regime": "late-continuation",
+          "reason": "gap after 6m in late-continuation; entry 17.0850 -> exit 15.5954; catalyst: 12 Health Care Stocks Moving In Tuesday's Intraday Session"
+        }
+      ],
+      "equityCurve": [
+        {
+          "date": "2026-08-03",
+          "equity": 1919.08
+        },
+        {
+          "date": "2026-08-04",
+          "equity": 1929.77
+        },
+        {
+          "date": "2026-08-05",
+          "equity": 1889.43
+        },
+        {
+          "date": "2026-08-06",
+          "equity": 1812.43
+        },
+        {
+          "date": "2026-08-07",
+          "equity": 1781.44
+        },
+        {
+          "date": "2026-08-10",
+          "equity": 1755.99
+        },
+        {
+          "date": "2026-08-11",
+          "equity": 1708.07
+        },
+        {
+          "date": "2026-08-12",
+          "equity": 1692.14
+        },
+        {
+          "date": "2026-08-13",
+          "equity": 1677.88
+        },
+        {
+          "date": "2026-08-14",
+          "equity": 1705.59
+        },
+        {
+          "date": "2026-08-17",
+          "equity": 1604.56
+        },
+        {
+          "date": "2026-08-18",
+          "equity": 1534.01
+        },
+        {
+          "date": "2026-08-19",
+          "equity": 1622.56
+        },
+        {
+          "date": "2026-08-20",
+          "equity": 1548.21
+        },
+        {
+          "date": "2026-08-21",
+          "equity": 1543.03
+        },
+        {
+          "date": "2026-08-24",
+          "equity": 1474.39
+        },
+        {
+          "date": "2026-08-25",
+          "equity": 1589.48
+        },
+        {
+          "date": "2026-08-26",
+          "equity": 1517.7
+        },
+        {
+          "date": "2026-08-27",
+          "equity": 1462.23
+        },
+        {
+          "date": "2026-08-28",
+          "equity": 1444.55
+        },
+        {
+          "date": "2026-08-31",
+          "equity": 1484.88
+        },
+        {
+          "date": "2026-09-01",
+          "equity": 1472.29
+        },
+        {
+          "date": "2026-09-02",
+          "equity": 1420.63
+        },
+        {
+          "date": "2026-09-03",
+          "equity": 1378.36
+        },
+        {
+          "date": "2026-09-04",
+          "equity": 1391.36
+        },
+        {
+          "date": "2026-09-08",
+          "equity": 1376.5
+        },
+        {
+          "date": "2026-09-09",
+          "equity": 1365.3
+        },
+        {
+          "date": "2026-09-10",
+          "equity": 1372.2
+        },
+        {
+          "date": "2026-09-11",
+          "equity": 1371.98
+        },
+        {
+          "date": "2026-09-14",
+          "equity": 1367.74
+        },
+        {
+          "date": "2026-09-15",
+          "equity": 1468.79
+        },
+        {
+          "date": "2026-09-16",
+          "equity": 1396.13
+        },
+        {
+          "date": "2026-09-17",
+          "equity": 1405.51
+        },
+        {
+          "date": "2026-09-18",
+          "equity": 1403.87
+        },
+        {
+          "date": "2026-09-21",
+          "equity": 1412.81
+        },
+        {
+          "date": "2026-09-22",
+          "equity": 1386.77
+        },
+        {
+          "date": "2026-09-23",
+          "equity": 1340.71
+        },
+        {
+          "date": "2026-09-24",
+          "equity": 1286.83
+        },
+        {
+          "date": "2026-09-25",
+          "equity": 1265.41
+        },
+        {
+          "date": "2026-09-28",
+          "equity": 1217.46
+        },
+        {
+          "date": "2026-09-29",
+          "equity": 1203.5
+        },
+        {
+          "date": "2026-09-30",
+          "equity": 1234.27
+        },
+        {
+          "date": "2026-10-01",
+          "equity": 1236.98
+        },
+        {
+          "date": "2026-10-02",
+          "equity": 1194.63
+        },
+        {
+          "date": "2026-10-05",
+          "equity": 1162.56
+        },
+        {
+          "date": "2026-10-06",
+          "equity": 1161.26
+        },
+        {
+          "date": "2026-10-07",
+          "equity": 1150.03
+        }
+      ],
+      "counters": {
+        "skip_spread": 2412,
+        "entries": 523,
+        "exit_stop": 279,
+        "exit_target": 155,
+        "exit_flatten": 82,
+        "skip_no_quote": 102,
+        "exit_gap": 7
+      }
+    },
+    {
+      "id": "R1",
+      "strategy": "A",
+      "label": "R1. A + max 2 entries per symbol per day",
+      "slippageMultiplier": 1,
+      "endingEquity": 1618.27,
+      "returnPct": -0.1909,
+      "summary": {
+        "trades": 386,
+        "winRate": 0.3705,
+        "averageWin": 18.05,
+        "averageLoss": -12.19,
+        "averageR": -0.0965,
+        "expectancy": -0.99,
+        "profitFactor": 0.871,
+        "totalPnl": -381.73,
+        "maxDrawdown": 478.57,
+        "maxDrawdownPct": 0.2382,
+        "longestLosingStreak": 10,
+        "averageHoldMinutes": 96.9,
+        "exitMix": {
+          "stop": 0.4767,
+          "target": 0.3031,
+          "flatten": 0.2098,
+          "gap": 0.0104
+        }
+      },
+      "monthly": {
+        "2026-08": {
+          "trades": 183,
+          "winRate": 0.3716,
+          "averageWin": 19.32,
+          "averageLoss": -13.23,
+          "averageR": -0.1175,
+          "expectancy": -1.13,
+          "profitFactor": 0.864,
+          "totalPnl": -207.17,
+          "maxDrawdown": 284.74,
+          "maxDrawdownPct": 0.1417,
+          "longestLosingStreak": 9,
+          "averageHoldMinutes": 83.3,
+          "exitMix": {
+            "stop": 0.4918,
+            "target": 0.3169,
+            "flatten": 0.1803,
+            "gap": 0.0109
+          }
+        },
+        "2026-09": {
+          "trades": 161,
+          "winRate": 0.3665,
+          "averageWin": 16.72,
+          "averageLoss": -11.74,
+          "averageR": -0.1012,
+          "expectancy": -1.31,
+          "profitFactor": 0.824,
+          "totalPnl": -211.02,
+          "maxDrawdown": 262.03,
+          "maxDrawdownPct": 0.131,
+          "longestLosingStreak": 10,
+          "averageHoldMinutes": 107.8,
+          "exitMix": {
+            "stop": 0.4658,
+            "target": 0.2857,
+            "flatten": 0.236,
+            "gap": 0.0124
+          }
+        },
+        "2026-10": {
+          "trades": 42,
+          "winRate": 0.381,
+          "averageWin": 17.52,
+          "averageLoss": -9.38,
+          "averageR": 0.0125,
+          "expectancy": 0.87,
+          "profitFactor": 1.149,
+          "totalPnl": 36.46,
+          "maxDrawdown": 87.51,
+          "maxDrawdownPct": 0.0427,
+          "longestLosingStreak": 8,
+          "averageHoldMinutes": 114.4,
+          "exitMix": {
+            "stop": 0.4524,
+            "target": 0.3095,
+            "flatten": 0.2381,
+            "gap": 0
+          }
+        }
+      },
+      "byRegime": {
+        "late-continuation": {
+          "trades": 65,
+          "winRate": 0.4,
+          "averageWin": 14.65,
+          "averageLoss": -10.54,
+          "averageR": -0.1306,
+          "expectancy": -0.46,
+          "profitFactor": 0.927,
+          "totalPnl": -30.16,
+          "maxDrawdown": 138.72,
+          "maxDrawdownPct": 0.0662,
+          "longestLosingStreak": 5,
+          "averageHoldMinutes": 55.9,
+          "exitMix": {
+            "stop": 0.3692,
+            "target": 0.2769,
+            "flatten": 0.3231,
+            "gap": 0.0308
+          }
+        },
+        "midday-selective": {
+          "trades": 41,
+          "winRate": 0.439,
+          "averageWin": 13.72,
+          "averageLoss": -6.99,
+          "averageR": 0.2309,
+          "expectancy": 2.1,
+          "profitFactor": 1.536,
+          "totalPnl": 86.25,
+          "maxDrawdown": 47.23,
+          "maxDrawdownPct": 0.0225,
+          "longestLosingStreak": 5,
+          "averageHoldMinutes": 66.6,
+          "exitMix": {
+            "stop": 0.439,
+            "target": 0.3415,
+            "flatten": 0.2195,
+            "gap": 0
+          }
+        },
+        "news-reaction": {
+          "trades": 80,
+          "winRate": 0.3625,
+          "averageWin": 9.94,
+          "averageLoss": -7.58,
+          "averageR": -0.1329,
+          "expectancy": -1.23,
+          "profitFactor": 0.746,
+          "totalPnl": -98.13,
+          "maxDrawdown": 109.64,
+          "maxDrawdownPct": 0.0548,
+          "longestLosingStreak": 7,
+          "averageHoldMinutes": 158,
+          "exitMix": {
+            "stop": 0.5125,
+            "target": 0.2875,
+            "flatten": 0.2,
+            "gap": 0
+          }
+        },
+        "opening-momentum": {
+          "trades": 117,
+          "winRate": 0.3419,
+          "averageWin": 24.34,
+          "averageLoss": -15.87,
+          "averageR": -0.1764,
+          "expectancy": -2.12,
+          "profitFactor": 0.797,
+          "totalPnl": -248.09,
+          "maxDrawdown": 338.42,
+          "maxDrawdownPct": 0.168,
+          "longestLosingStreak": 9,
+          "averageHoldMinutes": 78.2,
+          "exitMix": {
+            "stop": 0.5128,
+            "target": 0.2991,
+            "flatten": 0.1709,
+            "gap": 0.0171
+          }
+        },
+        "premarket-continuation": {
+          "trades": 83,
+          "winRate": 0.3614,
+          "averageWin": 23.03,
+          "averageLoss": -14.76,
+          "averageR": -0.084,
+          "expectancy": -1.1,
+          "profitFactor": 0.883,
+          "totalPnl": -91.61,
+          "maxDrawdown": 180.67,
+          "maxDrawdownPct": 0.0886,
+          "longestLosingStreak": 7,
+          "averageHoldMinutes": 111.3,
+          "exitMix": {
+            "stop": 0.494,
+            "target": 0.3253,
+            "flatten": 0.1807,
+            "gap": 0
+          }
+        }
+      },
+      "best": [
+        {
+          "date": "2026-09-23",
+          "symbol": "ARTL",
+          "pnl": 64.01,
+          "r": 4.003,
+          "exitKind": "target",
+          "regime": "opening-momentum",
+          "reason": "target after 21m in opening-momentum; entry 6.3359 -> exit 8.6219; catalyst: Artelo Biosciences Files Provisional Patent Application For ART27.13 As Monotherapy And In Combination With GLP-1 Recept"
+        },
+        {
+          "date": "2026-09-15",
+          "symbol": "RETO",
+          "pnl": 49.3,
+          "r": 5.856,
+          "exitKind": "target",
+          "regime": "midday-selective",
+          "reason": "target after 32m in midday-selective; entry 2.4454 -> exit 3.5920; catalyst: ReTo Eco-Solutions Shared Halted On Circuit Breaker To The Upside; Stock Now Up 271.69%"
+        },
+        {
+          "date": "2026-08-21",
+          "symbol": "JUNS",
+          "pnl": 45.96,
+          "r": 2.623,
+          "exitKind": "target",
+          "regime": "opening-momentum",
+          "reason": "target after 28m in opening-momentum; entry 8.5500 -> exit 10.7384; catalyst: Jupiter Neurosciences Stock Surges Friday: What's Driving the Action?"
+        },
+        {
+          "date": "2026-08-24",
+          "symbol": "PMI",
+          "pnl": 32.69,
+          "r": 1.848,
+          "exitKind": "target",
+          "regime": "opening-momentum",
+          "reason": "target after 12m in opening-momentum; entry 4.5600 -> exit 5.3383; catalyst: Why Is Picard Medical Stock Gaining Monday?"
+        },
+        {
+          "date": "2026-09-17",
+          "symbol": "DTSS",
+          "pnl": 31.36,
+          "r": 1.903,
+          "exitKind": "target",
+          "regime": "opening-momentum",
+          "reason": "target after 11m in opening-momentum; entry 1.5150 -> exit 1.6446; catalyst: Datasea Intelligent Technology Shares Halted On Circuit Breaker To The Upside, Stock Now Up 81.19%"
+        }
+      ],
+      "worst": [
+        {
+          "date": "2026-08-10",
+          "symbol": "SCKT",
+          "pnl": -60.96,
+          "r": -8.858,
+          "exitKind": "gap",
+          "regime": "opening-momentum",
+          "reason": "gap after 11m in opening-momentum; entry 2.0850 -> exit 1.8256; catalyst: US Stocks Edge Lower; Monday.Com Shares Tumble After Q2 Results"
+        },
+        {
+          "date": "2026-09-23",
+          "symbol": "VSA",
+          "pnl": -34.01,
+          "r": -4.799,
+          "exitKind": "gap",
+          "regime": "late-continuation",
+          "reason": "gap after 6m in late-continuation; entry 6.7350 -> exit 5.9955; catalyst: VisionSys AI Shares Halted On Circuit Breaker To The Upside, Stock Now Up 87.88%"
+        },
+        {
+          "date": "2026-08-24",
+          "symbol": "DAIC",
+          "pnl": -33.54,
+          "r": -1.863,
+          "exitKind": "gap",
+          "regime": "opening-momentum",
+          "reason": "gap after 17m in opening-momentum; entry 1.7200 -> exit 1.4358; catalyst: CID HoldCo  Shares Resumed Trade, Then Again Halted On Circuit Breaker To The Upside, Stock Now Up 441.31%"
+        },
+        {
+          "date": "2026-09-22",
+          "symbol": "JAGX",
+          "pnl": -26.81,
+          "r": -3.883,
+          "exitKind": "gap",
+          "regime": "late-continuation",
+          "reason": "gap after 6m in late-continuation; entry 17.0850 -> exit 15.5954; catalyst: 12 Health Care Stocks Moving In Tuesday's Intraday Session"
+        },
+        {
+          "date": "2026-08-06",
+          "symbol": "CELZ",
+          "pnl": -20.8,
+          "r": -1.074,
+          "exitKind": "stop",
+          "regime": "opening-momentum",
+          "reason": "stop after 1m in opening-momentum; entry 1.4552 -> exit 1.3837; catalyst: Creative Medical Receives Notice Of Allowance From USPTO For US Patent Application Titled Suppression Of Diabetes Using "
+        }
+      ],
+      "equityCurve": [
+        {
+          "date": "2026-08-03",
+          "equity": 1979.04
+        },
+        {
+          "date": "2026-08-04",
+          "equity": 1932.53
+        },
+        {
+          "date": "2026-08-05",
+          "equity": 1963.22
+        },
+        {
+          "date": "2026-08-06",
+          "equity": 1972.28
+        },
+        {
+          "date": "2026-08-07",
+          "equity": 1938.84
+        },
+        {
+          "date": "2026-08-10",
+          "equity": 1933.36
+        },
+        {
+          "date": "2026-08-11",
+          "equity": 1884.31
+        },
+        {
+          "date": "2026-08-12",
+          "equity": 1878.47
+        },
+        {
+          "date": "2026-08-13",
+          "equity": 1862.58
+        },
+        {
+          "date": "2026-08-14",
+          "equity": 1894.29
+        },
+        {
+          "date": "2026-08-17",
+          "equity": 1782.03
+        },
+        {
+          "date": "2026-08-18",
+          "equity": 1724.63
+        },
+        {
+          "date": "2026-08-19",
+          "equity": 1832.2
+        },
+        {
+          "date": "2026-08-20",
+          "equity": 1779.91
+        },
+        {
+          "date": "2026-08-21",
+          "equity": 1774.72
+        },
+        {
+          "date": "2026-08-24",
+          "equity": 1793
+        },
+        {
+          "date": "2026-08-25",
+          "equity": 1899.32
+        },
+        {
+          "date": "2026-08-26",
+          "equity": 1820.42
+        },
+        {
+          "date": "2026-08-27",
+          "equity": 1754.53
+        },
+        {
+          "date": "2026-08-28",
+          "equity": 1733.36
+        },
+        {
+          "date": "2026-08-31",
+          "equity": 1792.83
+        },
+        {
+          "date": "2026-09-01",
+          "equity": 1778.52
+        },
+        {
+          "date": "2026-09-02",
+          "equity": 1717.13
+        },
+        {
+          "date": "2026-09-03",
+          "equity": 1644.32
+        },
+        {
+          "date": "2026-09-04",
+          "equity": 1660.07
+        },
+        {
+          "date": "2026-09-08",
+          "equity": 1659.95
+        },
+        {
+          "date": "2026-09-09",
+          "equity": 1657.95
+        },
+        {
+          "date": "2026-09-10",
+          "equity": 1665.77
+        },
+        {
+          "date": "2026-09-11",
+          "equity": 1663.25
+        },
+        {
+          "date": "2026-09-14",
+          "equity": 1648.48
+        },
+        {
+          "date": "2026-09-15",
+          "equity": 1748.85
+        },
+        {
+          "date": "2026-09-16",
+          "equity": 1662.02
+        },
+        {
+          "date": "2026-09-17",
+          "equity": 1675.25
+        },
+        {
+          "date": "2026-09-18",
+          "equity": 1688.01
+        },
+        {
+          "date": "2026-09-21",
+          "equity": 1709.14
+        },
+        {
+          "date": "2026-09-22",
+          "equity": 1687.5
+        },
+        {
+          "date": "2026-09-23",
+          "equity": 1642.62
+        },
+        {
+          "date": "2026-09-24",
+          "equity": 1617.74
+        },
+        {
+          "date": "2026-09-25",
+          "equity": 1599.29
+        },
+        {
+          "date": "2026-09-28",
+          "equity": 1538.55
+        },
+        {
+          "date": "2026-09-29",
+          "equity": 1544.79
+        },
+        {
+          "date": "2026-09-30",
+          "equity": 1581.81
+        },
+        {
+          "date": "2026-10-01",
+          "equity": 1586.78
+        },
+        {
+          "date": "2026-10-02",
+          "equity": 1597.51
+        },
+        {
+          "date": "2026-10-05",
+          "equity": 1552.69
+        },
+        {
+          "date": "2026-10-06",
+          "equity": 1586.17
+        },
+        {
+          "date": "2026-10-07",
+          "equity": 1618.27
+        }
+      ],
+      "counters": {
+        "skip_spread": 4188,
+        "entries": 386,
+        "exit_stop": 184,
+        "exit_target": 117,
+        "filtered_max_entries": 3349,
+        "skip_no_quote": 222,
+        "exit_flatten": 81,
+        "exit_gap": 4,
+        "skip_decide_at_ask": 1
+      }
+    },
+    {
+      "id": "R2",
+      "strategy": "A",
+      "label": "R2. A + minimum entry price $3",
+      "slippageMultiplier": 1,
+      "endingEquity": 1542.16,
+      "returnPct": -0.2289,
+      "summary": {
+        "trades": 361,
+        "winRate": 0.374,
+        "averageWin": 17.38,
+        "averageLoss": -12.41,
+        "averageR": -0.1111,
+        "expectancy": -1.27,
+        "profitFactor": 0.837,
+        "totalPnl": -457.84,
+        "maxDrawdown": 550.58,
+        "maxDrawdownPct": 0.2648,
+        "longestLosingStreak": 13,
+        "averageHoldMinutes": 70.5,
+        "exitMix": {
+          "stop": 0.5346,
+          "target": 0.3047,
+          "flatten": 0.1524,
+          "gap": 0.0083
+        }
+      },
+      "monthly": {
+        "2026-08": {
+          "trades": 173,
+          "winRate": 0.3699,
+          "averageWin": 18.75,
+          "averageLoss": -13.26,
+          "averageR": -0.0947,
+          "expectancy": -1.42,
+          "profitFactor": 0.83,
+          "totalPnl": -245.16,
+          "maxDrawdown": 363.33,
+          "maxDrawdownPct": 0.1748,
+          "longestLosingStreak": 10,
+          "averageHoldMinutes": 57.7,
+          "exitMix": {
+            "stop": 0.5549,
+            "target": 0.3179,
+            "flatten": 0.1214,
+            "gap": 0.0058
+          }
+        },
+        "2026-09": {
+          "trades": 146,
+          "winRate": 0.3904,
+          "averageWin": 16.16,
+          "averageLoss": -12.13,
+          "averageR": -0.115,
+          "expectancy": -1.08,
+          "profitFactor": 0.854,
+          "totalPnl": -158.07,
+          "maxDrawdown": 223.81,
+          "maxDrawdownPct": 0.1113,
+          "longestLosingStreak": 13,
+          "averageHoldMinutes": 77.4,
+          "exitMix": {
+            "stop": 0.5137,
+            "target": 0.3082,
+            "flatten": 0.1644,
+            "gap": 0.0137
+          }
+        },
+        "2026-10": {
+          "trades": 42,
+          "winRate": 0.3333,
+          "averageWin": 16.09,
+          "averageLoss": -9.99,
+          "averageR": -0.1648,
+          "expectancy": -1.3,
+          "profitFactor": 0.805,
+          "totalPnl": -54.61,
+          "maxDrawdown": 109.39,
+          "maxDrawdownPct": 0.0536,
+          "longestLosingStreak": 6,
+          "averageHoldMinutes": 99.3,
+          "exitMix": {
+            "stop": 0.5238,
+            "target": 0.2381,
+            "flatten": 0.2381,
+            "gap": 0
+          }
+        }
+      },
+      "byRegime": {
+        "late-continuation": {
+          "trades": 82,
+          "winRate": 0.4146,
+          "averageWin": 13.76,
+          "averageLoss": -11.7,
+          "averageR": -0.1373,
+          "expectancy": -1.14,
+          "profitFactor": 0.833,
+          "totalPnl": -93.71,
+          "maxDrawdown": 202.99,
+          "maxDrawdownPct": 0.0966,
+          "longestLosingStreak": 13,
+          "averageHoldMinutes": 39.5,
+          "exitMix": {
+            "stop": 0.4512,
+            "target": 0.2927,
+            "flatten": 0.2195,
+            "gap": 0.0366
+          }
+        },
+        "midday-selective": {
+          "trades": 70,
+          "winRate": 0.3714,
+          "averageWin": 11.88,
+          "averageLoss": -7.96,
+          "averageR": -0.0673,
+          "expectancy": -0.59,
+          "profitFactor": 0.882,
+          "totalPnl": -41.35,
+          "maxDrawdown": 79.45,
+          "maxDrawdownPct": 0.0392,
+          "longestLosingStreak": 9,
+          "averageHoldMinutes": 44.5,
+          "exitMix": {
+            "stop": 0.5857,
+            "target": 0.3286,
+            "flatten": 0.0857,
+            "gap": 0
+          }
+        },
+        "news-reaction": {
+          "trades": 45,
+          "winRate": 0.3111,
+          "averageWin": 9.93,
+          "averageLoss": -7.89,
+          "averageR": -0.2563,
+          "expectancy": -2.35,
+          "profitFactor": 0.568,
+          "totalPnl": -105.76,
+          "maxDrawdown": 105.76,
+          "maxDrawdownPct": 0.0529,
+          "longestLosingStreak": 6,
+          "averageHoldMinutes": 141.8,
+          "exitMix": {
+            "stop": 0.6,
+            "target": 0.2444,
+            "flatten": 0.1556,
+            "gap": 0
+          }
+        },
+        "opening-momentum": {
+          "trades": 108,
+          "winRate": 0.3519,
+          "averageWin": 24.05,
+          "averageLoss": -16.43,
+          "averageR": -0.1277,
+          "expectancy": -2.19,
+          "profitFactor": 0.795,
+          "totalPnl": -236.08,
+          "maxDrawdown": 364.89,
+          "maxDrawdownPct": 0.1801,
+          "longestLosingStreak": 12,
+          "averageHoldMinutes": 61.1,
+          "exitMix": {
+            "stop": 0.5741,
+            "target": 0.2963,
+            "flatten": 0.1296,
+            "gap": 0
+          }
+        },
+        "premarket-continuation": {
+          "trades": 56,
+          "winRate": 0.4107,
+          "averageWin": 22.46,
+          "averageLoss": -15.08,
+          "averageR": 0.0215,
+          "expectancy": 0.34,
+          "profitFactor": 1.038,
+          "totalPnl": 19.06,
+          "maxDrawdown": 102.61,
+          "maxDrawdownPct": 0.0511,
+          "longestLosingStreak": 9,
+          "averageHoldMinutes": 109.3,
+          "exitMix": {
+            "stop": 0.4643,
+            "target": 0.3571,
+            "flatten": 0.1786,
+            "gap": 0
+          }
+        }
+      },
+      "best": [
+        {
+          "date": "2026-09-23",
+          "symbol": "ARTL",
+          "pnl": 64.01,
+          "r": 4.003,
+          "exitKind": "target",
+          "regime": "opening-momentum",
+          "reason": "target after 21m in opening-momentum; entry 6.3359 -> exit 8.6219; catalyst: Artelo Biosciences Files Provisional Patent Application For ART27.13 As Monotherapy And In Combination With GLP-1 Recept"
+        },
+        {
+          "date": "2026-08-21",
+          "symbol": "JUNS",
+          "pnl": 43.77,
+          "r": 2.623,
+          "exitKind": "target",
+          "regime": "opening-momentum",
+          "reason": "target after 28m in opening-momentum; entry 8.5500 -> exit 10.7384; catalyst: Jupiter Neurosciences Stock Surges Friday: What's Driving the Action?"
+        },
+        {
+          "date": "2026-08-12",
+          "symbol": "OFAL",
+          "pnl": 42.43,
+          "r": 2.112,
+          "exitKind": "target",
+          "regime": "opening-momentum",
+          "reason": "target after 11m in opening-momentum; entry 3.0050 -> exit 3.3444; catalyst: 12 Industrials Stocks Moving In Wednesday's Pre-Market Session"
+        },
+        {
+          "date": "2026-08-24",
+          "symbol": "PMI",
+          "pnl": 32.69,
+          "r": 1.848,
+          "exitKind": "target",
+          "regime": "opening-momentum",
+          "reason": "target after 12m in opening-momentum; entry 4.5600 -> exit 5.3383; catalyst: Why Is Picard Medical Stock Gaining Monday?"
+        },
+        {
+          "date": "2026-08-07",
+          "symbol": "VATE",
+          "pnl": 29.44,
+          "r": 1.463,
+          "exitKind": "target",
+          "regime": "opening-momentum",
+          "reason": "target after 21m in opening-momentum; entry 12.2500 -> exit 13.3404; catalyst: 12 Industrials Stocks Moving In Friday's Pre-Market Session"
+        }
+      ],
+      "worst": [
+        {
+          "date": "2026-09-23",
+          "symbol": "VSA",
+          "pnl": -33.28,
+          "r": -4.799,
+          "exitKind": "gap",
+          "regime": "late-continuation",
+          "reason": "gap after 6m in late-continuation; entry 6.7350 -> exit 5.9955; catalyst: VisionSys AI Shares Halted On Circuit Breaker To The Upside, Stock Now Up 87.88%"
+        },
+        {
+          "date": "2026-09-22",
+          "symbol": "JAGX",
+          "pnl": -28.3,
+          "r": -3.883,
+          "exitKind": "gap",
+          "regime": "late-continuation",
+          "reason": "gap after 6m in late-continuation; entry 17.0850 -> exit 15.5954; catalyst: 12 Health Care Stocks Moving In Tuesday's Intraday Session"
+        },
+        {
+          "date": "2026-08-17",
+          "symbol": "QNTM",
+          "pnl": -21.56,
+          "r": -1.049,
+          "exitKind": "stop",
+          "regime": "premarket-continuation",
+          "reason": "stop after 13m in premarket-continuation; entry 4.6789 -> exit 4.2869; catalyst: 12 Health Care Stocks Moving In Monday's Pre-Market Session"
+        },
+        {
+          "date": "2026-08-10",
+          "symbol": "XHLD",
+          "pnl": -20.92,
+          "r": -1.013,
+          "exitKind": "stop",
+          "regime": "opening-momentum",
+          "reason": "stop after 73m in opening-momentum; entry 3.5343 -> exit 2.9003; catalyst: Why Avalon Holdings Shares Are Trading Higher By More Than 10%; Here Are 20 Stocks Moving Premarket"
+        },
+        {
+          "date": "2026-08-14",
+          "symbol": "AEHL",
+          "pnl": -20.75,
+          "r": -1.028,
+          "exitKind": "stop",
+          "regime": "opening-momentum",
+          "reason": "stop after 13m in opening-momentum; entry 6.8751 -> exit 6.0449; catalyst: 11 Communication Services Stocks Moving In Friday's Pre-Market Session"
+        }
+      ],
+      "equityCurve": [
+        {
+          "date": "2026-08-03",
+          "equity": 1919.08
+        },
+        {
+          "date": "2026-08-04",
+          "equity": 1954.93
+        },
+        {
+          "date": "2026-08-05",
+          "equity": 1987.97
+        },
+        {
+          "date": "2026-08-06",
+          "equity": 2042.1
+        },
+        {
+          "date": "2026-08-07",
+          "equity": 2040.82
+        },
+        {
+          "date": "2026-08-10",
+          "equity": 2018.13
+        },
+        {
+          "date": "2026-08-11",
+          "equity": 2006.23
+        },
+        {
+          "date": "2026-08-12",
+          "equity": 2064.95
+        },
+        {
+          "date": "2026-08-13",
+          "equity": 2078.96
+        },
+        {
+          "date": "2026-08-14",
+          "equity": 2068.22
+        },
+        {
+          "date": "2026-08-17",
+          "equity": 1952.1
+        },
+        {
+          "date": "2026-08-18",
+          "equity": 1843.81
+        },
+        {
+          "date": "2026-08-19",
+          "equity": 1814.56
+        },
+        {
+          "date": "2026-08-20",
+          "equity": 1741.63
+        },
+        {
+          "date": "2026-08-21",
+          "equity": 1744.95
+        },
+        {
+          "date": "2026-08-24",
+          "equity": 1751.51
+        },
+        {
+          "date": "2026-08-25",
+          "equity": 1870.11
+        },
+        {
+          "date": "2026-08-26",
+          "equity": 1844.83
+        },
+        {
+          "date": "2026-08-27",
+          "equity": 1816.88
+        },
+        {
+          "date": "2026-08-28",
+          "equity": 1795.04
+        },
+        {
+          "date": "2026-08-31",
+          "equity": 1754.84
+        },
+        {
+          "date": "2026-09-01",
+          "equity": 1753.89
+        },
+        {
+          "date": "2026-09-02",
+          "equity": 1720.04
+        },
+        {
+          "date": "2026-09-03",
+          "equity": 1695.06
+        },
+        {
+          "date": "2026-09-04",
+          "equity": 1680.25
+        },
+        {
+          "date": "2026-09-08",
+          "equity": 1672.98
+        },
+        {
+          "date": "2026-09-09",
+          "equity": 1665.04
+        },
+        {
+          "date": "2026-09-10",
+          "equity": 1686.88
+        },
+        {
+          "date": "2026-09-11",
+          "equity": 1726.73
+        },
+        {
+          "date": "2026-09-14",
+          "equity": 1738.62
+        },
+        {
+          "date": "2026-09-15",
+          "equity": 1725.7
+        },
+        {
+          "date": "2026-09-16",
+          "equity": 1654.54
+        },
+        {
+          "date": "2026-09-17",
+          "equity": 1671.36
+        },
+        {
+          "date": "2026-09-18",
+          "equity": 1701.19
+        },
+        {
+          "date": "2026-09-21",
+          "equity": 1721.98
+        },
+        {
+          "date": "2026-09-22",
+          "equity": 1670.15
+        },
+        {
+          "date": "2026-09-23",
+          "equity": 1616.9
+        },
+        {
+          "date": "2026-09-24",
+          "equity": 1546.51
+        },
+        {
+          "date": "2026-09-25",
+          "equity": 1552.76
+        },
+        {
+          "date": "2026-09-28",
+          "equity": 1575.61
+        },
+        {
+          "date": "2026-09-29",
+          "equity": 1581.16
+        },
+        {
+          "date": "2026-09-30",
+          "equity": 1596.77
+        },
+        {
+          "date": "2026-10-01",
+          "equity": 1591.8
+        },
+        {
+          "date": "2026-10-02",
+          "equity": 1602.33
+        },
+        {
+          "date": "2026-10-05",
+          "equity": 1573.73
+        },
+        {
+          "date": "2026-10-06",
+          "equity": 1591.98
+        },
+        {
+          "date": "2026-10-07",
+          "equity": 1542.16
+        }
+      ],
+      "counters": {
+        "skip_spread": 4858,
+        "entries": 361,
+        "exit_stop": 193,
+        "filtered_min_price": 4384,
+        "exit_target": 110,
+        "exit_flatten": 55,
+        "skip_no_quote": 283,
+        "skip_decide_at_ask": 1,
+        "exit_gap": 3
+      }
+    },
+    {
+      "id": "R3",
+      "strategy": "A",
+      "label": "R3. A + skip entries already up more than 100% on the day",
+      "slippageMultiplier": 1,
+      "endingEquity": 1426.37,
+      "returnPct": -0.2868,
+      "summary": {
+        "trades": 360,
+        "winRate": 0.3528,
+        "averageWin": 17.39,
+        "averageLoss": -11.94,
+        "averageR": -0.1103,
+        "expectancy": -1.59,
+        "profitFactor": 0.794,
+        "totalPnl": -573.63,
+        "maxDrawdown": 595.78,
+        "maxDrawdownPct": 0.2965,
+        "longestLosingStreak": 14,
+        "averageHoldMinutes": 105,
+        "exitMix": {
+          "stop": 0.4861,
+          "target": 0.2889,
+          "flatten": 0.2222,
+          "gap": 0.0028
+        }
+      },
+      "monthly": {
+        "2026-08": {
+          "trades": 172,
+          "winRate": 0.3837,
+          "averageWin": 19.39,
+          "averageLoss": -13.51,
+          "averageR": -0.0379,
+          "expectancy": -0.88,
+          "profitFactor": 0.894,
+          "totalPnl": -152.19,
+          "maxDrawdown": 212.09,
+          "maxDrawdownPct": 0.1055,
+          "longestLosingStreak": 9,
+          "averageHoldMinutes": 89.5,
+          "exitMix": {
+            "stop": 0.4826,
+            "target": 0.3256,
+            "flatten": 0.1919,
+            "gap": 0
+          }
+        },
+        "2026-09": {
+          "trades": 154,
+          "winRate": 0.3312,
+          "averageWin": 15.79,
+          "averageLoss": -11.08,
+          "averageR": -0.1688,
+          "expectancy": -2.18,
+          "profitFactor": 0.706,
+          "totalPnl": -335.67,
+          "maxDrawdown": 373.55,
+          "maxDrawdownPct": 0.1868,
+          "longestLosingStreak": 14,
+          "averageHoldMinutes": 114.6,
+          "exitMix": {
+            "stop": 0.487,
+            "target": 0.2662,
+            "flatten": 0.2403,
+            "gap": 0.0065
+          }
+        },
+        "2026-10": {
+          "trades": 34,
+          "winRate": 0.2941,
+          "averageWin": 12.36,
+          "averageLoss": -8.73,
+          "averageR": -0.2112,
+          "expectancy": -2.52,
+          "profitFactor": 0.59,
+          "totalPnl": -85.78,
+          "maxDrawdown": 114.96,
+          "maxDrawdownPct": 0.057,
+          "longestLosingStreak": 9,
+          "averageHoldMinutes": 140.3,
+          "exitMix": {
+            "stop": 0.5,
+            "target": 0.2059,
+            "flatten": 0.2941,
+            "gap": 0
+          }
+        }
+      },
+      "byRegime": {
+        "late-continuation": {
+          "trades": 83,
+          "winRate": 0.3373,
+          "averageWin": 15.74,
+          "averageLoss": -10.74,
+          "averageR": -0.1424,
+          "expectancy": -1.81,
+          "profitFactor": 0.746,
+          "totalPnl": -150.17,
+          "maxDrawdown": 189.04,
+          "maxDrawdownPct": 0.0939,
+          "longestLosingStreak": 6,
+          "averageHoldMinutes": 54.8,
+          "exitMix": {
+            "stop": 0.4819,
+            "target": 0.2651,
+            "flatten": 0.253,
+            "gap": 0
+          }
+        },
+        "midday-selective": {
+          "trades": 39,
+          "winRate": 0.4103,
+          "averageWin": 11.31,
+          "averageLoss": -7.56,
+          "averageR": -0.0058,
+          "expectancy": 0.19,
+          "profitFactor": 1.042,
+          "totalPnl": 7.22,
+          "maxDrawdown": 75.26,
+          "maxDrawdownPct": 0.0363,
+          "longestLosingStreak": 11,
+          "averageHoldMinutes": 77.5,
+          "exitMix": {
+            "stop": 0.4359,
+            "target": 0.3077,
+            "flatten": 0.2308,
+            "gap": 0.0256
+          }
+        },
+        "news-reaction": {
+          "trades": 68,
+          "winRate": 0.3971,
+          "averageWin": 9.83,
+          "averageLoss": -7.34,
+          "averageR": -0.0486,
+          "expectancy": -0.52,
+          "profitFactor": 0.882,
+          "totalPnl": -35.39,
+          "maxDrawdown": 89.84,
+          "maxDrawdownPct": 0.0441,
+          "longestLosingStreak": 7,
+          "averageHoldMinutes": 179.4,
+          "exitMix": {
+            "stop": 0.4559,
+            "target": 0.3088,
+            "flatten": 0.2353,
+            "gap": 0
+          }
+        },
+        "opening-momentum": {
+          "trades": 101,
+          "winRate": 0.3366,
+          "averageWin": 24.06,
+          "averageLoss": -15.27,
+          "averageR": -0.1215,
+          "expectancy": -2.03,
+          "profitFactor": 0.8,
+          "totalPnl": -204.73,
+          "maxDrawdown": 316,
+          "maxDrawdownPct": 0.1516,
+          "longestLosingStreak": 7,
+          "averageHoldMinutes": 86.9,
+          "exitMix": {
+            "stop": 0.5149,
+            "target": 0.297,
+            "flatten": 0.1881,
+            "gap": 0
+          }
+        },
+        "premarket-continuation": {
+          "trades": 69,
+          "winRate": 0.3188,
+          "averageWin": 22.88,
+          "averageLoss": -14.76,
+          "averageR": -0.175,
+          "expectancy": -2.76,
+          "profitFactor": 0.725,
+          "totalPnl": -190.55,
+          "maxDrawdown": 201.22,
+          "maxDrawdownPct": 0.1001,
+          "longestLosingStreak": 7,
+          "averageHoldMinutes": 134.2,
+          "exitMix": {
+            "stop": 0.5072,
+            "target": 0.2754,
+            "flatten": 0.2174,
+            "gap": 0
+          }
+        }
+      },
+      "best": [
+        {
+          "date": "2026-08-21",
+          "symbol": "JUNS",
+          "pnl": 45.96,
+          "r": 2.623,
+          "exitKind": "target",
+          "regime": "opening-momentum",
+          "reason": "target after 28m in opening-momentum; entry 8.5500 -> exit 10.7384; catalyst: Jupiter Neurosciences Stock Surges Friday: What's Driving the Action?"
+        },
+        {
+          "date": "2026-08-24",
+          "symbol": "PMI",
+          "pnl": 34.24,
+          "r": 1.848,
+          "exitKind": "target",
+          "regime": "opening-momentum",
+          "reason": "target after 12m in opening-momentum; entry 4.5600 -> exit 5.3383; catalyst: Why Is Picard Medical Stock Gaining Monday?"
+        },
+        {
+          "date": "2026-08-03",
+          "symbol": "EZRA",
+          "pnl": 29.04,
+          "r": 1.472,
+          "exitKind": "target",
+          "regime": "premarket-continuation",
+          "reason": "target after 4m in premarket-continuation; entry 2.9049 -> exit 3.1924; catalyst: Reliance Global Group Enters Into Non-Binding LOI To Sell Assets Of Its Altruis Benefit Consulting Subsidiary For $11M I"
+        },
+        {
+          "date": "2026-08-05",
+          "symbol": "JLHL",
+          "pnl": 28.97,
+          "r": 1.485,
+          "exitKind": "target",
+          "regime": "opening-momentum",
+          "reason": "target after 13m in opening-momentum; entry 8.9948 -> exit 10.8055; catalyst: 12 Industrials Stocks Moving In Wednesday's Pre-Market Session"
+        },
+        {
+          "date": "2026-08-05",
+          "symbol": "INLF",
+          "pnl": 28.42,
+          "r": 1.495,
+          "exitKind": "target",
+          "regime": "premarket-continuation",
+          "reason": "target after 21m in premarket-continuation; entry 6.0350 -> exit 7.8111; catalyst: 12 Industrials Stocks Moving In Wednesday's Pre-Market Session"
+        }
+      ],
+      "worst": [
+        {
+          "date": "2026-08-10",
+          "symbol": "AUUD",
+          "pnl": -20.99,
+          "r": -1.069,
+          "exitKind": "stop",
+          "regime": "opening-momentum",
+          "reason": "stop after 3m in opening-momentum; entry 1.4800 -> exit 1.4063; catalyst: 12 Information Technology Stocks Moving In Monday's Pre-Market Session"
+        },
+        {
+          "date": "2026-08-05",
+          "symbol": "BJDX",
+          "pnl": -20.77,
+          "r": -1.035,
+          "exitKind": "stop",
+          "regime": "opening-momentum",
+          "reason": "stop after 13m in opening-momentum; entry 1.4950 -> exit 1.3593; catalyst: 12 Health Care Stocks Moving In Wednesday's Pre-Market Session"
+        },
+        {
+          "date": "2026-08-24",
+          "symbol": "LUCY",
+          "pnl": -20.59,
+          "r": -1.108,
+          "exitKind": "stop",
+          "regime": "premarket-continuation",
+          "reason": "stop after 6m in premarket-continuation; entry 1.0270 -> exit 0.9778; catalyst: Innovative Eyewear And HTC Form Alliance For U.S. Commercialization Of VIVE Eagle Smart Eyewear Line"
+        },
+        {
+          "date": "2026-08-19",
+          "symbol": "EHGO",
+          "pnl": -20.54,
+          "r": -1.079,
+          "exitKind": "stop",
+          "regime": "opening-momentum",
+          "reason": "stop after 1m in opening-momentum; entry 2.7300 -> exit 2.5992; catalyst: Eshallgo Locks Up Exclusive North America Rights For Chinese Printing Supplies Maker"
+        },
+        {
+          "date": "2026-08-06",
+          "symbol": "AZI",
+          "pnl": -20.51,
+          "r": -1.04,
+          "exitKind": "stop",
+          "regime": "opening-momentum",
+          "reason": "stop after 3m in opening-momentum; entry 2.0150 -> exit 1.8929; catalyst: 12 Consumer Discretionary Stocks Moving In Wednesday's After-Market Session"
+        }
+      ],
+      "equityCurve": [
+        {
+          "date": "2026-08-03",
+          "equity": 1988.97
+        },
+        {
+          "date": "2026-08-04",
+          "equity": 1971.04
+        },
+        {
+          "date": "2026-08-05",
+          "equity": 1977.86
+        },
+        {
+          "date": "2026-08-06",
+          "equity": 1940.09
+        },
+        {
+          "date": "2026-08-07",
+          "equity": 1906.84
+        },
+        {
+          "date": "2026-08-10",
+          "equity": 1957.02
+        },
+        {
+          "date": "2026-08-11",
+          "equity": 1934.22
+        },
+        {
+          "date": "2026-08-12",
+          "equity": 1949.64
+        },
+        {
+          "date": "2026-08-13",
+          "equity": 1933.41
+        },
+        {
+          "date": "2026-08-14",
+          "equity": 1984.81
+        },
+        {
+          "date": "2026-08-17",
+          "equity": 1873.77
+        },
+        {
+          "date": "2026-08-18",
+          "equity": 1866.05
+        },
+        {
+          "date": "2026-08-19",
+          "equity": 1932
+        },
+        {
+          "date": "2026-08-20",
+          "equity": 1843.48
+        },
+        {
+          "date": "2026-08-21",
+          "equity": 1835.93
+        },
+        {
+          "date": "2026-08-24",
+          "equity": 1852.91
+        },
+        {
+          "date": "2026-08-25",
+          "equity": 1976.17
+        },
+        {
+          "date": "2026-08-26",
+          "equity": 1887.36
+        },
+        {
+          "date": "2026-08-27",
+          "equity": 1819.13
+        },
+        {
+          "date": "2026-08-28",
+          "equity": 1797.29
+        },
+        {
+          "date": "2026-08-31",
+          "equity": 1847.81
+        },
+        {
+          "date": "2026-09-01",
+          "equity": 1832.92
+        },
+        {
+          "date": "2026-09-02",
+          "equity": 1769.77
+        },
+        {
+          "date": "2026-09-03",
+          "equity": 1719.05
+        },
+        {
+          "date": "2026-09-04",
+          "equity": 1735.54
+        },
+        {
+          "date": "2026-09-08",
+          "equity": 1716.89
+        },
+        {
+          "date": "2026-09-09",
+          "equity": 1702.37
+        },
+        {
+          "date": "2026-09-10",
+          "equity": 1709.9
+        },
+        {
+          "date": "2026-09-11",
+          "equity": 1744.85
+        },
+        {
+          "date": "2026-09-14",
+          "equity": 1752.95
+        },
+        {
+          "date": "2026-09-15",
+          "equity": 1804.12
+        },
+        {
+          "date": "2026-09-16",
+          "equity": 1744
+        },
+        {
+          "date": "2026-09-17",
+          "equity": 1715.04
+        },
+        {
+          "date": "2026-09-18",
+          "equity": 1663.73
+        },
+        {
+          "date": "2026-09-21",
+          "equity": 1636.5
+        },
+        {
+          "date": "2026-09-22",
+          "equity": 1656.06
+        },
+        {
+          "date": "2026-09-23",
+          "equity": 1580.96
+        },
+        {
+          "date": "2026-09-24",
+          "equity": 1575.5
+        },
+        {
+          "date": "2026-09-25",
+          "equity": 1550.9
+        },
+        {
+          "date": "2026-09-28",
+          "equity": 1491.69
+        },
+        {
+          "date": "2026-09-29",
+          "equity": 1474.32
+        },
+        {
+          "date": "2026-09-30",
+          "equity": 1512.15
+        },
+        {
+          "date": "2026-10-01",
+          "equity": 1516.3
+        },
+        {
+          "date": "2026-10-02",
+          "equity": 1456.99
+        },
+        {
+          "date": "2026-10-05",
+          "equity": 1429.76
+        },
+        {
+          "date": "2026-10-06",
+          "equity": 1436.55
+        },
+        {
+          "date": "2026-10-07",
+          "equity": 1426.37
+        }
+      ],
+      "counters": {
+        "skip_spread": 4205,
+        "entries": 360,
+        "exit_stop": 175,
+        "exit_target": 104,
+        "filtered_overextended": 3480,
+        "skip_no_quote": 312,
+        "exit_flatten": 80,
+        "exit_gap": 1
+      }
+    }
+  ],
+  "sensitivity": [
+    {
+      "strategy": "A",
+      "verdict": "Strategy A has no positive expectancy even at base slippage.",
+      "variants": [
+        {
+          "slippageMultiplier": 1,
+          "trades": 523,
+          "expectancy": -1.63,
+          "totalPnl": -849.97,
+          "profitFactor": 0.766,
+          "maxDrawdownPct": 0.4333
+        },
+        {
+          "slippageMultiplier": 1,
+          "trades": 386,
+          "expectancy": -0.99,
+          "totalPnl": -381.73,
+          "profitFactor": 0.871,
+          "maxDrawdownPct": 0.2382
+        },
+        {
+          "slippageMultiplier": 1,
+          "trades": 361,
+          "expectancy": -1.27,
+          "totalPnl": -457.84,
+          "profitFactor": 0.837,
+          "maxDrawdownPct": 0.2648
+        },
+        {
+          "slippageMultiplier": 1,
+          "trades": 360,
+          "expectancy": -1.59,
+          "totalPnl": -573.63,
+          "profitFactor": 0.794,
+          "maxDrawdownPct": 0.2965
+        }
+      ]
+    },
+    {
+      "strategy": "C",
+      "verdict": "Strategy C has no positive expectancy even at base slippage.",
+      "variants": []
+    }
+  ],
+  "limitations": [
+    "Float = current FMP float, not point-in-time. Stocks whose float grew after offerings may be wrongly excluded; stocks that later reverse-split may be wrongly included.",
+    "Decisions run at 1-minute resolution (live scans every 15-30s). Each decision only sees bars that closed before that minute; entries fill at the next bar open.",
+    "Spread comes from the latest historical NBBO quote at decision time (fetched only when every other entry gate passes). Exits reuse the entry half-spread as slippage because no exit quote is fetched. When no quote exists the entry is skipped, as live does.",
+    "Top-25 gainer ranking is rebuilt from symbols whose daily high was at least 10% above the prior close, plus every float<=10M symbol up more than 2%. Symbols outside that set are assumed never to rank in the top 25. The Alpaca movers screener methodology is not public, so ranking may differ.",
+    "changePercent uses the last closed 1-minute close vs the prior daily close. Live uses snapshot dailyBar.c, which in premarket can still be the previous session's bar.",
+    "News uses Alpaca historical news created_at (published before the decision minute only). Timestamp accuracy for premarket wires is limited to what Alpaca recorded.",
+    "Same-time RVOL uses the same 15-minute, 10-session, 22-calendar-day baseline and 10,000-share minimum as live (the task text mentioned 20 sessions; live code uses 10, and the backtest follows the live code).",
+    "Halts are inferred from missing 1-minute bars; positions are held and filled at the first bar after the gap. LULD halts with prints can still appear as normal bars.",
+    "A stop and target hit inside the same bar always resolve to the stop. A bar that opens through the stop fills at the open (gap).",
+    "Shares are capped at 5% of the fill bar's volume. Very thin premarket bars can make positions smaller than live sizing.",
+    "Daily-loss, cooldown, max-position, and exposure checks are re-implemented from the paper RPC contract (the RPC itself runs in Postgres and is not called).",
+    "Elliott tracking eligibility skips the scanner spread check (no quote is fetched for every tracked minute); the spread is checked at entry instead.",
+    "Corporate actions: bars are unadjusted (as live). A split during the period distorts the prior-close change for that one day."
+  ],
+  "adapterDifferences": [
+    "Scanner (loadEnrichedCandidates) is rebuilt from historical bars: same filters, regime-based volume/dollar-volume/spread minimums, and the same catalyst regex. Network calls and snapshots are replaced by cached history.",
+    "decideEntry, scoreCandidate, strategyRegime, simulatedMarginBuyingPower, and strategyGuardrails are imported unchanged from lib/strategy.ts.",
+    "Strategy A/B stop/target levels come from paperExitLevels and the trigger test from paperExitReason (lib/paper-exits.ts), checked against bar low (stop) then bar high (target) instead of a single quote mark.",
+    "Exit fills: stop fills at the stop price, target fills at max(target, open), and gaps fill at the open, all minus the slippage estimate. Live fills at bid*(1-0.05%). The live 0.05% slippage is replaced by the measured half-spread.",
+    "Entry fill = next bar open + half spread (live: ask*(1+0.05%)). Stop/target are still fill -/+ ATR exactly as the worker sets them.",
+    "Strategy B blocks an entry when getElliottAllowedUses(regime).exhaustionFilter and isWave5FilterActive(analyzeElliottWave(...)) are both true.",
+    "Strategies C/D take entries from createElliottSignalDrafts (ew_wave3 / ew_wave4) with the live 45-minute tracking window and invalidation rules. Shares come from the draft (live calculateShares), then are capped by liquidity and exposure.",
+    "C/D exits mirror advanceShadowOutcome: wave 3 sells half at T1, moves the stop to max(entry, latest swing low), ratchets it, and exits the rest at T2; wave 4 exits fully at T1. They are evaluated on bar low/high with the same stop-first rule.",
+    "Strategies C and D run as standalone accounts that use the same position/exposure/daily-loss guardrails as A."
+  ]
+}
