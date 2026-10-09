@@ -238,6 +238,38 @@ export async function getShareCountHistory(symbol: string): Promise<ShareCountPo
   })
 }
 
+export type MarketCapPoint = { date: string; marketCap: number }
+
+// The brief named /stable/historical-market-cap, which returns HTTP 404; FMP's stable path is historical-market-capitalization.
+export async function getDailyMarketCaps(symbol: string, from: string, to: string): Promise<MarketCapPoint[]> {
+  return cached(`fmp/market-cap-daily/${symbol}_${from}_${to}`, 'fmp', async () => {
+    const apiKey = process.env.FMP_API_KEY?.trim()
+    if (!apiKey) throw new Error('FMP_API_KEY is required for daily market cap')
+    const rows = await fetchJson<Array<{ date?: string; marketCap?: number }>>(`https://financialmodelingprep.com/stable/historical-market-capitalization?symbol=${encodeURIComponent(symbol)}&from=${from}&to=${to}&limit=5000&apikey=${apiKey}`, 'fmp-market-cap-daily', 'fmp')
+    return (Array.isArray(rows) ? rows : [])
+      .map((row) => ({ date: String(row.date ?? '').slice(0, 10), marketCap: Number(row.marketCap) }))
+      .filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.date) && Number.isFinite(row.marketCap) && row.marketCap > 0)
+      .sort((left, right) => left.date.localeCompare(right.date))
+  })
+}
+
+export async function getCurrentFreeFloatPercents(): Promise<Record<string, number>> {
+  return cached('fmp/shares-float-all-freefloat', 'fmp', async () => {
+    const apiKey = process.env.FMP_API_KEY?.trim()
+    if (!apiKey) throw new Error('FMP_API_KEY is required for the free-float snapshot')
+    const percents: Record<string, number> = {}
+    for (let page = 0; page < 200; page += 1) {
+      const rows = await fetchJson<Array<{ symbol?: string; freeFloat?: number }>>(`https://financialmodelingprep.com/stable/shares-float-all?page=${page}&limit=5000&apikey=${apiKey}`, 'fmp-float', 'fmp')
+      if (!Array.isArray(rows) || !rows.length) break
+      for (const row of rows) {
+        const value = Number(row.freeFloat)
+        if (row.symbol && Number.isFinite(value) && value > 0 && value <= 100 && !/\./.test(row.symbol)) percents[row.symbol] = value
+      }
+    }
+    return percents
+  })
+}
+
 export async function getCurrentFloats(): Promise<Record<string, number>> {
   return cached('fmp/shares-float-all', 'fmp', async () => {
     const apiKey = process.env.FMP_API_KEY?.trim()

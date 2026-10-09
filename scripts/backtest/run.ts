@@ -1,3 +1,4 @@
+import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { strategyGuardrails } from '../../lib/strategy'
 import { elliottWaveConfig } from '../../lib/elliott-wave-config'
@@ -5,7 +6,7 @@ import { apiStats, flushQuoteCache, HISTORICAL_FEED, setCacheOnly } from './data
 import { loadDay, prefetchDay, TOP_GAINERS } from './market'
 import { writeReport } from './report'
 import { createRunState, DEFAULT_SLIPPAGE_OVER5, DEFAULT_SLIPPAGE_SUB5, LIQUIDITY_CAP_FRACTION, simulateDay, type RunSpec } from './simulate'
-import { buildUniverse } from './universe'
+import { buildUniverse, floatCoverage, floatLookups } from './universe'
 import { ruleVariantSpecs } from './variants'
 
 const args = new Map<string, string>()
@@ -28,6 +29,12 @@ function assertOutsideMarketHours() {
   if (weekday && minute >= 7 * 60 && minute < 16 * 60) {
     throw new Error('Refusing to call Alpaca between 07:00 and 16:00 ET on a weekday so the backtest never competes with the live scanner. Rerun after 16:00 ET, or pass --cache-only to use cached data only.')
   }
+}
+
+function floatLimitation() {
+  if (floatCoverage.mode === 'daily') return 'Float = estimated from daily historical market cap ÷ close × current free-float % (FMP historical-market-capitalization ÷ Alpaca SIP raw daily close, using the latest trading day strictly before the decision day, at most 7 calendar days old). Falls back to quarterly enterprise-values share counts scaling the current float, then to current float. Free-float % is today\'s value, so insider/locked-up share changes during the period are not captured. See float-coverage.json.'
+  if (floatCoverage.mode === 'quarterly') return 'Float = current FMP float scaled by quarterly share counts from FMP enterprise-values (point-in-time at quarter ends only). Offerings and reverse splits between quarterly reports are missed. Falls back to current float when no history exists. See float-coverage.json.'
+  return 'Float = current FMP float, not point-in-time. Stocks whose float grew after offerings may be wrongly excluded; stocks that later reverse-split may be wrongly included.'
 }
 
 const specs: RunSpec[] = [
@@ -99,7 +106,7 @@ async function main() {
       api: { ...apiStats, runtimeSeconds, cacheOnly },
     },
     limitations: [
-      'Float = current FMP float, not point-in-time. Stocks whose float grew after offerings may be wrongly excluded; stocks that later reverse-split may be wrongly included.',
+      floatLimitation(),
       'Decisions run at 1-minute resolution (live scans every 15-30s). Each decision only sees bars that closed before that minute; entries fill at the next bar open.',
       'Spread comes from the latest historical NBBO quote at decision time (fetched only when every other entry gate passes). Exits reuse the entry half-spread as slippage because no exit quote is fetched. When no quote exists the entry is skipped, as live does.',
       'Top-25 gainer ranking is rebuilt from symbols whose daily high was at least 10% above the prior close, plus every float<=10M symbol up more than 2%. Symbols outside that set are assumed never to rank in the top 25. The Alpaca movers screener methodology is not public, so ranking may differ.',
@@ -125,6 +132,9 @@ async function main() {
       'Strategies C and D run as standalone accounts that use the same position/exposure/daily-loss guardrails as A.',
     ],
   })
+  if (floatCoverage.mode !== 'current') {
+    writeFileSync(join(OUTPUT_DIR, 'float-coverage.json'), `${JSON.stringify({ ...floatCoverage, lookups: floatLookups }, null, 2)}\n`)
+  }
   console.log(JSON.stringify(summary.runs.map((run) => ({ id: run.id, trades: run.summary.trades, winRate: run.summary.winRate, expectancy: run.summary.expectancy, pf: run.summary.profitFactor, pnl: run.summary.totalPnl, ddPct: run.summary.maxDrawdownPct })), null, 2))
   console.log(`[backtest] done in ${runtimeSeconds}s; Alpaca calls=${apiStats.alpaca} cached=${apiStats.alpacaCached} fmp=${apiStats.fmp}`)
 }
