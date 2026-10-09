@@ -1,6 +1,7 @@
 import { alpacaHeaders, supabaseHeaders, tradingConfig } from '@/lib/trading-config'
 import { scanConfig } from '@/lib/scan-config'
 export { paperExitLevels, paperExitReason, paperExitRequestedPrice } from '@/lib/paper-exits'
+import { buildPaperMarketMark, MARK_CLOCK_SKEW_MS, type PaperMarkDiagnosis, type PaperMarkSource, type SnapshotLike } from '@/lib/paper-marks'
 
 export type PaperPosition = {
   id: string
@@ -21,6 +22,8 @@ export type PaperMarketMark = {
   bid: number
   ask: number
   at: string
+  /** 'quote' = fresh NBBO mid; 'trade' = fresh last trade (quote stale/invalid). Missing = quote. */
+  source?: PaperMarkSource
 }
 
 type PaperRpcResult = {
@@ -46,7 +49,7 @@ export function isFreshPaperMarketMark(value: unknown, now = new Date()): value 
     && Number.isFinite(mark.price) && Number(mark.price) > 0
     && Number.isFinite(mark.bid) && Number(mark.bid) > 0
     && Number.isFinite(mark.ask) && Number(mark.ask) >= Number(mark.bid)
-    && Number.isFinite(at) && now.getTime() >= at && now.getTime() - at <= scanConfig.maxQuoteAgeSeconds * 1_000
+    && Number.isFinite(at) && now.getTime() >= at - MARK_CLOCK_SKEW_MS && now.getTime() - at <= scanConfig.maxQuoteAgeSeconds * 1_000
 }
 
 async function callPaperRpc(name: string, body: Record<string, unknown>): Promise<PaperRpcResult> {
@@ -64,7 +67,7 @@ async function callPaperRpc(name: string, body: Record<string, unknown>): Promis
 export async function loadOpenPaperPositions(): Promise<PaperPosition[]> {
   const url = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_positions`)
   url.search = new URLSearchParams({
-    select: 'id,symbol,quantity,entry_price,current_price,stop_price,target_price,unrealized_pnl,metadata',
+    select: 'id,symbol,opened_at,quantity,entry_price,current_price,stop_price,target_price,unrealized_pnl,metadata',
     status: 'eq.open',
     order: 'opened_at.asc',
   }).toString()
@@ -137,29 +140,27 @@ export async function closePaperPosition(input: {
   })
 }
 
-export async function loadFreshPaperMarketMarks(symbols: string[], now = new Date()): Promise<Map<string, PaperMarketMark>> {
+export async function loadPaperMarketMarksWithDiagnostics(symbols: string[], now = new Date()): Promise<{ marks: Map<string, PaperMarketMark>; diagnostics: Map<string, PaperMarkDiagnosis> }> {
   const uniqueSymbols = [...new Set(symbols.filter((symbol) => /^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol)))].slice(0, 50)
-  if (!uniqueSymbols.length) return new Map()
+  const marks = new Map<string, PaperMarketMark>()
+  const diagnostics = new Map<string, PaperMarkDiagnosis>()
+  if (!uniqueSymbols.length) return { marks, diagnostics }
 
   const url = new URL(`${tradingConfig.alpacaDataUrl}/v2/stocks/snapshots`)
   url.search = new URLSearchParams({ symbols: uniqueSymbols.join(','), feed: tradingConfig.alpacaDataFeed }).toString()
   const response = await fetch(url, { headers: alpacaHeaders(), signal: AbortSignal.timeout(8_000), cache: 'no-store' })
   if (!response.ok) throw new Error(`Open-position quote request failed (${response.status})`)
-  const snapshots = await response.json() as Record<string, {
-    latestQuote?: { bp?: number; ap?: number; t?: string }
-    latestTrade?: { p?: number; t?: string }
-  }>
-  const marks = new Map<string, PaperMarketMark>()
+  const snapshots = await response.json() as Record<string, SnapshotLike>
   for (const symbol of uniqueSymbols) {
-    const quote = snapshots[symbol]?.latestQuote
-    const bid = numeric(quote?.bp)
-    const ask = numeric(quote?.ap)
-    const at = typeof quote?.t === 'string' ? quote.t : ''
-    const price = bid != null && ask != null ? (bid + ask) / 2 : null
-    const mark = { symbol, price: price ?? 0, bid: bid ?? 0, ask: ask ?? 0, at }
-    if (isFreshPaperMarketMark(mark, now)) marks.set(symbol, mark)
+    const { mark, diagnosis } = buildPaperMarketMark(symbol, snapshots[symbol], now, scanConfig.maxQuoteAgeSeconds)
+    diagnostics.set(symbol, diagnosis)
+    if (mark && isFreshPaperMarketMark(mark, now)) marks.set(symbol, mark)
   }
-  return marks
+  return { marks, diagnostics }
+}
+
+export async function loadFreshPaperMarketMarks(symbols: string[], now = new Date()): Promise<Map<string, PaperMarketMark>> {
+  return (await loadPaperMarketMarksWithDiagnostics(symbols, now)).marks
 }
 
 export function normalizePaperMarketMarks(value: unknown, now = new Date()) {

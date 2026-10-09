@@ -45,8 +45,8 @@ function getEventCategory(event: EventRecord): EventCategory {
 
   if (level === 'error' || level === 'warning' || /risk|error/.test(type)) return 'alerts'
   if (/scan|watchlist/.test(type)) return 'scan'
-  if (/ai/.test(type)) return 'ai'
-  if (/order|trade|position|flatten|execution/.test(type)) return 'execution'
+  if (/order|trade|position|flatten|execution|buy|sell|fill/.test(type)) return 'execution'
+  if (/(^|_)ai(_|$)/.test(type)) return 'ai'
   return 'system'
 }
 
@@ -57,8 +57,8 @@ function matchesEventFilter(event: EventRecord, filter: EventFilter) {
   const text = `${event.event_type} ${event.message}`.toLowerCase()
   if (filter === 'ai') return getEventCategory(event) === 'ai'
   if (filter === 'errors') return event.level.toLowerCase() === 'error' || /error/.test(type)
-  if (filter === 'buy') return /\b(buy|long)\b/.test(text)
-  return /\b(sell|short)\b/.test(text)
+  if (filter === 'buy') return /(^|_)buy(_|$)/.test(type) || /^buy\b/.test(event.message.toLowerCase())
+  return /(^|_)sell(_|$)/.test(type) || /^sell\b/.test(event.message.toLowerCase()) || (/\bshort\b/.test(text) && getEventCategory(event) === 'execution')
 }
 
 function formatEventTime(value: string) {

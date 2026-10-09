@@ -80,13 +80,16 @@ export async function GET(request: NextRequest) {
         `Analyze ${symbol} using only these current facts: price=${price || 'unavailable'}, changePercent=${changePercent == null ? 'unavailable' : changePercent.toFixed(2)}, volume=${volume}, vwap=${vwap || 'unavailable'}, headline=${headline?.title ?? 'none available'}.`,
         'Return exactly two lines. Line one must be WATCH, HOLD, or CAUTION. Line two is one factual rationale of at most 20 words. Do not predict returns or recommend placing orders.',
       ].join('\n'),
-      maxOutputTokens: 100,
+      // Gemini 2.5 spends output tokens on hidden reasoning; without a budget cap the 2-line answer gets truncated to nothing.
+      maxOutputTokens: 400,
+      providerOptions: { google: { thinkingConfig: { thinkingBudget: 0 } } },
       abortSignal: AbortSignal.timeout(9000),
     })
-    const lines = text.trim().split('\n').map((line) => line.trim()).filter(Boolean)
-    const signal = lines[0]?.match(/\b(WATCH|HOLD|CAUTION)\b/i)?.[1]?.toUpperCase()
-    if (signal && lines[1]) {
-      result = { signal, rationale: lines.slice(1).join(' ').slice(0, 240) }
+    const cleaned = text.replace(/[*_`#]/g, '').trim()
+    const signal = cleaned.match(/\b(WATCH|HOLD|CAUTION)\b/i)?.[1]?.toUpperCase()
+    const rationale = signal ? cleaned.replace(new RegExp(`^.*?\\b${signal}\\b[\\s:.\\-–—]*`, 'is'), '').replace(/\s+/g, ' ').trim() : ''
+    if (signal && rationale) {
+      result = { signal, rationale: rationale.slice(0, 240) }
       modelUsed = 'google/gemini-2.5-flash'
     } else {
       aiErrorMessage = `Gemini-AI returned an unreadable signal for ${symbol}; rules engine used.`
