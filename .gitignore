@@ -22,6 +22,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# offline backtest download cache
+/.cache/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

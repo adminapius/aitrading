@@ -92,10 +92,19 @@ const EASTERN_FORMAT = new Intl.DateTimeFormat('en-US', {
   hourCycle: 'h23',
 })
 
+// Intl formatting dominates analysis time; New York offsets are whole hours, so the result depends only on the UTC minute.
+const easternMinuteCache = new Map<number, number>()
+
 function easternMinute(value: Date) {
+  const key = Math.floor(value.getTime() / 60_000)
+  const cached = easternMinuteCache.get(key)
+  if (cached !== undefined) return cached
   const parts = EASTERN_FORMAT.formatToParts(value)
-  return Number(parts.find((part) => part.type === 'hour')?.value ?? 0) * 60
+  const minute = Number(parts.find((part) => part.type === 'hour')?.value ?? 0) * 60
     + Number(parts.find((part) => part.type === 'minute')?.value ?? 0)
+  if (easternMinuteCache.size >= 50_000) easternMinuteCache.clear()
+  easternMinuteCache.set(key, minute)
+  return minute
 }
 
 function validBar(bar: ElliottBar) {
