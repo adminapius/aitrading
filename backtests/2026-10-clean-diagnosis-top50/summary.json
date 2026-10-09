@@ -1,0 +1,699 @@
+{
+  "period": {
+    "start": "2026-04-08",
+    "end": "2026-07-31",
+    "tradingDays": 80,
+    "session": "07:00-15:55 ET decisions, 15:55 flatten"
+  },
+  "sourceCommit": "925bdc9",
+  "feed": "sip",
+  "universe": {
+    "symbols": 14144,
+    "inactiveOrDelisted": 1835,
+    "averageSymbolsLoadedPerDay": 392
+  },
+  "assumptions": {
+    "topGainers": 50,
+    "liquidityCapFraction": 0.05,
+    "defaultSlippageSub5": 0.005,
+    "defaultSlippageOver5": 0.0025,
+    "guardrails": {
+      "mode": "paper",
+      "flattenBeforeEt": "15:55",
+      "maxPositionFraction": 0.25,
+      "maxAggregateExposureFraction": 0.75,
+      "maxDailyLossFraction": 0.04,
+      "riskPerTradeFraction": 0.01,
+      "maxOpenPositions": 3,
+      "minimumMarginEquity": 2000,
+      "reentryCooldownMinutes": 30,
+      "entryMonitorSeconds": 10,
+      "liveTradingEnabled": false
+    },
+    "elliott": {
+      "trackingWindowMinutes": 45,
+      "minimumConfidence": {
+        "opening-momentum": 0,
+        "premarket-continuation": 70,
+        "news-reaction": 70,
+        "midday-selective": 80,
+        "late-continuation": 80,
+        "exits-only": 101
+      }
+    }
+  },
+  "api": {
+    "alpaca": 6568,
+    "alpacaCached": 42335,
+    "fmp": 0,
+    "fmpCached": 1,
+    "retries": 0,
+    "byKind": {
+      "fifteen-minute-bars": 2172,
+      "news": 600,
+      "quotes": 3796
+    },
+    "runtimeSeconds": 543,
+    "cacheOnly": false
+  },
+  "generatedAt": "2026-10-09T04:47:50.838Z",
+  "startingEquity": 2000,
+  "runs": [
+    {
+      "id": "E",
+      "strategy": "A",
+      "label": "E. Clean momentum",
+      "slippageMultiplier": 1,
+      "endingEquity": 2172.04,
+      "returnPct": 0.086,
+      "summary": {
+        "trades": 32,
+        "winRate": 0.5938,
+        "averageWin": 20.07,
+        "averageLoss": -16.1,
+        "averageR": 0.3414,
+        "expectancy": 5.38,
+        "profitFactor": 1.822,
+        "totalPnl": 172.04,
+        "maxDrawdown": 124.03,
+        "maxDrawdownPct": 0.0616,
+        "longestLosingStreak": 4,
+        "averageHoldMinutes": 149.3,
+        "exitMix": {
+          "stop": 0.3438,
+          "target": 0.4063,
+          "flatten": 0.25,
+          "gap": 0,
+          "time": 0
+        }
+      },
+      "monthly": {
+        "2026-04": {
+          "trades": 8,
+          "winRate": 0.375,
+          "averageWin": 9.26,
+          "averageLoss": -19.8,
+          "averageR": -0.452,
+          "expectancy": -8.9,
+          "profitFactor": 0.281,
+          "totalPnl": -71.23,
+          "maxDrawdown": 85.7,
+          "maxDrawdownPct": 0.0425,
+          "longestLosingStreak": 3,
+          "averageHoldMinutes": 162,
+          "exitMix": {
+            "stop": 0.625,
+            "target": 0,
+            "flatten": 0.375,
+            "gap": 0,
+            "time": 0
+          }
+        },
+        "2026-05": {
+          "trades": 9,
+          "winRate": 0.5556,
+          "averageWin": 23.29,
+          "averageLoss": -16.19,
+          "averageR": 0.2452,
+          "expectancy": 5.74,
+          "profitFactor": 1.798,
+          "totalPnl": 51.69,
+          "maxDrawdown": 38.33,
+          "maxDrawdownPct": 0.0192,
+          "longestLosingStreak": 2,
+          "averageHoldMinutes": 133.2,
+          "exitMix": {
+            "stop": 0.4444,
+            "target": 0.4444,
+            "flatten": 0.1111,
+            "gap": 0,
+            "time": 0
+          }
+        },
+        "2026-06": {
+          "trades": 9,
+          "winRate": 0.8889,
+          "averageWin": 24.3,
+          "averageLoss": -18.49,
+          "averageR": 1.1599,
+          "expectancy": 19.54,
+          "profitFactor": 10.513,
+          "totalPnl": 175.9,
+          "maxDrawdown": 18.49,
+          "maxDrawdownPct": 0.0088,
+          "longestLosingStreak": 1,
+          "averageHoldMinutes": 93.3,
+          "exitMix": {
+            "stop": 0.1111,
+            "target": 0.7778,
+            "flatten": 0.1111,
+            "gap": 0,
+            "time": 0
+          }
+        },
+        "2026-07": {
+          "trades": 6,
+          "winRate": 0.5,
+          "averageWin": 14.25,
+          "averageLoss": -9.02,
+          "averageR": 0.3159,
+          "expectancy": 2.61,
+          "profitFactor": 1.579,
+          "totalPnl": 15.68,
+          "maxDrawdown": 27.06,
+          "maxDrawdownPct": 0.0135,
+          "longestLosingStreak": 3,
+          "averageHoldMinutes": 240.2,
+          "exitMix": {
+            "stop": 0.1667,
+            "target": 0.3333,
+            "flatten": 0.5,
+            "gap": 0,
+            "time": 0
+          }
+        }
+      },
+      "byRegime": {
+        "news-reaction": {
+          "trades": 5,
+          "winRate": 0.8,
+          "averageWin": 11.61,
+          "averageLoss": -9.3,
+          "averageR": 0.8151,
+          "expectancy": 7.43,
+          "profitFactor": 4.995,
+          "totalPnl": 37.13,
+          "maxDrawdown": 9.3,
+          "maxDrawdownPct": 0.0046,
+          "longestLosingStreak": 1,
+          "averageHoldMinutes": 236.6,
+          "exitMix": {
+            "stop": 0.2,
+            "target": 0.6,
+            "flatten": 0.2,
+            "gap": 0,
+            "time": 0
+          }
+        },
+        "opening-momentum": {
+          "trades": 27,
+          "winRate": 0.5556,
+          "averageWin": 22.33,
+          "averageLoss": -16.67,
+          "averageR": 0.2537,
+          "expectancy": 5,
+          "profitFactor": 1.674,
+          "totalPnl": 134.91,
+          "maxDrawdown": 124.03,
+          "maxDrawdownPct": 0.0616,
+          "longestLosingStreak": 4,
+          "averageHoldMinutes": 133.1,
+          "exitMix": {
+            "stop": 0.3704,
+            "target": 0.3704,
+            "flatten": 0.2593,
+            "gap": 0,
+            "time": 0
+          }
+        }
+      },
+      "best": [
+        {
+          "date": "2026-06-30",
+          "symbol": "GVH",
+          "pnl": 31.25,
+          "r": 1.484,
+          "exitKind": "target",
+          "regime": "opening-momentum",
+          "reason": "target after 41m in opening-momentum; entry 4.5450 -> exit 5.0746; catalyst: 12 Industrials Stocks Moving In Tuesday's Pre-Market Session"
+        },
+        {
+          "date": "2026-06-17",
+          "symbol": "BIRD",
+          "pnl": 29.98,
+          "r": 1.471,
+          "exitKind": "target",
+          "regime": "opening-momentum",
+          "reason": "target after 19m in opening-momentum; entry 4.9900 -> exit 5.5452; catalyst: Smartbird Appoints Nadia Carlsten President, CEO, Succeeding Joe Vernachio; Lily Yan Hughes Named Board Chair"
+        },
+        {
+          "date": "2026-07-28",
+          "symbol": "PMN",
+          "pnl": 29.61,
+          "r": 1.472,
+          "exitKind": "target",
+          "regime": "opening-momentum",
+          "reason": "target after 42m in opening-momentum; entry 14.5851 -> exit 16.6999; catalyst: 12 Health Care Stocks Moving In Tuesday's Pre-Market Session"
+        },
+        {
+          "date": "2026-05-27",
+          "symbol": "VCIG",
+          "pnl": 28.89,
+          "r": 1.477,
+          "exitKind": "target",
+          "regime": "opening-momentum",
+          "reason": "target after 21m in opening-momentum; entry 3.6550 -> exit 4.0030; catalyst: 12 Industrials Stocks Moving In Tuesday's After-Market Session"
+        },
+        {
+          "date": "2026-06-05",
+          "symbol": "BNAI",
+          "pnl": 28.47,
+          "r": 1.481,
+          "exitKind": "target",
+          "regime": "opening-momentum",
+          "reason": "target after 5m in opening-momentum; entry 20.9396 -> exit 24.4982; catalyst: Brand Engagement Network Acquires 10% Stake In AI Fleet Intelligence Provider Accelevate Solutions For $1M"
+        }
+      ],
+      "worst": [
+        {
+          "date": "2026-07-15",
+          "symbol": "TRT",
+          "pnl": -21.48,
+          "r": -1.021,
+          "exitKind": "stop",
+          "regime": "opening-momentum",
+          "reason": "stop after 33m in opening-momentum; entry 12.7850 -> exit 11.6544; catalyst: 12 Information Technology Stocks Moving In Wednesday's Pre-Market Session"
+        },
+        {
+          "date": "2026-04-17",
+          "symbol": "FRMM",
+          "pnl": -20.37,
+          "r": -1.017,
+          "exitKind": "stop",
+          "regime": "opening-momentum",
+          "reason": "stop after 20m in opening-momentum; entry 3.0447 -> exit 2.7694; catalyst: Forum Markets Reinitiates Share Buyback Program Effective April 15, Company To Form Special Committee To Explore Optimal"
+        },
+        {
+          "date": "2026-04-22",
+          "symbol": "TORO",
+          "pnl": -20.25,
+          "r": -1.022,
+          "exitKind": "stop",
+          "regime": "opening-momentum",
+          "reason": "stop after 14m in opening-momentum; entry 4.9551 -> exit 4.7325; catalyst: Toro Announces Special Dividend Of $0.90/Share For Shareholders Of Record As Of May 4, Payable On June 5"
+        },
+        {
+          "date": "2026-04-24",
+          "symbol": "SST",
+          "pnl": -19.82,
+          "r": -1.014,
+          "exitKind": "stop",
+          "regime": "opening-momentum",
+          "reason": "stop after 6m in opening-momentum; entry 4.7100 -> exit 4.0705; catalyst: 12 Communication Services Stocks Moving In Thursday's After-Market Session"
+        },
+        {
+          "date": "2026-04-23",
+          "symbol": "ASTI",
+          "pnl": -19.42,
+          "r": -1.01,
+          "exitKind": "stop",
+          "regime": "opening-momentum",
+          "reason": "stop after 197m in opening-momentum; entry 6.0600 -> exit 5.2157; catalyst: This Sterling Infrastructure Analyst Begins Coverage On A Bullish Note; Here Are Top 3 Initiations For Thursday"
+        }
+      ],
+      "equityCurve": [
+        {
+          "date": "2026-04-08",
+          "equity": 2000
+        },
+        {
+          "date": "2026-04-09",
+          "equity": 2000
+        },
+        {
+          "date": "2026-04-10",
+          "equity": 2000
+        },
+        {
+          "date": "2026-04-13",
+          "equity": 2005.04
+        },
+        {
+          "date": "2026-04-14",
+          "equity": 2005.04
+        },
+        {
+          "date": "2026-04-15",
+          "equity": 2014.47
+        },
+        {
+          "date": "2026-04-16",
+          "equity": 2014.47
+        },
+        {
+          "date": "2026-04-17",
+          "equity": 1994.1
+        },
+        {
+          "date": "2026-04-20",
+          "equity": 1994.1
+        },
+        {
+          "date": "2026-04-21",
+          "equity": 1994.1
+        },
+        {
+          "date": "2026-04-22",
+          "equity": 1973.84
+        },
+        {
+          "date": "2026-04-23",
+          "equity": 1967.74
+        },
+        {
+          "date": "2026-04-24",
+          "equity": 1947.92
+        },
+        {
+          "date": "2026-04-27",
+          "equity": 1947.92
+        },
+        {
+          "date": "2026-04-28",
+          "equity": 1928.77
+        },
+        {
+          "date": "2026-04-29",
+          "equity": 1928.77
+        },
+        {
+          "date": "2026-04-30",
+          "equity": 1928.77
+        },
+        {
+          "date": "2026-05-01",
+          "equity": 1928.77
+        },
+        {
+          "date": "2026-05-04",
+          "equity": 1928.77
+        },
+        {
+          "date": "2026-05-05",
+          "equity": 1928.77
+        },
+        {
+          "date": "2026-05-06",
+          "equity": 1890.44
+        },
+        {
+          "date": "2026-05-07",
+          "equity": 1890.44
+        },
+        {
+          "date": "2026-05-08",
+          "equity": 1918.16
+        },
+        {
+          "date": "2026-05-11",
+          "equity": 1944.13
+        },
+        {
+          "date": "2026-05-12",
+          "equity": 1944.13
+        },
+        {
+          "date": "2026-05-13",
+          "equity": 1926.98
+        },
+        {
+          "date": "2026-05-14",
+          "equity": 1926.98
+        },
+        {
+          "date": "2026-05-15",
+          "equity": 1926.98
+        },
+        {
+          "date": "2026-05-18",
+          "equity": 1926.98
+        },
+        {
+          "date": "2026-05-19",
+          "equity": 1954.32
+        },
+        {
+          "date": "2026-05-20",
+          "equity": 1954.32
+        },
+        {
+          "date": "2026-05-21",
+          "equity": 1960.87
+        },
+        {
+          "date": "2026-05-22",
+          "equity": 1960.87
+        },
+        {
+          "date": "2026-05-26",
+          "equity": 1960.87
+        },
+        {
+          "date": "2026-05-27",
+          "equity": 1989.75
+        },
+        {
+          "date": "2026-05-28",
+          "equity": 1989.75
+        },
+        {
+          "date": "2026-05-29",
+          "equity": 1980.46
+        },
+        {
+          "date": "2026-06-01",
+          "equity": 2008.69
+        },
+        {
+          "date": "2026-06-02",
+          "equity": 2008.69
+        },
+        {
+          "date": "2026-06-03",
+          "equity": 2008.69
+        },
+        {
+          "date": "2026-06-04",
+          "equity": 2008.69
+        },
+        {
+          "date": "2026-06-05",
+          "equity": 2051.59
+        },
+        {
+          "date": "2026-06-08",
+          "equity": 2051.59
+        },
+        {
+          "date": "2026-06-09",
+          "equity": 2051.59
+        },
+        {
+          "date": "2026-06-10",
+          "equity": 2051.59
+        },
+        {
+          "date": "2026-06-11",
+          "equity": 2051.59
+        },
+        {
+          "date": "2026-06-12",
+          "equity": 2051.59
+        },
+        {
+          "date": "2026-06-15",
+          "equity": 2079.95
+        },
+        {
+          "date": "2026-06-16",
+          "equity": 2061.46
+        },
+        {
+          "date": "2026-06-17",
+          "equity": 2106.25
+        },
+        {
+          "date": "2026-06-18",
+          "equity": 2125.12
+        },
+        {
+          "date": "2026-06-22",
+          "equity": 2125.12
+        },
+        {
+          "date": "2026-06-23",
+          "equity": 2125.12
+        },
+        {
+          "date": "2026-06-24",
+          "equity": 2125.12
+        },
+        {
+          "date": "2026-06-25",
+          "equity": 2125.12
+        },
+        {
+          "date": "2026-06-26",
+          "equity": 2125.12
+        },
+        {
+          "date": "2026-06-29",
+          "equity": 2125.12
+        },
+        {
+          "date": "2026-06-30",
+          "equity": 2156.36
+        },
+        {
+          "date": "2026-07-01",
+          "equity": 2156.36
+        },
+        {
+          "date": "2026-07-02",
+          "equity": 2156.36
+        },
+        {
+          "date": "2026-07-06",
+          "equity": 2156.36
+        },
+        {
+          "date": "2026-07-07",
+          "equity": 2155.72
+        },
+        {
+          "date": "2026-07-08",
+          "equity": 2150.78
+        },
+        {
+          "date": "2026-07-09",
+          "equity": 2150.78
+        },
+        {
+          "date": "2026-07-10",
+          "equity": 2150.78
+        },
+        {
+          "date": "2026-07-13",
+          "equity": 2150.78
+        },
+        {
+          "date": "2026-07-14",
+          "equity": 2150.78
+        },
+        {
+          "date": "2026-07-15",
+          "equity": 2129.3
+        },
+        {
+          "date": "2026-07-16",
+          "equity": 2130.99
+        },
+        {
+          "date": "2026-07-17",
+          "equity": 2142.43
+        },
+        {
+          "date": "2026-07-20",
+          "equity": 2142.43
+        },
+        {
+          "date": "2026-07-21",
+          "equity": 2142.43
+        },
+        {
+          "date": "2026-07-22",
+          "equity": 2142.43
+        },
+        {
+          "date": "2026-07-23",
+          "equity": 2142.43
+        },
+        {
+          "date": "2026-07-24",
+          "equity": 2142.43
+        },
+        {
+          "date": "2026-07-27",
+          "equity": 2142.43
+        },
+        {
+          "date": "2026-07-28",
+          "equity": 2172.04
+        },
+        {
+          "date": "2026-07-29",
+          "equity": 2172.04
+        },
+        {
+          "date": "2026-07-30",
+          "equity": 2172.04
+        },
+        {
+          "date": "2026-07-31",
+          "equity": 2172.04
+        }
+      ],
+      "counters": {
+        "filtered_min_price": 802,
+        "filtered_gain_range": 20701,
+        "skip_spread": 18842,
+        "skip_no_quote": 1111,
+        "filtered_regime": 706,
+        "filtered_spread": 341,
+        "entries": 32,
+        "exit_flatten": 8,
+        "exit_stop": 11,
+        "filtered_reentry_without_target": 203,
+        "skip_decide_at_ask": 13,
+        "exit_target": 13
+      }
+    }
+  ],
+  "sensitivity": [
+    {
+      "strategy": "A",
+      "verdict": "Strategy A keeps a positive expectancy at 1x slippage.",
+      "variants": [
+        {
+          "slippageMultiplier": 1,
+          "trades": 32,
+          "expectancy": 5.38,
+          "totalPnl": 172.04,
+          "profitFactor": 1.822,
+          "maxDrawdownPct": 0.0616
+        }
+      ]
+    },
+    {
+      "strategy": "C",
+      "verdict": "Strategy C has no positive expectancy even at base slippage.",
+      "variants": []
+    }
+  ],
+  "limitations": [
+    "Float = current FMP float, not point-in-time. Stocks whose float grew after offerings may be wrongly excluded; stocks that later reverse-split may be wrongly included.",
+    "Decisions run at 1-minute resolution (live scans every 15-30s). Each decision only sees bars that closed before that minute; entries fill at the next bar open.",
+    "Spread comes from the latest historical NBBO quote at decision time (fetched only when every other entry gate passes). Exits reuse the entry half-spread as slippage because no exit quote is fetched. When no quote exists the entry is skipped, as live does.",
+    "Top-25 gainer ranking is rebuilt from symbols whose daily high was at least 10% above the prior close, plus every float<=10M symbol up more than 2%. Symbols outside that set are assumed never to rank in the top 25. The Alpaca movers screener methodology is not public, so ranking may differ.",
+    "changePercent uses the last closed 1-minute close vs the prior daily close. Live uses snapshot dailyBar.c, which in premarket can still be the previous session's bar.",
+    "News uses Alpaca historical news created_at (published before the decision minute only). Timestamp accuracy for premarket wires is limited to what Alpaca recorded.",
+    "Same-time RVOL uses the same 15-minute, 10-session, 22-calendar-day baseline and 10,000-share minimum as live (the task text mentioned 20 sessions; live code uses 10, and the backtest follows the live code).",
+    "Halts are inferred from missing 1-minute bars; positions are held and filled at the first bar after the gap. LULD halts with prints can still appear as normal bars.",
+    "A stop and target hit inside the same bar always resolve to the stop. A bar that opens through the stop fills at the open (gap).",
+    "Shares are capped at 5% of the fill bar's volume. Very thin premarket bars can make positions smaller than live sizing.",
+    "Daily-loss, cooldown, max-position, and exposure checks are re-implemented from the paper RPC contract (the RPC itself runs in Postgres and is not called).",
+    "Elliott tracking eligibility skips the scanner spread check (no quote is fetched for every tracked minute); the spread is checked at entry instead.",
+    "Corporate actions: bars are unadjusted (as live). A split during the period distorts the prior-close change for that one day."
+  ],
+  "adapterDifferences": [
+    "Scanner (loadEnrichedCandidates) is rebuilt from historical bars: same filters, regime-based volume/dollar-volume/spread minimums, and the same catalyst regex. Network calls and snapshots are replaced by cached history.",
+    "decideEntry, scoreCandidate, strategyRegime, simulatedMarginBuyingPower, and strategyGuardrails are imported unchanged from lib/strategy.ts.",
+    "Strategy A/B stop/target levels come from paperExitLevels and the trigger test from paperExitReason (lib/paper-exits.ts), checked against bar low (stop) then bar high (target) instead of a single quote mark.",
+    "Exit fills: stop fills at the stop price, target fills at max(target, open), and gaps fill at the open, all minus the slippage estimate. Live fills at bid*(1-0.05%). The live 0.05% slippage is replaced by the measured half-spread.",
+    "Entry fill = next bar open + half spread (live: ask*(1+0.05%)). Stop/target are still fill -/+ ATR exactly as the worker sets them.",
+    "Strategy B blocks an entry when getElliottAllowedUses(regime).exhaustionFilter and isWave5FilterActive(analyzeElliottWave(...)) are both true.",
+    "Strategies C/D take entries from createElliottSignalDrafts (ew_wave3 / ew_wave4) with the live 45-minute tracking window and invalidation rules. Shares come from the draft (live calculateShares), then are capped by liquidity and exposure.",
+    "C/D exits mirror advanceShadowOutcome: wave 3 sells half at T1, moves the stop to max(entry, latest swing low), ratchets it, and exits the rest at T2; wave 4 exits fully at T1. They are evaluated on bar low/high with the same stop-first rule.",
+    "Strategies C and D run as standalone accounts that use the same position/exposure/daily-loss guardrails as A."
+  ]
+}
