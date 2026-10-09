@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Activity, Search, Sparkles } from 'lucide-react'
 import LiveEventLog from '@/components/live-event-log'
 import ElliottWaveDashboard from '@/components/elliott-wave-dashboard'
+import StrategyComparisonCard from '@/components/strategy-comparison-card'
 
 type Stock = { symbol: string; price: number; changePercent: number | null; volume: number; bid: number; ask: number; score?: number }
 type ScanData = { candidates?: Stock[]; scannedAt?: string; source?: string; error?: string; persistenceWarning?: string }
@@ -206,6 +207,7 @@ export default function Home() {
           <LiveEventLog isAwake={scanWindowOpen} />
         </aside>
       </div>
+      <StrategyComparisonCard />
       <ElliottWaveDashboard />
     </main>
   )
