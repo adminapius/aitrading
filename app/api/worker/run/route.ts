@@ -8,6 +8,8 @@ import { minimumScanLeaseIntervalSeconds, scanConfig } from '@/lib/scan-config'
 import { closePaperPosition, loadFreshPaperMarketMarks, loadOpenPaperPositions, markPaperPosition, openPaperPosition, paperExecutionGuardrails, paperExitLevels, paperExitReason, paperExitRequestedPrice, positionExposure } from '@/lib/paper-trading'
 import { decideEntry, isFlattenWindow, isTradingWindow, normalizeFloatShares, scoreCandidate, simulatedMarginBuyingPower, strategyGuardrails, strategyRegime, type ScanCandidate } from '@/lib/strategy'
 import { attachElliottRealExit, runElliottShadowPass } from '@/lib/elliott-wave-shadow'
+import { decideStrategyEntry, loadSymbolDayHistory, resolveStrategyConfig, type StrategyDecision, type SymbolDayHistory } from '@/lib/strategies/live-strategy'
+import { runShadowStrategyPass, type ShadowEntryCandidate, type ShadowStrategyStats } from '@/lib/strategies/shadow-strategy'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -36,7 +38,7 @@ function isAuthorized(request: NextRequest) {
   return configuredBytes.length === suppliedBytes.length && timingSafeEqual(configuredBytes, suppliedBytes)
 }
 
-type Evaluation = { candidate: ScanCandidate; decision: ReturnType<typeof decideEntry>; requestedPrice?: number }
+type Evaluation = { candidate: ScanCandidate; decision: ReturnType<typeof decideEntry> & Partial<Pick<StrategyDecision, 'strategy' | 'blockedBy'>>; requestedPrice?: number }
 type ScanContext = { scanId: string; sessionId: string; triggerSource: string; startedAt: Date; durationMs: number }
 type ElliottShadowStats = { analyzed: number; signalsWritten: number; barRequests: number; budgetExceeded: boolean }
 type ScanOutcome = { status: 'completed' | 'failed'; scannedCandidates: number; enterCandidates: number; positionsExited: number; error?: string; elliottShadow?: ElliottShadowStats | null }
@@ -254,6 +256,8 @@ export async function POST(request: NextRequest) {
     }
   }
   const flatten = isFlattenWindow(now)
+  const strategyConfig = resolveStrategyConfig()
+  if (strategyConfig.warnings.length) console.warn('[worker] strategy config', strategyConfig.warnings)
   if (!isTradingWindow(now) && !flatten) return NextResponse.json({ status: 'sleeping', mode: 'paper', checkedAt: now.toISOString() })
   if (!tradingConfig.supabaseUrl || !tradingConfig.supabaseKey) return NextResponse.json({ error: 'Internal paper-trading ledger is unavailable.' }, { status: 503 })
 
@@ -381,21 +385,40 @@ export async function POST(request: NextRequest) {
     const exposureHeadroom = Math.max(0, equity * strategyGuardrails.maxAggregateExposureFraction - currentExposure)
     const marginBuyingPower = simulatedMarginBuyingPower(equity, cashBalance, currentExposure, strategyGuardrails.minimumMarginEquity)
     let remainingAllocation = allOpenPositionsMarked ? Math.min(exposureHeadroom, marginBuyingPower) : 0
+    let shadowAllocation = remainingAllocation
     const evaluations: Evaluation[] = []
+    const shadowEntries: ShadowEntryCandidate[] = []
+    let dayHistory: Map<string, SymbolDayHistory> | null = null
+    if (strategyConfig.live === 'E' && candidates.length) {
+      try {
+        dayHistory = await loadSymbolDayHistory(candidates.map((candidate) => candidate.symbol), now)
+      } catch (error) {
+        console.warn('[worker] symbol day history unavailable; Strategy E entries fail closed this scan', { scanId, error })
+      }
+    }
     for (const originalCandidate of candidates) {
       const mark = marks.get(originalCandidate.symbol)
       const lastTradeAt = originalCandidate.lastTradeAt ? Date.parse(originalCandidate.lastTradeAt) : Number.NaN
       const tradeAgeSeconds = (now.getTime() - lastTradeAt) / 1_000
-      const decision = !mark
-        ? { action: 'hold' as const, symbol: originalCandidate.symbol, confidence: 0, reason: 'Fresh executable quote unavailable; no paper order was opened.', riskPerShare: originalCandidate.atr ?? 0, suggestedShares: 0 }
-        : !Number.isFinite(tradeAgeSeconds) || tradeAgeSeconds < 0 || tradeAgeSeconds > scanConfig.maxTradeAgeSeconds
-          ? { action: 'hold' as const, symbol: originalCandidate.symbol, confidence: 0, reason: 'Latest trade became stale before execution; no paper order was opened.', riskPerShare: originalCandidate.atr ?? 0, suggestedShares: 0 }
-          : decideEntry({ ...originalCandidate, price: mark.ask, bid: mark.bid, ask: mark.ask, quoteAt: mark.at, spreadPct: ((mark.ask - mark.bid) / ((mark.ask + mark.bid) / 2)) * 100 }, equity, now, remainingAllocation)
       const candidate = mark ? { ...originalCandidate, price: mark.ask, bid: mark.bid, ask: mark.ask, quoteAt: mark.at, spreadPct: ((mark.ask - mark.bid) / ((mark.ask + mark.bid) / 2)) * 100 } : originalCandidate
+      const tradeStale = !Number.isFinite(tradeAgeSeconds) || tradeAgeSeconds < 0 || tradeAgeSeconds > scanConfig.maxTradeAgeSeconds
+      const history = dayHistory ? dayHistory.get(originalCandidate.symbol) ?? { entries: 0, firstEntryHitTarget: false } : null
+      const decision: StrategyDecision = !mark
+        ? { action: 'hold' as const, symbol: originalCandidate.symbol, confidence: 0, reason: 'Fresh executable quote unavailable; no paper order was opened.', riskPerShare: originalCandidate.atr ?? 0, suggestedShares: 0, strategy: strategyConfig.live }
+        : tradeStale
+          ? { action: 'hold' as const, symbol: originalCandidate.symbol, confidence: 0, reason: 'Latest trade became stale before execution; no paper order was opened.', riskPerShare: originalCandidate.atr ?? 0, suggestedShares: 0, strategy: strategyConfig.live }
+          : decideStrategyEntry(strategyConfig.live, { scanCandidate: originalCandidate, executable: candidate, equity, now, availableAllocation: remainingAllocation, history })
+      if (mark && !tradeStale && strategyConfig.shadow) {
+        const shadowDecision = decideStrategyEntry(strategyConfig.shadow, { scanCandidate: originalCandidate, executable: candidate, equity, now, availableAllocation: shadowAllocation, history })
+        shadowEntries.push({ symbol: candidate.symbol, ask: mark.ask, liveDecision: decision, shadowDecision })
+        if (shadowDecision.action === 'enter') shadowAllocation = Math.max(0, shadowAllocation - shadowDecision.suggestedShares * candidate.price)
+      }
       evaluations.push({ candidate, decision, requestedPrice: mark?.ask ?? originalCandidate.price })
       console.info('[worker] strategy decision', {
         scanId,
         triggerSource,
+        strategy: decision.strategy,
+        blockedBy: decision.blockedBy ?? null,
         symbol: candidate.symbol,
         action: decision.action,
         score: scoreCandidate(candidate, now),
@@ -445,6 +468,7 @@ export async function POST(request: NextRequest) {
             reentryCooldownMinutes: strategyGuardrails.reentryCooldownMinutes,
             entryMetadata: {
               regime: strategyRegime(now).name,
+              strategy: decision.strategy,
               observedAsk: mark.ask,
               slippage: fillPrice - mark.ask,
               liquidityCap: null,
@@ -493,6 +517,26 @@ export async function POST(request: NextRequest) {
       console.warn('[worker] Elliott Wave shadow pass failed without affecting paper execution', { scanId, error })
     }
 
+    let shadowStrategy: ShadowStrategyStats | null = null
+    if (strategyConfig.shadow) {
+      try {
+        shadowStrategy = await runShadowStrategyPass({
+          strategy: strategyConfig.shadow,
+          scanId,
+          sessionId,
+          now,
+          regime: strategyRegime(now).name,
+          flatten,
+          slippageFraction: paperExecutionGuardrails().slippageFraction,
+          marks,
+          entries: shadowEntries,
+        })
+      } catch (error) {
+        persistenceWarning ??= error instanceof Error ? error.message : 'Shadow strategy pass could not be persisted'
+        console.warn('[worker] shadow strategy pass failed without affecting paper execution', { scanId, error })
+      }
+    }
+
     const filledEntries = paperExecutions.filter((execution) => execution.status === 'filled')
     const notificationResults = body.notify && filledEntries.length
       ? await sendTradingNotification({ title: 'AItrading paper entries', message: `Paper-only entries filled: ${filledEntries.map(({ symbol }) => symbol).join(', ')}` })
@@ -512,6 +556,8 @@ export async function POST(request: NextRequest) {
       paperExecutions,
       notificationResults,
       elliottShadow,
+      strategy: { live: strategyConfig.live, shadow: strategyConfig.shadow, warnings: strategyConfig.warnings },
+      shadowStrategy,
       liveTradingEnabled: false,
       ...(persistenceWarning ? { persistenceWarning } : {}),
     })
