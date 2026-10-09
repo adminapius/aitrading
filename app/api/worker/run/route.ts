@@ -56,6 +56,7 @@ async function writeScanEvent(eventType: string, message: string, context: Parti
     body: JSON.stringify({
       level: eventType === 'SCAN_FAILED' ? 'error' : 'info',
       event_type: eventType,
+      symbol: typeof payload.symbol === 'string' ? payload.symbol : null,
       message: message.slice(0, 240),
       session_id: context.sessionId ?? null,
       payload: { scanId: context.scanId, triggerSource: context.triggerSource, ...payload },
@@ -349,6 +350,17 @@ export async function POST(request: NextRequest) {
         outcome.positionsExited += 1
         const realizedPnl = closeResult.realizedPnl ?? (fillPrice - Number(position.entry_price)) * Number(position.quantity)
         realExitComparisons.set(position.symbol, { exitReason, fillPrice, realizedPnl })
+        const quantity = Number(position.quantity)
+        await writeScanEvent('PAPER_SELL_FILLED', `SELL ${quantity.toLocaleString('en-US')} ${position.symbol} @ $${fillPrice.toFixed(2)} · ${exitReason.replace(/_/g, ' ')} · P&L ${realizedPnl >= 0 ? '+' : '-'}$${Math.abs(realizedPnl).toFixed(2)}`, context, {
+          symbol: position.symbol,
+          positionId: position.id,
+          side: 'sell',
+          quantity,
+          fillPrice,
+          entryPrice: Number(position.entry_price),
+          exitReason,
+          realizedPnl,
+        }).catch(() => undefined)
         await attachElliottRealExit({ positionId: position.id, symbol: position.symbol, exitReason, fillPrice, realizedPnl, at: now }).catch((error) => {
           console.warn('[worker] Elliott real-exit comparison could not be updated', { symbol: position.symbol, error })
         })
@@ -452,6 +464,20 @@ export async function POST(request: NextRequest) {
             },
           })
           paperExecutions.push({ symbol: candidate.symbol, status: result.status, reason: result.reason, positionId: result.positionId, fillPrice: result.fillPrice })
+          if (result.status === 'filled') {
+            const filledAt = Number(result.fillPrice ?? fillPrice)
+            const stopPrice = Math.max(0.01, fillPrice - decision.riskPerShare)
+            const targetPrice = fillPrice + decision.riskPerShare * 1.5
+            await writeScanEvent('PAPER_BUY_FILLED', `BUY ${decision.suggestedShares.toLocaleString('en-US')} ${candidate.symbol} @ $${filledAt.toFixed(2)} · stop $${stopPrice.toFixed(2)} · target $${targetPrice.toFixed(2)}`, context, {
+              symbol: candidate.symbol,
+              positionId: result.positionId ?? null,
+              side: 'buy',
+              quantity: decision.suggestedShares,
+              fillPrice: filledAt,
+              stopPrice,
+              targetPrice,
+            }).catch(() => undefined)
+          }
         } catch (error) {
           const reason = error instanceof Error ? error.message : 'Paper entry could not be recorded'
           persistenceWarning ??= reason
