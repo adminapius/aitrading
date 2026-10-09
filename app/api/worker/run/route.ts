@@ -9,6 +9,8 @@ import { closePaperPosition, loadPaperMarketMarksWithDiagnostics, loadOpenPaperP
 import { decideEntry, isFlattenWindow, isTradingWindow, normalizeFloatShares, scoreCandidate, simulatedMarginBuyingPower, strategyGuardrails, strategyRegime, type ScanCandidate } from '@/lib/strategy'
 import { attachElliottRealExit, runElliottShadowPass } from '@/lib/elliott-wave-shadow'
 import { isExecutableQuoteMark, type PaperMarkDiagnosis } from '@/lib/paper-marks'
+import { decideStrategyEntry, loadSymbolDayHistory, resolveStrategyConfig, type StrategyDecision, type SymbolDayHistory } from '@/lib/strategies/live-strategy'
+import { loadOpenShadowRows, loadShadowLedger, loadShadowMarks, openShadowEntries, resolveShadowPositions, shadowAvailableAllocation, type ShadowEntryCandidate, type ShadowLedger, type ShadowResolutionStats, type ShadowStrategyStats } from '@/lib/strategies/shadow-strategy'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -37,7 +39,7 @@ function isAuthorized(request: NextRequest) {
   return configuredBytes.length === suppliedBytes.length && timingSafeEqual(configuredBytes, suppliedBytes)
 }
 
-type Evaluation = { candidate: ScanCandidate; decision: ReturnType<typeof decideEntry>; requestedPrice?: number }
+type Evaluation = { candidate: ScanCandidate; decision: ReturnType<typeof decideEntry> & Partial<Pick<StrategyDecision, 'strategy' | 'blockedBy'>>; requestedPrice?: number }
 type ScanContext = { scanId: string; sessionId: string; triggerSource: string; startedAt: Date; durationMs: number }
 type ElliottShadowStats = { analyzed: number; signalsWritten: number; barRequests: number; budgetExceeded: boolean }
 type ScanOutcome = { status: 'completed' | 'failed'; scannedCandidates: number; enterCandidates: number; positionsExited: number; error?: string; elliottShadow?: ElliottShadowStats | null }
@@ -295,6 +297,8 @@ export async function POST(request: NextRequest) {
     }
   }
   const flatten = isFlattenWindow(now)
+  const strategyConfig = resolveStrategyConfig()
+  if (strategyConfig.warnings.length) console.warn('[worker] strategy config', strategyConfig.warnings)
   if (!isTradingWindow(now) && !flatten) return NextResponse.json({ status: 'sleeping', mode: 'paper', checkedAt: now.toISOString() })
   if (!tradingConfig.supabaseUrl || !tradingConfig.supabaseKey) return NextResponse.json({ error: 'Internal paper-trading ledger is unavailable.' }, { status: 503 })
 
@@ -339,6 +343,18 @@ export async function POST(request: NextRequest) {
 
     const openPositions = await loadOpenPaperPositions()
     const { marks, diagnostics: markDiagnostics } = await loadPaperMarketMarksWithDiagnostics([...openPositions.map((position) => position.symbol), ...candidates.map((candidate) => candidate.symbol)], now)
+    let shadowMarks = marks
+    let shadowResolution: ShadowResolutionStats | null = null
+    if (strategyConfig.shadow) {
+      try {
+        const openShadowRows = await loadOpenShadowRows(sessionId)
+        shadowMarks = await loadShadowMarks(openShadowRows, marks, now)
+        shadowResolution = await resolveShadowPositions({ openRows: openShadowRows, now, flatten, slippageFraction: paperExecutionGuardrails().slippageFraction, marks: shadowMarks })
+      } catch (error) {
+        persistenceWarning ??= error instanceof Error ? error.message : 'Shadow strategy positions could not be resolved'
+        console.warn('[worker] shadow strategy resolution failed without affecting paper execution', { scanId, error })
+      }
+    }
     let allOpenPositionsMarked = true
     for (const position of openPositions) {
       const mark = marks.get(position.symbol)
@@ -426,23 +442,51 @@ export async function POST(request: NextRequest) {
     const exposureHeadroom = Math.max(0, equity * strategyGuardrails.maxAggregateExposureFraction - currentExposure)
     const marginBuyingPower = simulatedMarginBuyingPower(equity, cashBalance, currentExposure, strategyGuardrails.minimumMarginEquity)
     let remainingAllocation = allOpenPositionsMarked ? Math.min(exposureHeadroom, marginBuyingPower) : 0
+    let shadowLedger: ShadowLedger | null = null
+    if (strategyConfig.shadow && !flatten) {
+      try {
+        shadowLedger = await loadShadowLedger({ sessionId, startingBalance: Number.isFinite(startingBalance) && startingBalance > 0 ? startingBalance : equity, marks: shadowMarks, slippageFraction: paperExecutionGuardrails().slippageFraction })
+      } catch (error) {
+        persistenceWarning ??= error instanceof Error ? error.message : 'Shadow strategy ledger could not be loaded'
+        console.warn('[worker] shadow strategy ledger unavailable; no shadow entries this scan', { scanId, error })
+      }
+    }
+    let shadowAllocation = shadowLedger ? shadowAvailableAllocation(shadowLedger) : 0
     const evaluations: Evaluation[] = []
+    const shadowEntries: ShadowEntryCandidate[] = []
+    let dayHistory: Map<string, SymbolDayHistory> | null = null
+    if (strategyConfig.live === 'E' && candidates.length) {
+      try {
+        dayHistory = await loadSymbolDayHistory(candidates.map((candidate) => candidate.symbol), now)
+      } catch (error) {
+        console.warn('[worker] symbol day history unavailable; Strategy E entries fail closed this scan', { scanId, error })
+      }
+    }
     for (const originalCandidate of candidates) {
       // Entries need a fresh executable quote; trade-derived marks only manage open positions.
       const candidateMark = marks.get(originalCandidate.symbol)
       const mark = isExecutableQuoteMark(candidateMark) ? candidateMark : undefined
       const lastTradeAt = originalCandidate.lastTradeAt ? Date.parse(originalCandidate.lastTradeAt) : Number.NaN
       const tradeAgeSeconds = (now.getTime() - lastTradeAt) / 1_000
-      const decision = !mark
-        ? { action: 'hold' as const, symbol: originalCandidate.symbol, confidence: 0, reason: 'Fresh executable quote unavailable; no paper order was opened.', riskPerShare: originalCandidate.atr ?? 0, suggestedShares: 0 }
-        : !Number.isFinite(tradeAgeSeconds) || tradeAgeSeconds < 0 || tradeAgeSeconds > scanConfig.maxTradeAgeSeconds
-          ? { action: 'hold' as const, symbol: originalCandidate.symbol, confidence: 0, reason: 'Latest trade became stale before execution; no paper order was opened.', riskPerShare: originalCandidate.atr ?? 0, suggestedShares: 0 }
-          : decideEntry({ ...originalCandidate, price: mark.ask, bid: mark.bid, ask: mark.ask, quoteAt: mark.at, spreadPct: ((mark.ask - mark.bid) / ((mark.ask + mark.bid) / 2)) * 100 }, equity, now, remainingAllocation)
       const candidate = mark ? { ...originalCandidate, price: mark.ask, bid: mark.bid, ask: mark.ask, quoteAt: mark.at, spreadPct: ((mark.ask - mark.bid) / ((mark.ask + mark.bid) / 2)) * 100 } : originalCandidate
+      const tradeStale = !Number.isFinite(tradeAgeSeconds) || tradeAgeSeconds < 0 || tradeAgeSeconds > scanConfig.maxTradeAgeSeconds
+      const history = dayHistory ? dayHistory.get(originalCandidate.symbol) ?? { entries: 0, firstEntryHitTarget: false } : null
+      const decision: StrategyDecision = !mark
+        ? { action: 'hold' as const, symbol: originalCandidate.symbol, confidence: 0, reason: 'Fresh executable quote unavailable; no paper order was opened.', riskPerShare: originalCandidate.atr ?? 0, suggestedShares: 0, strategy: strategyConfig.live }
+        : tradeStale
+          ? { action: 'hold' as const, symbol: originalCandidate.symbol, confidence: 0, reason: 'Latest trade became stale before execution; no paper order was opened.', riskPerShare: originalCandidate.atr ?? 0, suggestedShares: 0, strategy: strategyConfig.live }
+          : decideStrategyEntry(strategyConfig.live, { scanCandidate: originalCandidate, executable: candidate, equity, now, availableAllocation: remainingAllocation, history })
+      if (mark && !tradeStale && strategyConfig.shadow && shadowLedger) {
+        const shadowDecision = decideStrategyEntry(strategyConfig.shadow, { scanCandidate: originalCandidate, executable: candidate, equity: shadowLedger.equity, now, availableAllocation: shadowAllocation, history })
+        shadowEntries.push({ symbol: candidate.symbol, ask: mark.ask, liveDecision: decision, shadowDecision })
+        if (shadowDecision.action === 'enter') shadowAllocation = Math.max(0, shadowAllocation - shadowDecision.suggestedShares * candidate.price)
+      }
       evaluations.push({ candidate, decision, requestedPrice: mark?.ask ?? originalCandidate.price })
       console.info('[worker] strategy decision', {
         scanId,
         triggerSource,
+        strategy: decision.strategy,
+        blockedBy: decision.blockedBy ?? null,
         symbol: candidate.symbol,
         action: decision.action,
         score: scoreCandidate(candidate, now),
@@ -493,6 +537,7 @@ export async function POST(request: NextRequest) {
             reentryCooldownMinutes: strategyGuardrails.reentryCooldownMinutes,
             entryMetadata: {
               regime: strategyRegime(now).name,
+              strategy: decision.strategy,
               observedAsk: mark.ask,
               slippage: fillPrice - mark.ask,
               liquidityCap: null,
@@ -541,6 +586,30 @@ export async function POST(request: NextRequest) {
       console.warn('[worker] Elliott Wave shadow pass failed without affecting paper execution', { scanId, error })
     }
 
+    let shadowStrategy: ShadowStrategyStats | null = null
+    if (strategyConfig.shadow) {
+      const resolution = shadowResolution ?? { resolved: 0, stillOpen: 0, flattenFallbackLastTrade: 0, flattenUnpriced: 0 }
+      shadowStrategy = { strategy: strategyConfig.shadow, ...resolution, opened: 0, skippedOpen: 0, blocked: {}, equity: shadowLedger?.equity ?? null, dailyPnl: shadowLedger?.dailyPnl ?? null, dailyLossStopped: shadowLedger?.dailyLossStopped ?? false }
+      try {
+        if (shadowLedger && !flatten) {
+          const opened = await openShadowEntries({
+            strategy: strategyConfig.shadow,
+            scanId,
+            sessionId,
+            now,
+            regime: strategyRegime(now).name,
+            slippageFraction: paperExecutionGuardrails().slippageFraction,
+            ledger: shadowLedger,
+            entries: shadowEntries,
+          })
+          shadowStrategy = { ...shadowStrategy, ...opened }
+        }
+      } catch (error) {
+        persistenceWarning ??= error instanceof Error ? error.message : 'Shadow strategy pass could not be persisted'
+        console.warn('[worker] shadow strategy pass failed without affecting paper execution', { scanId, error })
+      }
+    }
+
     const filledEntries = paperExecutions.filter((execution) => execution.status === 'filled')
     const notificationResults = body.notify && filledEntries.length
       ? await sendTradingNotification({ title: 'AItrading paper entries', message: `Paper-only entries filled: ${filledEntries.map(({ symbol }) => symbol).join(', ')}` })
@@ -560,6 +629,8 @@ export async function POST(request: NextRequest) {
       paperExecutions,
       notificationResults,
       elliottShadow,
+      strategy: { live: strategyConfig.live, shadow: strategyConfig.shadow, warnings: strategyConfig.warnings },
+      shadowStrategy,
       liveTradingEnabled: false,
       ...(persistenceWarning ? { persistenceWarning } : {}),
     })
