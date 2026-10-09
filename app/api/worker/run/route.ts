@@ -11,6 +11,8 @@ import { attachElliottRealExit, runElliottShadowPass } from '@/lib/elliott-wave-
 import { isExecutableQuoteMark, type PaperMarkDiagnosis } from '@/lib/paper-marks'
 import { decideStrategyEntry, loadSymbolDayHistory, resolveStrategyConfig, type StrategyDecision, type SymbolDayHistory } from '@/lib/strategies/live-strategy'
 import { loadOpenShadowRows, loadShadowLedger, loadShadowMarks, openShadowEntries, resolveShadowPositions, shadowAvailableAllocation, type ShadowEntryCandidate, type ShadowLedger, type ShadowResolutionStats, type ShadowStrategyStats } from '@/lib/strategies/shadow-strategy'
+import { checkPaperGate, executionMode, paperCredentialsCheck, tradingHalted, type GateResult } from '@/lib/alpaca-broker'
+import { ENTRY_DEADLINE_MS, enterViaAlpaca, entryBlockReason, flattenAlpaca, isAlpacaPosition, isBrokerFlattenTime, isPremarketSession, isRegularSession, loadEntryPreflightState, reconcileAlpaca, type EntryPreflightState, type ReconcileClose } from '@/lib/alpaca-execution'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -52,7 +54,7 @@ function validScanId(value: unknown) {
   return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value) ? value : randomUUID()
 }
 
-const WARNING_EVENT_TYPES = new Set(['POSITION_EXIT_MARK_UNAVAILABLE', 'POSITION_MARK_STALE_ALERT'])
+const WARNING_EVENT_TYPES = new Set(['POSITION_EXIT_MARK_UNAVAILABLE', 'POSITION_MARK_STALE_ALERT', 'ALPACA_GATE_BLOCKED', 'ALPACA_RECONCILE_WARNING', 'ALPACA_RECONCILE_FAILED', 'TRADING_HALTED'])
 const MARK_ALERT_DEDUPE_MINUTES = 10
 
 /** True when a stale-mark alert for this position was already sent within the dedupe window. */
@@ -297,6 +299,8 @@ export async function POST(request: NextRequest) {
     }
   }
   const flatten = isFlattenWindow(now)
+  const brokerMode = executionMode()
+  const halted = tradingHalted()
   const strategyConfig = resolveStrategyConfig()
   if (strategyConfig.warnings.length) console.warn('[worker] strategy config', strategyConfig.warnings)
   if (!isTradingWindow(now) && !flatten) return NextResponse.json({ status: 'sleeping', mode: 'paper', checkedAt: now.toISOString() })
@@ -355,9 +359,79 @@ export async function POST(request: NextRequest) {
         console.warn('[worker] shadow strategy resolution failed without affecting paper execution', { scanId, error })
       }
     }
+    // Alpaca execution: sync the ledger with what Alpaca actually filled before managing anything.
+    let alpacaGate: GateResult | null = null
+    let alpacaBrokerSymbols: string[] | null = null
+    let brokerPreflight: EntryPreflightState | undefined
+    const brokerClosedIds = new Set<string>()
+    const recordBrokerClose = async (close: ReconcileClose) => {
+      brokerClosedIds.add(close.position.id)
+      outcome.positionsExited += 1
+      realExitComparisons.set(close.position.symbol, { exitReason: close.exitReason, fillPrice: close.fillPrice, realizedPnl: close.realizedPnl })
+      await writeScanEvent('PAPER_SELL_FILLED', `SELL ${close.quantity.toLocaleString('en-US')} ${close.position.symbol} @ $${close.fillPrice.toFixed(2)} (Alpaca) · ${close.exitReason} · P&L ${close.realizedPnl >= 0 ? '+' : '-'}$${Math.abs(close.realizedPnl).toFixed(2)}`, context, {
+        symbol: close.position.symbol,
+        positionId: close.position.id,
+        side: 'sell',
+        broker: 'alpaca',
+        quantity: close.quantity,
+        fillPrice: close.fillPrice,
+        entryPrice: Number(close.position.entry_price),
+        exitReason: close.exitReason,
+        realizedPnl: close.realizedPnl,
+      }).catch(() => undefined)
+      await attachElliottRealExit({ positionId: close.position.id, symbol: close.position.symbol, exitReason: close.exitReason, fillPrice: close.fillPrice, realizedPnl: close.realizedPnl, at: now }).catch(() => undefined)
+    }
+    // Broker work runs in alpaca mode, and also whenever Alpaca-tagged positions are still open
+    // (so switching EXECUTION_MODE back to internal never strands them).
+    const brokerCredentials = paperCredentialsCheck()
+    const brokerNeeded = brokerMode === 'alpaca' || openPositions.some(isAlpacaPosition)
+    let brokerFlatten = flatten
+    if (brokerNeeded && !brokerCredentials.ok) {
+      await writeScanEvent('ALPACA_GATE_BLOCKED', brokerCredentials.reason, context, { reason: brokerCredentials.reason }).catch(() => undefined)
+    } else if (brokerNeeded) {
+      alpacaGate = await checkPaperGate(process.env, now)
+      brokerFlatten = isBrokerFlattenTime(alpacaGate.ok ? alpacaGate.clock : null, flatten)
+      if (!alpacaGate.ok) await writeScanEvent('ALPACA_GATE_BLOCKED', alpacaGate.reason, context, { reason: alpacaGate.reason }).catch(() => undefined)
+      if (brokerFlatten) {
+        // The safety flatten only needs valid paper credentials, not a successful account call.
+        try {
+          await flattenAlpaca({ sessionId, scanId })
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : 'Alpaca flatten failed'
+          await writeScanEvent('ALPACA_RECONCILE_FAILED', `Alpaca flatten failed: ${reason}`, context, { reason }).catch(() => undefined)
+          await sendTradingNotification({ title: 'AItrading: FLATTEN FAILED', message: `Alpaca close-time flatten failed: ${reason}. Close positions manually in Alpaca.` }).catch(() => undefined)
+        }
+      }
+      if (alpacaGate.ok) {
+        try {
+          const reconciled = await reconcileAlpaca({ sessionId, scanId, now, clock: alpacaGate.clock, positions: openPositions, marks, flatten: brokerFlatten })
+          alpacaBrokerSymbols = [...reconciled.brokerSymbols, ...reconciled.pendingEntrySymbols]
+          for (const close of reconciled.closes) await recordBrokerClose(close)
+          for (const warning of reconciled.warnings) {
+            await writeScanEvent('ALPACA_RECONCILE_WARNING', warning, context, { warning }).catch(() => undefined)
+          }
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : 'Alpaca reconciliation failed'
+          persistenceWarning ??= reason
+          await writeScanEvent('ALPACA_RECONCILE_FAILED', `Alpaca reconciliation failed: ${reason}`, context, { reason }).catch(() => undefined)
+        }
+      }
+    }
+
     let allOpenPositionsMarked = true
     for (const position of openPositions) {
+      if (brokerClosedIds.has(position.id)) continue
       const mark = marks.get(position.symbol)
+      if (isAlpacaPosition(position)) {
+        // Exits for Alpaca positions are Alpaca's fills (OCO / flatten); here we only refresh the displayed price.
+        if (mark) await markPaperPosition(position.id, mark.price).catch(() => undefined)
+        else if (alpacaGate?.ok && isPremarketSession(alpacaGate.clock) && !brokerFlatten) {
+          // Pre-market the app itself watches the stop, so a missing price matters.
+          allOpenPositionsMarked = false
+          await alertUnmarkedPosition(position, markDiagnostics.get(position.symbol), context, now)
+        }
+        continue
+      }
       if (!mark) {
         allOpenPositionsMarked = false
         const diagnosis = markDiagnostics.get(position.symbol)
@@ -448,11 +522,15 @@ export async function POST(request: NextRequest) {
       throw new Error('Internal paper-trading ledger has no valid sizing balance.')
     }
 
+    // With Alpaca execution, size from the smaller of the ledger and the real Alpaca paper equity.
+    const sizingEquity = brokerMode === 'alpaca' && alpacaGate?.ok ? Math.min(equity, alpacaGate.equity) : equity
     const remainingPositions = await loadOpenPaperPositions()
     const currentExposure = positionExposure(remainingPositions)
-    const exposureHeadroom = Math.max(0, equity * strategyGuardrails.maxAggregateExposureFraction - currentExposure)
+    const exposureHeadroom = Math.max(0, sizingEquity * strategyGuardrails.maxAggregateExposureFraction - currentExposure)
     const marginBuyingPower = simulatedMarginBuyingPower(equity, cashBalance, currentExposure, strategyGuardrails.minimumMarginEquity)
     let remainingAllocation = allOpenPositionsMarked ? Math.min(exposureHeadroom, marginBuyingPower) : 0
+    // Broker entries get their own running dollar budget, checked at the limit price inside enterViaAlpaca.
+    let brokerAllocation = remainingAllocation
     let shadowLedger: ShadowLedger | null = null
     if (strategyConfig.shadow && !flatten) {
       try {
@@ -486,7 +564,7 @@ export async function POST(request: NextRequest) {
         ? { action: 'hold' as const, symbol: originalCandidate.symbol, confidence: 0, reason: 'Fresh executable quote unavailable; no paper order was opened.', riskPerShare: originalCandidate.atr ?? 0, suggestedShares: 0, strategy: strategyConfig.live }
         : tradeStale
           ? { action: 'hold' as const, symbol: originalCandidate.symbol, confidence: 0, reason: 'Latest trade became stale before execution; no paper order was opened.', riskPerShare: originalCandidate.atr ?? 0, suggestedShares: 0, strategy: strategyConfig.live }
-          : decideStrategyEntry(strategyConfig.live, { scanCandidate: originalCandidate, executable: candidate, equity, now, availableAllocation: remainingAllocation, history })
+          : decideStrategyEntry(strategyConfig.live, { scanCandidate: originalCandidate, executable: candidate, equity: sizingEquity, now, availableAllocation: remainingAllocation, history })
       if (mark && !tradeStale && strategyConfig.shadow && shadowLedger) {
         const shadowDecision = decideStrategyEntry(strategyConfig.shadow, { scanCandidate: originalCandidate, executable: candidate, equity: shadowLedger.equity, now, availableAllocation: shadowAllocation, history })
         shadowEntries.push({ symbol: candidate.symbol, ask: mark.ask, liveDecision: decision, shadowDecision })
@@ -524,6 +602,102 @@ export async function POST(request: NextRequest) {
         const mark = isExecutableQuoteMark(candidateMark) ? candidateMark : undefined
         if (!mark || !allOpenPositionsMarked) {
           paperExecutions.push({ symbol: candidate.symbol, status: 'blocked', reason: 'Open positions could not all be marked with fresh quotes.' })
+          continue
+        }
+        if (halted) {
+          paperExecutions.push({ symbol: candidate.symbol, status: 'blocked', reason: 'TRADING_HALT is on; no entries are sent.' })
+          await writeScanEvent('TRADING_HALTED', `Entry for ${candidate.symbol} skipped: TRADING_HALT is on.`, context, { symbol: candidate.symbol }).catch(() => undefined)
+          continue
+        }
+        if (brokerMode === 'alpaca') {
+          if (!alpacaGate?.ok) {
+            paperExecutions.push({ symbol: candidate.symbol, status: 'blocked', reason: alpacaGate && !alpacaGate.ok ? alpacaGate.reason : 'Alpaca paper account was not verified this scan.' })
+            continue
+          }
+          if (brokerFlatten || (!isRegularSession(alpacaGate.clock) && !isPremarketSession(alpacaGate.clock))) {
+            paperExecutions.push({ symbol: candidate.symbol, status: 'blocked', reason: 'Outside Alpaca entry hours (closing soon, closed, or holiday).' })
+            continue
+          }
+          if (alpacaBrokerSymbols === null) {
+            paperExecutions.push({ symbol: candidate.symbol, status: 'blocked', reason: 'Alpaca reconciliation did not complete this scan; no new orders.' })
+            continue
+          }
+          if (Date.now() - now.getTime() > ENTRY_DEADLINE_MS) {
+            paperExecutions.push({ symbol: candidate.symbol, status: 'blocked', reason: 'Scan time budget used; entry left for the next scan.' })
+            continue
+          }
+          // Ledger rules checked BEFORE a real order is sent (the RPC would only refuse after the fill).
+          try {
+            brokerPreflight ??= await loadEntryPreflightState({
+              sessionId,
+              now,
+              equity,
+              openSymbols: [...remainingPositions.map((position) => position.symbol), ...(alpacaBrokerSymbols ?? [])],
+              openCount: remainingPositions.length,
+              maxOpenPositions: strategyGuardrails.maxOpenPositions,
+              maxDailyLossFraction: strategyGuardrails.maxDailyLossFraction,
+              reentryCooldownMinutes: strategyGuardrails.reentryCooldownMinutes,
+            })
+          } catch (error) {
+            paperExecutions.push({ symbol: candidate.symbol, status: 'blocked', reason: error instanceof Error ? error.message : 'Entry pre-flight unavailable' })
+            continue
+          }
+          const preflightBlock = entryBlockReason(brokerPreflight, candidate.symbol)
+          if (preflightBlock) {
+            paperExecutions.push({ symbol: candidate.symbol, status: 'blocked', reason: preflightBlock })
+            await writeScanEvent('ENTRY_BLOCKED', `${candidate.symbol}: ${preflightBlock} (checked before sending to Alpaca)`, context, { symbol: candidate.symbol, broker: 'alpaca', reason: preflightBlock }).catch(() => undefined)
+            continue
+          }
+          try {
+            const result = await enterViaAlpaca({
+              sessionId,
+              scanId,
+              symbol: candidate.symbol,
+              quantity: decision.suggestedShares,
+              ask: mark.ask,
+              riskPerShare: decision.riskPerShare,
+              clock: alpacaGate.clock,
+              maxNotional: Math.min(brokerAllocation, sizingEquity * strategyGuardrails.maxPositionFraction),
+              guardrails: {
+                maxPositionFraction: strategyGuardrails.maxPositionFraction,
+                maxAggregateExposureFraction: strategyGuardrails.maxAggregateExposureFraction,
+                riskPerTradeFraction: strategyGuardrails.riskPerTradeFraction,
+                maxDailyLossFraction: strategyGuardrails.maxDailyLossFraction,
+                maxOpenPositions: strategyGuardrails.maxOpenPositions,
+                minimumMarginEquity: strategyGuardrails.minimumMarginEquity,
+                reentryCooldownMinutes: strategyGuardrails.reentryCooldownMinutes,
+              },
+              entryMetadata: {
+                regime: strategyRegime(now).name,
+                strategy: decision.strategy,
+                observedAsk: mark.ask,
+                requestedPrice: requestedPrice ?? candidate.price,
+              },
+            })
+            paperExecutions.push({ symbol: candidate.symbol, status: result.status, reason: result.reason, positionId: result.positionId, fillPrice: result.fillPrice })
+            if (result.status === 'filled') {
+              brokerAllocation = Math.max(0, brokerAllocation - (result.quantity ?? 0) * (result.fillPrice ?? 0))
+              brokerPreflight.openSymbols.add(candidate.symbol)
+              brokerPreflight.openCount += 1
+              await writeScanEvent('PAPER_BUY_FILLED', `BUY ${result.quantity!.toLocaleString('en-US')} ${candidate.symbol} @ $${result.fillPrice!.toFixed(2)} (Alpaca) · stop $${result.stopPrice!.toFixed(2)} · target $${result.targetPrice!.toFixed(2)}`, context, {
+                symbol: candidate.symbol,
+                positionId: result.positionId ?? null,
+                side: 'buy',
+                broker: 'alpaca',
+                brokerOrderId: result.brokerOrderId ?? null,
+                quantity: result.quantity,
+                fillPrice: result.fillPrice,
+                stopPrice: result.stopPrice,
+                targetPrice: result.targetPrice,
+              }).catch(() => undefined)
+            } else {
+              await writeScanEvent('ENTRY_BLOCKED', `Alpaca entry for ${candidate.symbol}: ${result.status}${result.reason ? ` · ${result.reason}` : ''}`, context, { symbol: candidate.symbol, broker: 'alpaca', ...result }).catch(() => undefined)
+            }
+          } catch (error) {
+            const reason = error instanceof Error ? error.message : 'Alpaca entry failed'
+            persistenceWarning ??= reason
+            paperExecutions.push({ symbol: candidate.symbol, status: 'execution_error', reason })
+          }
           continue
         }
         const fillPrice = mark.ask * (1 + paperExecutionGuardrails().slippageFraction)
@@ -642,7 +816,9 @@ export async function POST(request: NextRequest) {
     outcome = { status: 'completed', scannedCandidates: candidates.length, enterCandidates: enterCount, positionsExited: outcome.positionsExited, elliottShadow }
     return NextResponse.json({
       status: flatten ? 'paper_flatten_complete' : 'paper_execution_complete',
-      mode: 'paper-margin-simulation',
+      mode: brokerMode === 'alpaca' ? 'alpaca-paper' : 'paper-margin-simulation',
+      executionMode: brokerMode,
+      tradingHalted: halted,
       checkedAt: now.toISOString(),
       scanId,
       triggerSource,
@@ -667,7 +843,7 @@ export async function POST(request: NextRequest) {
     const durationMs = Math.max(0, Date.now() - now.getTime())
     await writeScanEvent(
       outcome.status === 'completed' ? 'SCAN_COMPLETED' : 'SCAN_FAILED',
-      outcome.status === 'completed' ? flatten ? `Paper session flatten pass completed in ${durationMs}ms; simulated exits were recorded, no live brokerage orders were sent.` : `Strategy scan completed in ${durationMs}ms; any fills were simulated in the internal ledger, no live brokerage orders were sent.` : `Strategy scan failed after ${durationMs}ms.`,
+      outcome.status === 'completed' ? brokerMode === 'alpaca' ? `${flatten ? 'Flatten pass' : 'Strategy scan'} completed in ${durationMs}ms; entries/exits go to the Alpaca PAPER account (no live-money orders).` : flatten ? `Paper session flatten pass completed in ${durationMs}ms; simulated exits were recorded, no live brokerage orders were sent.` : `Strategy scan completed in ${durationMs}ms; any fills were simulated in the internal ledger, no live brokerage orders were sent.` : `Strategy scan failed after ${durationMs}ms.`,
       { ...context, sessionId: sessionId ?? undefined, durationMs },
       { startedAt: scanStartedAt.toISOString(), endedAt: new Date().toISOString(), scanDurationMs: durationMs, ...outcome },
     ).catch((error) => console.error('[worker] scan end event could not be written', { scanId, error }))

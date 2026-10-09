@@ -67,7 +67,7 @@ async function callPaperRpc(name: string, body: Record<string, unknown>): Promis
 export async function loadOpenPaperPositions(): Promise<PaperPosition[]> {
   const url = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_positions`)
   url.search = new URLSearchParams({
-    select: 'id,symbol,quantity,entry_price,current_price,stop_price,target_price,unrealized_pnl,metadata',
+    select: 'id,symbol,opened_at,quantity,entry_price,current_price,stop_price,target_price,unrealized_pnl,metadata',
     status: 'eq.open',
     order: 'opened_at.asc',
   }).toString()
