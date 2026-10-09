@@ -1,5 +1,5 @@
 import { scanConfig } from '../../lib/scan-config'
-import { getAssets, getCurrentFloats, getDailyBars, type RawBar } from './data'
+import { getAssets, getCurrentFloats, getDailyBars, getShareCountHistory, type RawBar, type ShareCountPoint } from './data'
 
 const SUPPORTED_EXCHANGES = new Set(['NASDAQ', 'NYSE', 'AMEX', 'ARCA', 'BATS'])
 const EXCLUDED_NAME = /\b(?:warrants?|rights?|units?)\b/i
@@ -45,7 +45,7 @@ export function toEasternDay(iso: string) {
   return day
 }
 
-export async function buildUniverse(input: { historyStart: string; end: string; periodStart: string }): Promise<Universe> {
+export async function buildUniverse(input: { historyStart: string; end: string; periodStart: string; simFrom?: string; simTo?: string }): Promise<Universe> {
   const assets = await getAssets()
   const names = new Map<string, string>()
   const delisted = new Set<string>()
@@ -67,7 +67,44 @@ export async function buildUniverse(input: { historyStart: string; end: string; 
     if (symbol === 'SPY') rows.forEach((row) => daySet.add(row.day))
   }
   const tradingDays = [...daySet].filter((day) => day >= input.periodStart && day <= input.end).sort()
-  return { symbols, names, delisted, daily, floats, tradingDays }
+  const universe: Universe = { symbols, names, delisted, daily, floats, tradingDays }
+  if (process.env.BACKTEST_PIT_FLOAT === 'true') universe.shareHistory = await loadShareHistory(universe, input.simFrom ?? input.periodStart, input.simTo ?? input.end)
+  return universe
+}
+
+// Small caps mostly dilute over time, so a symbol above the 10M float cap today may have been under it
+// earlier. Any candidate with a current float up to 10x the cap gets its share-count history loaded.
+const PIT_FLOAT_CURRENT_CAP = 100_000_000
+
+async function loadShareHistory(universe: Universe, from: string, to: string) {
+  const needed = new Set<string>()
+  for (const [symbol, rows] of universe.daily) {
+    const current = universe.floats[symbol]
+    if (current == null || current > PIT_FLOAT_CURRENT_CAP) continue
+    for (let index = 1; index < rows.length; index += 1) {
+      const row = rows[index]
+      if (row.day < from || row.day > to) continue
+      const prevClose = rows[index - 1].c
+      if (!(prevClose > 0) || row.v < scanConfig.minVolume || Math.max(row.o, row.h) < scanConfig.minPrice) continue
+      if (Math.max(row.o, row.h) / prevClose - 1 > 0.02) {
+        needed.add(symbol)
+        break
+      }
+    }
+  }
+  console.log(`[backtest] point-in-time float: loading share-count history for ${needed.size} symbols`)
+  const history = new Map<string, ShareCountPoint[]>()
+  let failures = 0
+  await Promise.all([...needed].map(async (symbol) => {
+    try {
+      const points = await getShareCountHistory(symbol)
+      if (points.length) history.set(symbol, points)
+    } catch {
+      failures += 1
+    }
+  }))
+  console.log(`[backtest] point-in-time float: ${history.size} with history, ${needed.size - history.size - failures} empty, ${failures} failed`)
+  return history
 }
 
 export function dailyIndex(rows: DailyRow[]) {

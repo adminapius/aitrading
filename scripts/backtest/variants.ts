@@ -1,18 +1,17 @@
+import { cleanMomentumBlockReason } from '../../lib/strategies/clean-momentum'
 import type { EntryContext, RunSpec } from './simulate'
 
-// Step 1 fine diagnosis (Apr 8..Jul 31): 20-30% was the only profitable day-gain bucket (84 trades, 48% win, +0.14R).
-export const CLEAN_MOMENTUM_GAIN_RANGE = { min: 20, max: 30 }
-const CLEAN_MOMENTUM_REGIMES = new Set(['opening-momentum', 'news-reaction'])
+export { CLEAN_MOMENTUM_GAIN_RANGE } from '../../lib/strategies/clean-momentum'
 
 export function cleanMomentumFilter({ candidate, regime, spreadPct, entryIndex, priorEntries }: EntryContext): string | null {
-  const gain = candidate.changePercent ?? -Infinity
-  if (gain < CLEAN_MOMENTUM_GAIN_RANGE.min || gain >= CLEAN_MOMENTUM_GAIN_RANGE.max) return 'gain_range'
-  if (entryIndex > 2) return 'max_entries'
-  if (entryIndex === 2 && !priorEntries[0]?.hitTarget) return 'reentry_without_target'
-  if (candidate.price < 3) return 'min_price'
-  if (spreadPct > 0.5) return 'spread'
-  if (!CLEAN_MOMENTUM_REGIMES.has(regime)) return 'regime'
-  return null
+  return cleanMomentumBlockReason({
+    changePercent: candidate.changePercent,
+    price: candidate.price,
+    spreadPct,
+    regime,
+    entryIndex,
+    firstEntryHitTarget: Boolean(priorEntries[0]?.hitTarget),
+  })
 }
 
 const cleanMomentum = (id: string, slippageMultiplier: number, managed: boolean): RunSpec => ({

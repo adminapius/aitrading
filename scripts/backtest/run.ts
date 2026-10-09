@@ -46,7 +46,7 @@ async function main() {
   if (cacheOnly) setCacheOnly(true)
   else assertOutsideMarketHours()
 
-  const universe = await buildUniverse({ historyStart: '2026-02-10', end: PERIOD_END, periodStart: PERIOD_START })
+  const universe = await buildUniverse({ historyStart: '2026-02-10', end: PERIOD_END, periodStart: PERIOD_START, simFrom: args.get('sim-from'), simTo: args.get('sim-to') })
   // --sim-from/--sim-to narrow the simulated days while keeping the full-period universe (and its bar cache) intact.
   const simFrom = args.get('sim-from') ?? PERIOD_START
   const simTo = args.get('sim-to') ?? PERIOD_END
