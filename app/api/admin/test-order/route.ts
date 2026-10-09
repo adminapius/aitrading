@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { cancelOrder, checkPaperGate, clientOrderId, listOrders, listPositions, roundPrice, submitOrder, waitForOrder } from '@/lib/alpaca-broker'
 import { ENTRY_LIMIT_BUFFER, exitNow, logOrderEvent, placeProtection } from '@/lib/alpaca-execution'
 import { loadOpenPaperPositions, loadPaperMarketMarksWithDiagnostics } from '@/lib/paper-trading'
+import { alpacaHeaders, tradingConfig } from '@/lib/trading-config'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -123,9 +124,9 @@ async function afterHoursTest(symbol: string, qty: number, steps: Array<Record<s
   if (ledgerOpen.some((position) => position.symbol === symbol) || brokerOpen.some((position) => position.symbol === symbol)) {
     return { ok: false, reason: `${symbol} already has an open position; pick another test symbol.`, steps }
   }
-  const { marks } = await loadPaperMarketMarksWithDiagnostics([symbol])
-  const mark = marks.get(symbol)
-  if (!mark || mark.source === 'trade') return { ok: false, reason: `No fresh after-hours quote for ${symbol}; try a more active symbol.`, steps }
+  // After hours quotes update slowly: accept a sane NBBO up to 10 minutes old for this test only.
+  const mark = await afterHoursQuote(symbol)
+  if (!mark) return { ok: false, reason: `No after-hours quote for ${symbol} in the last 10 minutes; try a more active symbol.`, steps }
   if (mark.ask > MAX_TEST_PRICE) return { ok: false, reason: `${symbol} ask $${mark.ask} is above the $${MAX_TEST_PRICE} test limit.`, steps }
   steps.push({ step: 'quote', bid: mark.bid, ask: mark.ask, at: mark.at })
   const coid = clientOrderId('t', [symbol, 'ah', Date.now().toString(36)])
@@ -144,8 +145,7 @@ async function afterHoursTest(symbol: string, qty: number, steps: Array<Record<s
     await logOrderEvent({ symbol, event: filledQty ? 'test_ah_entry_filled' : 'test_ah_entry_unfilled', side: 'buy', qty: filledQty, price: fillPrice || null, clientOrderId: coid, brokerOrderId: order.id, brokerStatus: order.status, test: true })
     if (!filledQty) return { ok: false, reason: 'After-hours buy did not fill within 8s (canceled). Thin after-hours liquidity; try again or use a more active symbol.', steps }
 
-    const { marks: exitMarks } = await loadPaperMarketMarksWithDiagnostics([symbol])
-    const bid = exitMarks.get(symbol)?.bid ?? mark.bid
+    const bid = (await afterHoursQuote(symbol))?.bid ?? mark.bid
     const close = await exitNow({ symbol, qty: filledQty, refPrice: bid, regular: false, code: 'unw', cancelSells: false, test: true })
     if (!close) return { ok: false, reason: 'Test shares were already gone at Alpaca before closing.', steps }
     const closed = await waitForOrder(close.id, 10_000)
@@ -161,4 +161,17 @@ async function afterHoursTest(symbol: string, qty: number, steps: Array<Record<s
     await logOrderEvent({ symbol, event: 'test_error', clientOrderId: coid, test: true, payload: { error: message(error), afterHours: true } })
     return { ok: false, steps }
   }
+}
+
+async function afterHoursQuote(symbol: string) {
+  const url = new URL(`${tradingConfig.alpacaDataUrl}/v2/stocks/${encodeURIComponent(symbol)}/quotes/latest`)
+  url.search = new URLSearchParams({ feed: tradingConfig.alpacaDataFeed }).toString()
+  const response = await fetch(url, { headers: alpacaHeaders(), signal: AbortSignal.timeout(8_000), cache: 'no-store' })
+  if (!response.ok) return null
+  const { quote } = await response.json() as { quote?: { bp?: number; ap?: number; t?: string } }
+  const bid = Number(quote?.bp)
+  const ask = Number(quote?.ap)
+  const at = quote?.t ? Date.parse(quote.t) : Number.NaN
+  if (!(bid > 0) || !(ask >= bid) || !Number.isFinite(at) || Date.now() - at > 10 * 60_000) return null
+  return { bid, ask, at: quote!.t! }
 }
