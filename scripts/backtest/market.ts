@@ -7,7 +7,7 @@ import { averageTrueRange, dailyIndex, toEasternDay, type Universe } from './uni
 export const MINUTE = 60_000
 export const DECISION_START_MINUTE = 7 * 60
 export const FLATTEN_MINUTE = 15 * 60 + 55
-export const TOP_GAINERS = 25
+export const TOP_GAINERS = Number(process.env.BACKTEST_TOP_GAINERS ?? 25)
 export const POOL_MIN_DAILY_GAIN = 0.1
 const FIFTEEN_START = '2026-03-10T00:00:00Z'
 const FIFTEEN_END = '2026-10-08T00:00:00Z'
