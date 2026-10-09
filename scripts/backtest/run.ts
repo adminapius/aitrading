@@ -6,6 +6,7 @@ import { loadDay, prefetchDay, TOP_GAINERS } from './market'
 import { writeReport } from './report'
 import { createRunState, DEFAULT_SLIPPAGE_OVER5, DEFAULT_SLIPPAGE_SUB5, LIQUIDITY_CAP_FRACTION, simulateDay, type RunSpec } from './simulate'
 import { buildUniverse } from './universe'
+import { ruleVariantSpecs } from './variants'
 
 const args = new Map<string, string>()
 for (const arg of process.argv.slice(2)) {
@@ -46,7 +47,10 @@ async function main() {
   else assertOutsideMarketHours()
 
   const universe = await buildUniverse({ historyStart: '2026-02-10', end: PERIOD_END, periodStart: PERIOD_START })
-  const days = universe.tradingDays.slice(0, maxDays)
+  // --sim-from/--sim-to narrow the simulated days while keeping the full-period universe (and its bar cache) intact.
+  const simFrom = args.get('sim-from') ?? PERIOD_START
+  const simTo = args.get('sim-to') ?? PERIOD_END
+  const days = universe.tradingDays.filter((day) => day >= simFrom && day <= simTo).slice(0, maxDays)
   console.log(`[backtest] ${universe.symbols.length} symbols (${universe.delisted.size} inactive/delisted), ${days.length} trading days ${days[0]}..${days.at(-1)}`)
 
   if (!cacheOnly) {
@@ -60,7 +64,10 @@ async function main() {
     console.log(`[backtest] minute bars cached in ${Math.round((Date.now() - startedAt) / 1000)}s, Alpaca calls so far ${apiStats.alpaca}`)
   }
 
-  const runs = specs.map(createRunState)
+  const selected = args.get('runs')?.split(',')
+  const allSpecs = [...specs, ...ruleVariantSpecs]
+  const runs = (selected ? allSpecs.filter((spec) => selected.includes(spec.id)) : specs).map(createRunState)
+  if (!runs.length) throw new Error(`No runs matched --runs=${args.get('runs')}`)
   let tracked = 0
   for (const [index, day] of days.entries()) {
     if (!cacheOnly) assertOutsideMarketHours()

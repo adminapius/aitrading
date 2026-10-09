@@ -7,7 +7,22 @@ import { getLatestQuote } from './data'
 import { DECISION_START_MINUTE, FLATTEN_MINUTE, MINUTE, type DayMarket, type MinuteBar, type MinuteCandidate } from './market'
 
 export type StrategyId = 'A' | 'B' | 'C' | 'D'
-export type RunSpec = { id: string; strategy: StrategyId; slippageMultiplier: number; label: string }
+export type EntryContext = {
+  candidate: MinuteCandidate
+  minuteOfDay: number
+  regime: string
+  spreadPct: number
+  entryIndex: number
+  minutesSinceFirstSeen: number
+}
+export type RunSpec = {
+  id: string
+  strategy: StrategyId
+  slippageMultiplier: number
+  label: string
+  // Returns a block reason to skip an otherwise-valid A/B entry (diagnostic rule variants only).
+  entryFilter?: (context: EntryContext) => string | null
+}
 export type ExitKind = 'stop' | 'target' | 'flatten' | 'gap'
 
 export type Trade = {
@@ -34,6 +49,15 @@ export type Trade = {
   t1Hit: boolean
   catalyst: string
   reason: string
+  mfeR: number
+  maeR: number
+  zeroSlipPnl: number
+  entrySpreadPct: number
+  changePctAtEntry: number | null
+  float: number | null
+  entryIndex: number
+  minutesSinceFirstSeen: number
+  entryMinuteOfDay: number
 }
 
 type Position = {
@@ -61,6 +85,17 @@ type Position = {
   exitNotional: number
   catalyst: string
   reason: string
+  rawEntry: number
+  rawRealized: number
+  lastRawExit: number
+  maxHigh: number
+  minLow: number
+  entrySpreadPct: number
+  changePctAtEntry: number | null
+  float: number | null
+  entryIndex: number
+  minutesSinceFirstSeen: number
+  entryMinuteOfDay: number
 }
 
 export type RunState = {
@@ -123,11 +158,29 @@ function slippageFraction(mark: Mark | null, price: number, multiplier: number) 
   return base * multiplier
 }
 
-function closeShares(position: Position, shares: number, price: number) {
+function closeShares(position: Position, shares: number, rawPrice: number) {
+  const price = rawPrice * (1 - position.slippageFraction)
+  position.rawRealized += (rawPrice - position.rawEntry) * shares
+  position.lastRawExit = rawPrice
   position.realized += (price - position.entryPrice) * shares
   position.remaining -= shares
   position.exitShares += shares
   position.exitNotional += price * shares
+}
+
+function riskR(position: Position, price: number) {
+  const perShare = position.shares > 0 ? position.initialRisk / position.shares : 0
+  return perShare > 0 ? (price - position.entryPrice) / perShare : 0
+}
+
+function trackExtremes(position: Position, bar: MinuteBar, kind: ExitKind | null) {
+  // Stop-first rule: on a stop/gap bar the high is assumed to come after the exit, and the low is the actual exit fill.
+  if (kind === 'stop' || kind === 'gap') {
+    position.minLow = Math.min(position.minLow, position.lastRawExit)
+    return
+  }
+  position.minLow = Math.min(position.minLow, bar.l)
+  position.maxHigh = Math.max(position.maxHigh, bar.h)
 }
 
 function finalize(state: RunState, market: DayMarket, position: Position, kind: ExitKind, at: number) {
@@ -155,27 +208,35 @@ function finalize(state: RunState, market: DayMarket, position: Position, kind: 
     t1Hit: position.t1Hit,
     catalyst: position.catalyst,
     reason: position.reason,
+    mfeR: riskR(position, position.maxHigh),
+    maeR: riskR(position, position.minLow),
+    zeroSlipPnl: position.rawRealized,
+    entrySpreadPct: position.entrySpreadPct,
+    changePctAtEntry: position.changePctAtEntry,
+    float: position.float,
+    entryIndex: position.entryIndex,
+    minutesSinceFirstSeen: position.minutesSinceFirstSeen,
+    entryMinuteOfDay: position.entryMinuteOfDay,
   }
   state.trades.push(trade)
   return trade
 }
 
 function evaluateBar(state: RunState, market: DayMarket, shared: SharedDayContext, position: Position, bar: MinuteBar, minute: number): ExitKind | null {
-  const slip = position.slippageFraction
   const exitAt = bar.t + MINUTE
   if (position.phase === 'standard') {
     const levels = paperExitLevels({ entry_price: position.entryPrice, stop_price: position.stop, target_price: position.target, metadata: { riskPerShare: position.riskPerShare } })
     const record = { entry_price: position.entryPrice, stop_price: levels.stopPrice, target_price: levels.targetPrice, metadata: { riskPerShare: position.riskPerShare } }
     if (levels.stopPrice != null && bar.o <= levels.stopPrice) {
-      closeShares(position, position.remaining, bar.o * (1 - slip))
+      closeShares(position, position.remaining, bar.o)
       return 'gap'
     }
     if (paperExitReason(record, { price: bar.l, bid: bar.l }, false) === 'protective stop reached') {
-      closeShares(position, position.remaining, levels.stopPrice! * (1 - slip))
+      closeShares(position, position.remaining, levels.stopPrice!)
       return 'stop'
     }
     if (paperExitReason(record, { price: bar.h, bid: bar.h }, false) === 'profit target reached') {
-      closeShares(position, position.remaining, Math.max(levels.targetPrice!, bar.o) * (1 - slip))
+      closeShares(position, position.remaining, Math.max(levels.targetPrice!, bar.o))
       return 'target'
     }
     return null
@@ -183,16 +244,16 @@ function evaluateBar(state: RunState, market: DayMarket, shared: SharedDayContex
 
   const stopLevel = position.t1Hit ? position.trailingStop : position.stop
   if (bar.o <= stopLevel) {
-    closeShares(position, position.remaining, bar.o * (1 - slip))
+    closeShares(position, position.remaining, bar.o)
     return 'gap'
   }
   if (bar.l <= stopLevel) {
-    closeShares(position, position.remaining, stopLevel * (1 - slip))
+    closeShares(position, position.remaining, stopLevel)
     return 'stop'
   }
   const target = position.t1Hit ? position.t2 : position.target
   if (target != null && bar.h >= target) {
-    const price = Math.max(target, bar.o) * (1 - slip)
+    const price = Math.max(target, bar.o)
     if (position.phase === 'wave3' && !position.t1Hit) {
       const shares = Math.min(position.remaining, Math.max(1, position.t1Shares))
       closeShares(position, shares, price)
@@ -216,6 +277,8 @@ export async function simulateDay(state: RunState, market: DayMarket, shared: Sh
   const positions: Position[] = []
   const cooldownUntil = new Map<string, number>()
   const tracked = new Map<string, { candidate: MinuteCandidate; startedAt: number }>()
+  const firstSeenMinute = new Map<string, number>()
+  const entriesBySymbol = new Map<string, number>()
   const dayStartEquity = state.equity
   let realizedToday = 0
 
@@ -240,6 +303,7 @@ export async function simulateDay(state: RunState, market: DayMarket, shared: Sh
       const bar = market.barStarting(position.symbol, now - MINUTE)
       if (bar && bar.t >= position.entryAt) {
         const kind = evaluateBar(state, market, shared, position, bar, minute)
+        trackExtremes(position, bar, kind)
         if (kind) {
           closePosition(position, kind, bar.t + MINUTE)
           continue
@@ -248,7 +312,7 @@ export async function simulateDay(state: RunState, market: DayMarket, shared: Sh
       if (minute === FLATTEN_MINUTE + 1) {
         const flattenBar = market.barStarting(position.symbol, now - MINUTE) ?? market.lastClosedBar(position.symbol, now)
         const price = flattenBar && flattenBar.t >= position.entryAt ? flattenBar.c : position.entryPrice
-        closeShares(position, position.remaining, price * (1 - position.slippageFraction))
+        closeShares(position, position.remaining, price)
         closePosition(position, 'flatten', now)
       }
     }
@@ -257,6 +321,7 @@ export async function simulateDay(state: RunState, market: DayMarket, shared: Sh
     const regime = strategyRegime(new Date(now))
     if (regime.name === 'exits-only') continue
     const candidates = market.candidatesAt(minute)
+    for (const candidate of candidates) if (candidate.scannerEligible && !firstSeenMinute.has(candidate.symbol)) firstSeenMinute.set(candidate.symbol, minute)
     const unrealized = positions.reduce((sum, position) => sum + (markOf(position, now) - position.entryPrice) * position.remaining, 0)
     const equity = dayStartEquity + realizedToday + unrealized
     const exposure = positions.reduce((sum, position) => sum + markOf(position, now) * position.remaining, 0)
@@ -311,7 +376,19 @@ export async function simulateDay(state: RunState, market: DayMarket, shared: Sh
         exitNotional: 0,
         catalyst: candidate.catalystSummary ?? '',
         reason: input.reason,
+        rawEntry: fillBar.o,
+        rawRealized: 0,
+        lastRawExit: fillBar.o,
+        maxHigh: fillBar.o,
+        minLow: fillBar.o,
+        entrySpreadPct: mark.spreadPct,
+        changePctAtEntry: candidate.changePercent ?? null,
+        float: candidate.float ?? null,
+        entryIndex: (entriesBySymbol.get(candidate.symbol) ?? 0) + 1,
+        minutesSinceFirstSeen: minute - (firstSeenMinute.get(candidate.symbol) ?? minute),
+        entryMinuteOfDay: minute,
       })
+      entriesBySymbol.set(candidate.symbol, (entriesBySymbol.get(candidate.symbol) ?? 0) + 1)
       remainingAllocation = Math.max(0, remainingAllocation - shares * fill)
       bump(state, 'entries')
     }
@@ -327,6 +404,17 @@ export async function simulateDay(state: RunState, market: DayMarket, shared: Sh
         if (!scannerSpreadPasses(mark, candidate, now)) { bump(state, 'skip_spread'); continue }
         const decision = decideEntry({ ...candidate, price: mark.ask, bid: mark.bid, ask: mark.ask, spreadPct: mark.spreadPct }, equity, new Date(now), remainingAllocation)
         if (decision.action !== 'enter') { bump(state, 'skip_decide_at_ask'); continue }
+        if (spec.entryFilter) {
+          const blocked = spec.entryFilter({
+            candidate,
+            minuteOfDay: minute,
+            regime: regime.name,
+            spreadPct: mark.spreadPct,
+            entryIndex: (entriesBySymbol.get(candidate.symbol) ?? 0) + 1,
+            minutesSinceFirstSeen: minute - (firstSeenMinute.get(candidate.symbol) ?? minute),
+          })
+          if (blocked) { bump(state, `filtered_${blocked}`); continue }
+        }
         if (spec.strategy === 'B') {
           const uses = getElliottAllowedUses(regime.name as ElliottRegime)
           const analysis = analysisFor(shared, market, candidate.symbol, minute, candidate.relativeVolume ?? 0, regime.rvol)

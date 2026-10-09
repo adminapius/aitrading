@@ -77,7 +77,7 @@ function describe(trade: Trade) {
   }
 }
 
-const csvFields: Array<keyof Trade> = ['run', 'strategy', 'date', 'symbol', 'regime', 'rank', 'entryAt', 'entryPrice', 'shares', 'stop', 'target', 'exitAt', 'exitPrice', 'exitKind', 'pnl', 'r', 'holdMinutes', 'slippageFraction', 'spreadSource', 'liquidityCapped', 't1Hit', 'catalyst', 'reason']
+const csvFields: Array<keyof Trade> = ['run', 'strategy', 'date', 'symbol', 'regime', 'rank', 'entryAt', 'entryPrice', 'shares', 'stop', 'target', 'exitAt', 'exitPrice', 'exitKind', 'pnl', 'r', 'holdMinutes', 'slippageFraction', 'spreadSource', 'liquidityCapped', 't1Hit', 'mfeR', 'maeR', 'zeroSlipPnl', 'entrySpreadPct', 'changePctAtEntry', 'float', 'entryIndex', 'minutesSinceFirstSeen', 'entryMinuteOfDay', 'catalyst', 'reason']
 
 function csvCell(value: unknown) {
   const text = value == null ? '' : typeof value === 'number' ? String(Number(value.toFixed(6))) : String(value)

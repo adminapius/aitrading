@@ -163,6 +163,8 @@ function fiveMinuteAtrByBar(bars: ElliottBar[]) {
   return output
 }
 
+export const elliottInternalsForTest = { easternMinute, fiveMinuteAtrByBar }
+
 function sessionVwapSeries(bars: ElliottBar[]) {
   let totalVolume = 0
   let weightedPrice = 0
