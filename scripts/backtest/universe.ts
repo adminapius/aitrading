@@ -15,6 +15,20 @@ export type Universe = {
   daily: Map<string, DailyRow[]>
   floats: Record<string, number>
   tradingDays: string[]
+  shareHistory?: Map<string, Array<{ date: string; shares: number }>>
+}
+
+export function floatOn(universe: Universe, symbol: string, day: string): number | undefined {
+  const current = universe.floats[symbol]
+  const history = universe.shareHistory?.get(symbol)
+  if (current == null || !history?.length) return current
+  const latest = history.at(-1)!.shares
+  let asOf: number | undefined
+  for (const point of history) {
+    if (point.date > day) break
+    asOf = point.shares
+  }
+  return asOf == null ? current : current * (asOf / latest)
 }
 
 const easternDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' })

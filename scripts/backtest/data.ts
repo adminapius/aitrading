@@ -222,6 +222,22 @@ export function flushQuoteCache() {
   dirtyQuoteDays.clear()
 }
 
+export type ShareCountPoint = { date: string; shares: number }
+
+// FMP's stable API has no historical float endpoint (the v4 one is legacy-only), so quarterly share counts
+// from enterprise-values are used to scale the current float back in time.
+export async function getShareCountHistory(symbol: string): Promise<ShareCountPoint[]> {
+  return cached(`fmp/share-count-history/${symbol}`, 'fmp', async () => {
+    const apiKey = process.env.FMP_API_KEY?.trim()
+    if (!apiKey) throw new Error('FMP_API_KEY is required for share-count history')
+    const rows = await fetchJson<Array<{ date?: string; numberOfShares?: number }>>(`https://financialmodelingprep.com/stable/enterprise-values?symbol=${encodeURIComponent(symbol)}&period=quarter&limit=12&apikey=${apiKey}`, 'fmp-share-history', 'fmp')
+    return (Array.isArray(rows) ? rows : [])
+      .map((row) => ({ date: String(row.date ?? ''), shares: Number(row.numberOfShares) }))
+      .filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.date) && Number.isFinite(row.shares) && row.shares > 0)
+      .sort((left, right) => left.date.localeCompare(right.date))
+  })
+}
+
 export async function getCurrentFloats(): Promise<Record<string, number>> {
   return cached('fmp/shares-float-all', 'fmp', async () => {
     const apiKey = process.env.FMP_API_KEY?.trim()

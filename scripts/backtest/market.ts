@@ -2,7 +2,7 @@ import { scanConfig } from '../../lib/scan-config'
 import { normalizeFloatShares, strategyRegime, type ScanCandidate } from '../../lib/strategy'
 import type { ElliottBar } from '../../lib/elliott-wave'
 import { getFifteenMinuteBars, getMinuteBarsForDay, getNewsForDay, type RawBar } from './data'
-import { averageTrueRange, dailyIndex, toEasternDay, type Universe } from './universe'
+import { averageTrueRange, dailyIndex, floatOn, toEasternDay, type Universe } from './universe'
 
 export const MINUTE = 60_000
 export const DECISION_START_MINUTE = 7 * 60
@@ -110,7 +110,7 @@ export function daySymbolSets(universe: Universe, day: string) {
     const peak = Math.max(row.o, row.h)
     if (peak < scanConfig.minPrice) continue
     const gain = peak / prevClose - 1
-    const float = normalizeFloatShares(universe.floats[symbol], 'fmp')
+    const float = normalizeFloatShares(floatOn(universe, symbol, day), 'fmp')
     const inPool = gain >= POOL_MIN_DAILY_GAIN
     const entryCandidate = gain > 0.02 && float != null && float <= 10_000_000
     if (!inPool && !entryCandidate) continue
@@ -155,7 +155,7 @@ export async function loadDay(universe: Universe, day: string): Promise<DayMarke
       name: universe.names.get(symbol) ?? '',
       prevClose: info.prevClose,
       atr: info.atr,
-      float: normalizeFloatShares(universe.floats[symbol], 'fmp'),
+      float: normalizeFloatShares(floatOn(universe, symbol, day), 'fmp'),
       bars,
       cumVolume,
       cumPriceVolume,
