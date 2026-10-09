@@ -17,6 +17,8 @@ for (const arg of process.argv.slice(2)) {
 
 const PERIOD_START = args.get('from') ?? '2026-04-08'
 const PERIOD_END = args.get('to') ?? '2026-10-07'
+// 57 calendar days keeps the original 2026-04-08 period's history start at 2026-02-10.
+const HISTORY_LOOKBACK_DAYS = 57
 const OUTPUT_DIR = join(process.cwd(), args.get('out') ?? 'backtests/2026-10-6m')
 const cacheOnly = args.get('cache-only') === 'true'
 const maxDays = Number(args.get('days') ?? Infinity)
@@ -53,7 +55,8 @@ async function main() {
   if (cacheOnly) setCacheOnly(true)
   else assertOutsideMarketHours()
 
-  const universe = await buildUniverse({ historyStart: '2026-02-10', end: PERIOD_END, periodStart: PERIOD_START, simFrom: args.get('sim-from'), simTo: args.get('sim-to') })
+  const historyStart = new Date(Date.parse(`${PERIOD_START}T00:00:00Z`) - HISTORY_LOOKBACK_DAYS * 86_400_000).toISOString().slice(0, 10)
+  const universe = await buildUniverse({ historyStart, end: PERIOD_END, periodStart: PERIOD_START, simFrom: args.get('sim-from'), simTo: args.get('sim-to') })
   // --sim-from/--sim-to narrow the simulated days while keeping the full-period universe (and its bar cache) intact.
   const simFrom = args.get('sim-from') ?? PERIOD_START
   const simTo = args.get('sim-to') ?? PERIOD_END

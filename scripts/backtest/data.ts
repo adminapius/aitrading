@@ -75,9 +75,37 @@ function alpacaHeaders() {
   }
 }
 
+const PAUSE_START_MINUTE = 6 * 60 + 45
+const RESUME_MINUTE = 16 * 60 + 5
+
+function minutesUntilAlpacaAllowed(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(now)
+  const value = (type: string) => parts.find((part) => part.type === type)?.value ?? ''
+  const minute = Number(value('hour')) * 60 + Number(value('minute'))
+  const weekday = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(value('weekday'))
+  return weekday && minute >= PAUSE_START_MINUTE && minute < RESUME_MINUTE ? RESUME_MINUTE - minute : 0
+}
+
+let pauseLogged = false
+// Live scanner owns Alpaca during 06:45-16:05 ET on weekdays; long backtests sleep through that window and resume on their own.
+async function waitForAlpacaWindow() {
+  for (let wait = minutesUntilAlpacaAllowed(); wait > 0; wait = minutesUntilAlpacaAllowed()) {
+    if (!pauseLogged) {
+      console.log(`[backtest] pausing Alpaca downloads for ${wait} min (06:45-16:05 ET quiet window), resuming at 16:05 ET`)
+      pauseLogged = true
+    }
+    await new Promise((resolve) => setTimeout(resolve, Math.min(wait, 5) * 60_000))
+  }
+  if (pauseLogged) {
+    console.log('[backtest] resuming Alpaca downloads')
+    pauseLogged = false
+  }
+}
+
 async function fetchJson<T>(url: string, kind: string, source: 'alpaca' | 'fmp' = 'alpaca'): Promise<T> {
   return withSlot(async () => {
     for (let attempt = 0; attempt < 6; attempt += 1) {
+      if (source === 'alpaca') await waitForAlpacaWindow()
       if (source === 'alpaca') apiStats.alpaca += 1
       else apiStats.fmp += 1
       apiStats.byKind[kind] = (apiStats.byKind[kind] ?? 0) + 1
