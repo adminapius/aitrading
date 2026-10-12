@@ -142,6 +142,27 @@ export async function recordScheduleEvent(action: ScheduleEventAction, now = new
   return { recorded: true }
 }
 
+// Flatten passes run 15:55-16:00 ET, after the SLEEP event is first written; re-stamp it so it stays the day's last log row.
+export async function keepSleepEventLast(now: Date) {
+  if (!eventActionAtSchedule('sleep', now)) return { moved: false }
+  const configurationError = getSupabaseConfigurationError()
+  if (configurationError) throw new Error(configurationError)
+  const url = new URL(`${tradingConfig.supabaseUrl}/rest/v1/ait_logevents`)
+  url.search = new URLSearchParams({
+    event_type: 'eq.SYSTEM',
+    symbol: 'eq.SLEEP',
+    created_at: `gte.${easternDayStart(now).toISOString()}`,
+  }).toString()
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
+    body: JSON.stringify({ created_at: new Date().toISOString() }),
+    cache: 'no-store',
+  })
+  if (!response.ok) throw new Error(`Supabase sleep-event reorder failed (${response.status})`)
+  return { moved: true }
+}
+
 export function easternDateKey(now: Date) {
   const { year, month, day } = easternSchedule(now)
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
