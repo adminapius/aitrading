@@ -12,6 +12,7 @@ import { cancelOrder, checkPaperGate, clientOrderId, listOrders, listPositions, 
 import { ENTRY_LIMIT_BUFFER, exitNow, logOrderEvent, placeProtection } from '@/lib/alpaca-execution'
 import { loadOpenPaperPositions, loadPaperMarketMarksWithDiagnostics } from '@/lib/paper-trading'
 import { alpacaHeaders, tradingConfig } from '@/lib/trading-config'
+import { loadTradingControl } from '@/lib/trading-control'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -36,11 +37,13 @@ export async function GET(request: NextRequest) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const gate = await checkPaperGate()
   if (!gate.ok) return NextResponse.json({ gate })
-  const [positions, openOrders] = await Promise.all([listPositions(), listOrders({ status: 'open', limit: 50 })])
+  const [positions, openOrders, control] = await Promise.all([listPositions(), listOrders({ status: 'open', limit: 50 }), loadTradingControl()])
   return NextResponse.json({
     gate,
     executionMode: process.env.EXECUTION_MODE ?? 'internal',
-    tradingHalt: process.env.TRADING_HALT ?? 'false',
+    tradingHalt: control.halted,
+    tradingHaltSource: control.source,
+    tradingHaltReason: control.reason,
     positions: positions.map((position) => ({ symbol: position.symbol, qty: position.qty, avgEntry: position.avg_entry_price })),
     openOrders: openOrders.map((order) => ({ symbol: order.symbol, side: order.side, type: order.type, orderClass: order.order_class, status: order.status, qty: order.qty, clientOrderId: order.client_order_id })),
   })
