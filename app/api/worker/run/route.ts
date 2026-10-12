@@ -11,7 +11,8 @@ import { attachElliottRealExit, runElliottShadowPass } from '@/lib/elliott-wave-
 import { isExecutableQuoteMark, type PaperMarkDiagnosis } from '@/lib/paper-marks'
 import { decideStrategyEntry, loadSymbolDayHistory, resolveStrategyConfig, type StrategyDecision, type SymbolDayHistory } from '@/lib/strategies/live-strategy'
 import { loadOpenShadowRows, loadShadowLedger, loadShadowMarks, openShadowEntries, resolveShadowPositions, shadowAvailableAllocation, type ShadowEntryCandidate, type ShadowLedger, type ShadowResolutionStats, type ShadowStrategyStats } from '@/lib/strategies/shadow-strategy'
-import { checkPaperGate, executionMode, paperCredentialsCheck, tradingHalted, type GateResult } from '@/lib/alpaca-broker'
+import { checkPaperGate, executionMode, paperCredentialsCheck, type GateResult } from '@/lib/alpaca-broker'
+import { loadTradingControl, recordTradingControlTransition } from '@/lib/trading-control'
 import { ENTRY_DEADLINE_MS, enterViaAlpaca, entryBlockReason, flattenAlpaca, isAlpacaPosition, isBrokerFlattenTime, isPremarketSession, isRegularSession, loadEntryPreflightState, reconcileAlpaca, type EntryPreflightState, type ReconcileClose } from '@/lib/alpaca-execution'
 
 export const dynamic = 'force-dynamic'
@@ -300,7 +301,6 @@ export async function POST(request: NextRequest) {
   }
   const flatten = isFlattenWindow(now)
   const brokerMode = executionMode()
-  const halted = tradingHalted()
   const strategyConfig = resolveStrategyConfig()
   if (strategyConfig.warnings.length) console.warn('[worker] strategy config', strategyConfig.warnings)
   if (!isTradingWindow(now) && !flatten) return NextResponse.json({ status: 'sleeping', mode: 'paper', checkedAt: now.toISOString() })
@@ -326,6 +326,7 @@ export async function POST(request: NextRequest) {
   }
 
   let sessionId: string | null = null
+  let halted = true
   let scanRunCreated = false
   let outcome: ScanOutcome = { status: 'failed', scannedCandidates: candidates.length, enterCandidates: 0, positionsExited: 0 }
   let persistenceWarning: string | null = null
@@ -344,6 +345,13 @@ export async function POST(request: NextRequest) {
       receivedAt: now.toISOString(),
       flatten,
     }).catch((error) => console.error('[worker] scan start event could not be written', { scanId, error }))
+
+    // TRADING_HALT from the database (manual switch + 07:00-11:00 ET schedule); blocks new entries only.
+    const tradingControl = await loadTradingControl(now)
+    halted = tradingControl.halted
+    if (await recordTradingControlTransition(tradingControl).catch(() => false)) {
+      await writeScanEvent('TRADING_SWITCH', halted ? `TRADING_HALT = true — new buys paused (${tradingControl.reason ?? 'halted'}).` : 'TRADING_HALT = false — new buys allowed.', context, { halted, source: tradingControl.source, reason: tradingControl.reason }).catch(() => undefined)
+    }
 
     const openPositions = await loadOpenPaperPositions()
     const { marks, diagnostics: markDiagnostics } = await loadPaperMarketMarksWithDiagnostics([...openPositions.map((position) => position.symbol), ...candidates.map((candidate) => candidate.symbol)], now)
