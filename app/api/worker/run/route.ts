@@ -2,7 +2,7 @@ import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseHeaders, tradingConfig } from '@/lib/trading-config'
 import { sendTradingNotification } from '@/lib/notifications'
-import { recordScheduleEvent, scheduleWindowAction } from '@/lib/scheduled-events'
+import { keepSleepEventLast, recordScheduleEvent, scheduleWindowAction } from '@/lib/scheduled-events'
 import { claimScanLease, ensureScanSession, releaseScanLease } from '@/lib/scan-lock'
 import { minimumScanLeaseIntervalSeconds, scanConfig } from '@/lib/scan-config'
 import { closePaperPosition, loadPaperMarketMarksWithDiagnostics, loadOpenPaperPositions, markPaperPosition, openPaperPosition, paperExecutionGuardrails, paperExitLevels, paperExitReason, paperExitRequestedPrice, positionExposure } from '@/lib/paper-trading'
@@ -855,6 +855,9 @@ export async function POST(request: NextRequest) {
       { ...context, sessionId: sessionId ?? undefined, durationMs },
       { startedAt: scanStartedAt.toISOString(), endedAt: new Date().toISOString(), scanDurationMs: durationMs, ...outcome },
     ).catch((error) => console.error('[worker] scan end event could not be written', { scanId, error }))
+    if (scheduleAction === 'sleep') {
+      await keepSleepEventLast(now).catch((error) => console.error('[worker] sleep event could not be moved to the end of the log', { scanId, error }))
+    }
     if (scanRunCreated) {
       await updateScanRun(scanId, {
         session_id: sessionId,
