@@ -87,7 +87,7 @@ def lease_result_for_worker_status(status: str | None, successful: bool) -> str:
         return "busy"
     if status == "cadence_skipped":
         return "cooldown"
-    if successful and status == "paper_decisions_ready":
+    if successful and status in ("paper_decisions_ready", "paper_execution_complete", "paper_flatten_complete"):
         return "acquired"
     return "error"
 
