@@ -20,8 +20,16 @@ export function setCacheOnly(value: boolean) {
   cacheOnly = value
 }
 
+// Windows forbids : * ? " < > | in file names and reserves CON, PRN, AUX, NUL, COM1-9, LPT1-9 (which are also tickers).
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i
+
+function safeSegment(segment: string) {
+  const cleaned = segment.replace(/[:*?"<>|]/g, '-')
+  return WINDOWS_RESERVED.test(cleaned.split('.')[0]) ? `_${cleaned}` : cleaned
+}
+
 function cachePath(key: string) {
-  return join(CACHE_ROOT, `${key}.json.gz`)
+  return join(CACHE_ROOT, `${key.split('/').map(safeSegment).join('/')}.json.gz`)
 }
 
 export function readCache<T>(key: string): T | undefined {
