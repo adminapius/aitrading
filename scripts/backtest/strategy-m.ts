@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { gunzipSync } from 'node:zlib'
 import { scanConfig } from '../../lib/scan-config'
 import { strategyGuardrails, strategyRegime } from '../../lib/strategy'
@@ -18,7 +18,7 @@ for (const arg of process.argv.slice(2)) {
   const [key, value] = arg.replace(/^--/, '').split('=')
   args.set(key, value ?? 'true')
 }
-const OUTPUT_DIR = join(process.cwd(), args.get('out') ?? 'backtests/strategy-m')
+const OUTPUT_DIR = resolve(process.cwd(), args.get('out') ?? 'backtests/strategy-m')
 const HISTORY_LOOKBACK_DAYS = 57
 const BASE_SLIPPAGE = 0.0005
 const LIQUIDITY_CAP_FRACTION = 0.05
