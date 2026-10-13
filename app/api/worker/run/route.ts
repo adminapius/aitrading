@@ -9,6 +9,8 @@ import { closePaperPosition, loadPaperMarketMarksWithDiagnostics, loadOpenPaperP
 import { decideEntry, isFlattenWindow, isTradingWindow, normalizeFloatShares, scoreCandidate, simulatedMarginBuyingPower, strategyGuardrails, strategyRegime, type ScanCandidate } from '@/lib/strategy'
 import { attachElliottRealExit, runElliottShadowPass } from '@/lib/elliott-wave-shadow'
 import { isExecutableQuoteMark, type PaperMarkDiagnosis } from '@/lib/paper-marks'
+import { strategyMShadowEnabled } from '@/lib/strategies/midday-momentum'
+import { runMiddayShadowPass, type MiddayShadowStats } from '@/lib/strategies/midday-shadow'
 import { decideStrategyEntry, loadSymbolDayHistory, resolveStrategyConfig, type StrategyDecision, type SymbolDayHistory } from '@/lib/strategies/live-strategy'
 import { loadOpenShadowRows, loadShadowLedger, loadShadowMarks, openShadowEntries, resolveShadowPositions, shadowAvailableAllocation, type ShadowEntryCandidate, type ShadowLedger, type ShadowResolutionStats, type ShadowStrategyStats } from '@/lib/strategies/shadow-strategy'
 import { checkPaperGate, executionMode, paperCredentialsCheck, type GateResult } from '@/lib/alpaca-broker'
@@ -817,6 +819,27 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Strategy M (Midday) shadow: database-only, independent of Strategy A's shadow and of every live/broker path.
+    let middayShadow: MiddayShadowStats | null = null
+    if (strategyMShadowEnabled()) {
+      try {
+        middayShadow = await runMiddayShadowPass({
+          scanId,
+          sessionId,
+          now,
+          flatten,
+          regime: strategyRegime(now).name,
+          slippageFraction: paperExecutionGuardrails().slippageFraction,
+          candidates,
+          marks,
+          isExecutable: isExecutableQuoteMark,
+        })
+      } catch (error) {
+        persistenceWarning ??= error instanceof Error ? error.message : 'Strategy M shadow pass could not be persisted'
+        console.warn('[worker] Strategy M shadow pass failed without affecting paper execution', { scanId, error })
+      }
+    }
+
     const filledEntries = paperExecutions.filter((execution) => execution.status === 'filled')
     const notificationResults = body.notify && filledEntries.length
       ? await sendTradingNotification({ title: 'AItrading paper entries', message: `Paper-only entries filled: ${filledEntries.map(({ symbol }) => symbol).join(', ')}` })
@@ -840,6 +863,7 @@ export async function POST(request: NextRequest) {
       elliottShadow,
       strategy: { live: strategyConfig.live, shadow: strategyConfig.shadow, warnings: strategyConfig.warnings },
       shadowStrategy,
+      ...(middayShadow ? { middayShadow } : {}),
       liveTradingEnabled: false,
       ...(persistenceWarning ? { persistenceWarning } : {}),
     })

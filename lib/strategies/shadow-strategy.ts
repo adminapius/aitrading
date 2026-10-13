@@ -148,7 +148,7 @@ export function admitShadowEntry(ledger: ShadowLedger, entry: { symbol: string; 
   return { admitted: true, shares }
 }
 
-async function shadowRequest(path: string, init?: RequestInit) {
+export async function shadowRequest(path: string, init?: RequestInit) {
   const response = await fetch(`${tradingConfig.supabaseUrl}/rest/v1/${path}`, {
     ...init,
     headers: { ...supabaseHeaders(), ...(init?.headers ?? {}) },
@@ -159,11 +159,11 @@ async function shadowRequest(path: string, init?: RequestInit) {
   return response
 }
 
-export async function loadOpenShadowRows(sessionId: string): Promise<OpenShadowRow[]> {
+export async function loadOpenShadowRows(sessionId: string, rule: string = SHADOW_STRATEGY_RULE): Promise<OpenShadowRow[]> {
   const params = new URLSearchParams({
     select: 'id,symbol,stop,t1,trigger_price,would_be_shares,metadata',
     session_id: `eq.${sessionId}`,
-    rule: `eq.${SHADOW_STRATEGY_RULE}`,
+    rule: `eq.${rule}`,
     outcome: 'is.null',
   })
   const rows = await (await shadowRequest(`ait_shadow_signals?${params}`)).json() as Array<Record<string, unknown>>
@@ -178,13 +178,13 @@ export async function loadOpenShadowRows(sessionId: string): Promise<OpenShadowR
   }))
 }
 
-async function loadShadowLedgerRows(): Promise<ShadowLedgerRow[]> {
+async function loadShadowLedgerRows(rule: string): Promise<ShadowLedgerRow[]> {
   const pageSize = 1_000
   const rows: ShadowLedgerRow[] = []
   for (let offset = 0; ; offset += pageSize) {
     const params = new URLSearchParams({
       select: 'symbol,session_id,outcome,outcome_at,trigger_price,would_be_shares,fill_price',
-      rule: `eq.${SHADOW_STRATEGY_RULE}`,
+      rule: `eq.${rule}`,
       order: 'id.asc',
       limit: String(pageSize),
       offset: String(offset),
@@ -205,8 +205,8 @@ async function loadShadowLedgerRows(): Promise<ShadowLedgerRow[]> {
   }
 }
 
-export async function loadShadowLedger(input: { sessionId: string; startingBalance: number; marks: Map<string, PaperMarketMark>; slippageFraction: number }) {
-  return buildShadowLedger({ ...input, rows: await loadShadowLedgerRows() })
+export async function loadShadowLedger(input: { sessionId: string; startingBalance: number; marks: Map<string, PaperMarketMark>; slippageFraction: number; rule?: string }) {
+  return buildShadowLedger({ ...input, rows: await loadShadowLedgerRows(input.rule ?? SHADOW_STRATEGY_RULE) })
 }
 
 /** Latest bid per symbol, falling back to the last trade when the quote is missing. Used only to resolve the 15:55 flatten. */
