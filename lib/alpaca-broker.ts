@@ -11,7 +11,7 @@ export function executionMode(env: Record<string, string | undefined> = process.
   return env.EXECUTION_MODE?.trim().toLowerCase() === 'alpaca' ? 'alpaca' : 'internal'
 }
 
-/** TRADING_HALT=true is the kill switch: no new entries are sent anywhere. Open positions stay protected and are still flattened at 15:55. */
+/** Legacy env check; no longer used by the worker (the database switch in lib/trading-control.ts is the only switch). */
 export function tradingHalted(env: Record<string, string | undefined> = process.env) {
   return ['1', 'true', 'yes', 'on'].includes(env.TRADING_HALT?.trim().toLowerCase() ?? '')
 }

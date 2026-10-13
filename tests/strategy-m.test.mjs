@@ -112,20 +112,26 @@ test('entry window is 11:00 inclusive to 15:30 exclusive ET', () => {
   assert.equal(isMiddayEntryWindow(new Date('2026-12-14T16:00:00Z')), true)
 })
 
-test('STRATEGY_M_SHADOW defaults off', () => {
+test('Strategy M shadow is database-driven and defaults off', () => {
+  assert.equal(strategyMShadowEnabled(null), false)
+  assert.equal(strategyMShadowEnabled(undefined), false)
   assert.equal(strategyMShadowEnabled({}), false)
-  assert.equal(strategyMShadowEnabled({ STRATEGY_M_SHADOW: '' }), false)
-  assert.equal(strategyMShadowEnabled({ STRATEGY_M_SHADOW: 'false' }), false)
-  assert.equal(strategyMShadowEnabled({ STRATEGY_M_SHADOW: 'yes please' }), false)
-  assert.equal(strategyMShadowEnabled({ STRATEGY_M_SHADOW: 'true' }), true)
-  assert.equal(strategyMShadowEnabled({ STRATEGY_M_SHADOW: ' ON ' }), true)
+  assert.equal(strategyMShadowEnabled({ strategy_m_shadow: null }), false)
+  assert.equal(strategyMShadowEnabled({ strategy_m_shadow: false }), false)
+  assert.equal(strategyMShadowEnabled({ strategy_m_shadow: true }), true)
+  process.env.STRATEGY_M_SHADOW = 'true'
+  try {
+    assert.equal(strategyMShadowEnabled({ strategy_m_shadow: false }), false) // env var is ignored
+  } finally {
+    delete process.env.STRATEGY_M_SHADOW
+  }
 })
 
 test('flag off = no change: the worker only touches Strategy M inside the flag guard and omits it from the response', () => {
   const source = readFileSync(new URL('../app/api/worker/run/route.ts', import.meta.url), 'utf8')
   const calls = source.split('runMiddayShadowPass(').length - 1
   assert.equal(calls, 1)
-  const guard = source.indexOf('if (strategyMShadowEnabled()) {')
+  const guard = source.indexOf('if (strategyMShadowEnabled(tradingControl.row)) {')
   const call = source.indexOf('runMiddayShadowPass(')
   assert.ok(guard > 0 && call > guard && call - guard < 200)
   assert.match(source, /\.\.\.\(middayShadow \? \{ middayShadow \} : \{\}\)/)

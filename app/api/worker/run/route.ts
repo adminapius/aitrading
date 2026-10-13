@@ -821,7 +821,7 @@ export async function POST(request: NextRequest) {
 
     // Strategy M (Midday) shadow: database-only, independent of Strategy A's shadow and of every live/broker path.
     let middayShadow: MiddayShadowStats | null = null
-    if (strategyMShadowEnabled()) {
+    if (strategyMShadowEnabled(tradingControl.row)) {
       try {
         middayShadow = await runMiddayShadowPass({
           scanId,
