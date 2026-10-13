@@ -50,9 +50,12 @@ export function isMiddayEntryWindow(now: Date) {
   return minute >= middayConfig.entryStartMinute && minute < middayConfig.entryEndMinute
 }
 
-/** STRATEGY_M_SHADOW defaults to off; only an explicit true/1/yes/on enables it. */
-export function strategyMShadowEnabled(env: Record<string, string | undefined> = process.env) {
-  return /^(true|1|yes|on)$/i.test(env.STRATEGY_M_SHADOW?.trim() ?? '')
+/**
+ * Strategy M shadow on/off comes from the database (ait_trading_control.strategy_m_shadow, default false), so it
+ * can be switched without a redeploy. Off whenever the control row is missing or unreadable.
+ */
+export function strategyMShadowEnabled(control: { strategy_m_shadow?: boolean | null } | null | undefined) {
+  return control?.strategy_m_shadow === true
 }
 
 export function sessionVwap(bars: MiddayBar[]) {

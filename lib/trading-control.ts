@@ -18,6 +18,8 @@ export type TradingControlRow = {
   entries_close_et: string
   last_effective_halt: boolean | null
   reason: string | null
+  /** Strategy M (Midday) shadow on/off; database-driven, default false. */
+  strategy_m_shadow?: boolean | null
 }
 
 export type TradingControlState = {
@@ -52,7 +54,7 @@ export async function loadTradingControl(now = new Date()): Promise<TradingContr
   let row: TradingControlRow | null = null
   try {
     const url = new URL(CONTROL_URL())
-    url.search = new URLSearchParams({ select: 'trading_halt,schedule_enabled,entries_open_et,entries_close_et,last_effective_halt,reason', id: 'eq.1', limit: '1' }).toString()
+    url.search = new URLSearchParams({ select: 'trading_halt,schedule_enabled,entries_open_et,entries_close_et,last_effective_halt,reason,strategy_m_shadow', id: 'eq.1', limit: '1' }).toString()
     const response = await fetch(url, { headers: supabaseHeaders(), signal: AbortSignal.timeout(5_000), cache: 'no-store' })
     if (response.ok) row = ((await response.json()) as TradingControlRow[])[0] ?? null
   } catch (error) {
