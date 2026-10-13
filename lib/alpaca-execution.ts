@@ -622,7 +622,7 @@ export async function reconcileAlpaca(input: { sessionId: string; scanId: string
           await logOrderEvent({ ...base, event: 'protection_pending', payload: { error: errorText(lastError) } })
           if (pendingBefore >= 1 && (await recentEventCount('protection_alerted', position.id, 15)) === 0) {
             await logOrderEvent({ ...base, event: 'protection_alerted' })
-            await alert(`AItrading: ${position.symbol} has NO STOP at Alpaca`, `Stop/target could not be placed for 2+ scans (${errorText(lastError)}). The app keeps retrying; check Alpaca or set TRADING_HALT.`)
+            await alert(`AItrading: ${position.symbol} has NO STOP at Alpaca`, `Stop/target could not be placed for 2+ scans (${errorText(lastError)}). The app keeps retrying; check Alpaca or pause trading (ait_trading_control.trading_halt = true).`)
           }
           continue
         }

@@ -1,13 +1,12 @@
 // Database-backed TRADING_HALT switch with a daily schedule. No redeploy needed to change it.
 //
+// The database is the ONLY switch (the old TRADING_HALT environment variable is no longer read).
 // Effective halt (blocks NEW entries only; stops, targets and the 15:55 flatten always run):
-//   env TRADING_HALT=true (master override)          -> halted
 //   ait_trading_control.trading_halt = true (manual)  -> halted
 //   schedule on and now outside open..close ET        -> halted
 //   otherwise                                         -> trading
 // If the control row cannot be read, entries are blocked (fail closed).
 
-import { tradingHalted } from '@/lib/alpaca-broker'
 import { easternSchedule } from '@/lib/strategy'
 import { supabaseHeaders, tradingConfig } from '@/lib/trading-config'
 
@@ -23,7 +22,7 @@ export type TradingControlRow = {
 
 export type TradingControlState = {
   halted: boolean
-  source: 'env' | 'manual' | 'schedule' | 'unavailable' | null
+  source: 'manual' | 'schedule' | 'unavailable' | null
   reason: string | null
   row: TradingControlRow | null
 }
@@ -34,8 +33,7 @@ function minutes(hhmm: string) {
 }
 
 /** Pure decision, unit-tested. */
-export function effectiveTradingHalt(row: TradingControlRow | null, now: Date, envHalt: boolean): TradingControlState {
-  if (envHalt) return { halted: true, source: 'env', reason: 'TRADING_HALT environment variable is on', row }
+export function effectiveTradingHalt(row: TradingControlRow | null, now: Date): TradingControlState {
   if (!row) return { halted: true, source: 'unavailable', reason: 'Trading control could not be read; entries blocked to be safe', row }
   if (row.trading_halt) return { halted: true, source: 'manual', reason: row.reason || 'Trading paused manually', row }
   if (row.schedule_enabled) {
@@ -50,7 +48,7 @@ export function effectiveTradingHalt(row: TradingControlRow | null, now: Date, e
 
 const CONTROL_URL = () => `${tradingConfig.supabaseUrl}/rest/v1/ait_trading_control`
 
-export async function loadTradingControl(now = new Date(), env: Record<string, string | undefined> = process.env): Promise<TradingControlState> {
+export async function loadTradingControl(now = new Date()): Promise<TradingControlState> {
   let row: TradingControlRow | null = null
   try {
     const url = new URL(CONTROL_URL())
@@ -60,7 +58,7 @@ export async function loadTradingControl(now = new Date(), env: Record<string, s
   } catch (error) {
     console.error('[trading-control] read failed', error)
   }
-  return effectiveTradingHalt(row, now, tradingHalted(env))
+  return effectiveTradingHalt(row, now)
 }
 
 /** Records a flip of the effective state once (returns true when it changed). */
