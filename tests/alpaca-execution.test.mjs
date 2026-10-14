@@ -344,6 +344,25 @@ test('flatten market-closes Alpaca and the ledger is closed as a session flatten
   assert.equal(supabase.rpc.find((r) => r.name === 'close').body.p_fill_price, 9.5)
 })
 
+test('flatten cancels resting stop/target orders before market-closing (no 403 from held shares)', async () => {
+  const { alpaca } = setup({ ask: 10 })
+  alpaca.positions.set('ABCD', { symbol: 'ABCD', qty: '40', avg_entry_price: '10', side: 'long' })
+  alpaca.orders.set('oco1', { id: 'oco1', client_order_id: 'ait-p-abcd', symbol: 'ABCD', side: 'sell', type: 'limit', order_class: 'oco', status: 'new', qty: '40', filled_qty: '0', filled_avg_price: null, legs: [] })
+  await exec.flattenAlpaca({ sessionId: 's', scanId: 'x' })
+  const cancelAt = alpaca.requests.findIndex((r) => r.method === 'DELETE' && r.pathname === '/v2/orders/oco1')
+  const closeAt = alpaca.requests.findIndex((r) => r.method === 'DELETE' && r.pathname === '/v2/positions')
+  assert.ok(cancelAt >= 0 && closeAt > cancelAt)
+  assert.equal(alpaca.positions.size, 0)
+})
+
+test('flatten does nothing once the account is flat (runs every scan from 15:30)', async () => {
+  const { alpaca, supabase } = setup({ ask: 10 })
+  const result = await exec.flattenAlpaca({ sessionId: 's', scanId: 'x' })
+  assert.deepEqual(result.remaining, [])
+  assert.ok(!alpaca.requests.some((r) => r.method === 'DELETE'))
+  assert.ok(!supabase.events.some((e) => e.event === 'flatten_submitted'))
+})
+
 test('exit reasons are read from order type / our client order ids', () => {
   assert.equal(exec.exitReasonForOrder({ client_order_id: 'ait-x-tgt-abc', type: 'limit' }), 'profit target reached')
   assert.equal(exec.exitReasonForOrder({ client_order_id: 'zzz', type: 'stop' }), 'protective stop reached')
@@ -405,7 +424,8 @@ test('excess shares beyond the ledger are sold, tracked shares kept', async () =
 
 test('flatten time uses Alpaca clock (half days) as well as the 15:55 schedule', () => {
   assert.equal(exec.isBrokerFlattenTime({ ...OPEN_CLOCK, minutesToClose: 4 }, false), true)
-  assert.equal(exec.isBrokerFlattenTime({ ...OPEN_CLOCK, minutesToClose: 30 }, false), false)
+  assert.equal(exec.isBrokerFlattenTime({ ...OPEN_CLOCK, minutesToClose: 30 }, false), true) // 15:30
+  assert.equal(exec.isBrokerFlattenTime({ ...OPEN_CLOCK, minutesToClose: 31 }, false), false) // 15:29
   assert.equal(exec.isBrokerFlattenTime(null, true), true)
   assert.equal(exec.isPremarketSession(PRE_CLOCK), true)
   assert.equal(exec.isPremarketSession(HOLIDAY_CLOCK), false)
