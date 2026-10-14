@@ -50,6 +50,8 @@ export type TechnicalSpec = {
   /** Skip setups whose stop is wider than this fraction of price. */
   maxRiskFraction: number
   filter: UniverseFilter
+  /** Max bid/ask spread (%) at entry. Defaults to the live scanner rule (0.75% at the open, 1% pre-market). */
+  maxSpreadPct?: number
   trigger: (context: TechContext) => TechSignal | null
   exit: ExitPlan
 }
@@ -116,6 +118,15 @@ export const band20to30: UniverseFilter = (candidate) => {
 /** Any top gainer up >= 10%, price >= $3, relative volume >= 2.5 (the research universe). */
 export const gainers10: UniverseFilter = (candidate) => {
   if ((candidate.changePercent ?? 0) < 10) return 'gain_min'
+  if (candidate.price < 3) return 'min_price'
+  if (!candidate.relativeVolumeReliable || (candidate.relativeVolume ?? 0) < 2.5) return 'rvol'
+  return null
+}
+
+/** Wider research universe: up 10-60% on the day, price >= $3, relative volume >= 2.5. */
+export const gainers10to60: UniverseFilter = (candidate) => {
+  const change = candidate.changePercent ?? 0
+  if (change < 10 || change > 60) return 'gain_range'
   if (candidate.price < 3) return 'min_price'
   if (!candidate.relativeVolumeReliable || (candidate.relativeVolume ?? 0) < 2.5) return 'rvol'
   return null
@@ -214,8 +225,17 @@ function fiveMinuteBars(bars: MinuteBar[], from: number, n: number, midnight: nu
   return [...buckets.values()].filter((bucket) => open + (bucket.start * 5 + 4) * MINUTE <= lastClosed).sort((a, b) => a.start - b.start)
 }
 
+export type FlagRules = { minPoleGain: number; maxFlagVolumeRatio: number }
+export const STRICT_FLAG: FlagRules = { minPoleGain: 0.04, maxFlagVolumeRatio: 0.6 }
+export const LOOSE_FLAG: FlagRules = { minPoleGain: 0.03, maxFlagVolumeRatio: 0.75 }
+
 /** 5-minute bull flag: 1-3 green high-volume pole candles (+4% or more), 2-5 tight low-volume flag candles. */
-export function bullFlag({ data, ind, n, midnight }: TechContext): TechSignal | null {
+export function bullFlag(context: TechContext): TechSignal | null {
+  return bullFlagWith(STRICT_FLAG)(context)
+}
+
+export function bullFlagWith(rules: FlagRules) {
+  return ({ data, ind, n, midnight }: TechContext): TechSignal | null => {
   const bars = data.bars
   const five = fiveMinuteBars(bars, ind.sessionStart, n, midnight)
   if (five.length < 4) return null
@@ -228,14 +248,14 @@ export function bullFlag({ data, ind, n, midnight }: TechContext): TechSignal | 
       if (!pole.every((bar) => bar.c > bar.o)) break
       const poleLow = Math.min(...pole.map((bar) => bar.l))
       const poleHigh = Math.max(...pole.map((bar) => bar.h))
-      if (pole[pole.length - 1].c / pole[0].o - 1 < 0.04) continue
+      if (pole[pole.length - 1].c / pole[0].o - 1 < rules.minPoleGain) continue
       const before = five.slice(Math.max(0, poleStart - 5), poleStart)
       if (!before.length || avg(pole.map((bar) => bar.v)) < 2 * avg(before.map((bar) => bar.v))) continue
       const flagHigh = Math.max(...flag.map((bar) => bar.h))
       const flagLow = Math.min(...flag.map((bar) => bar.l))
       if (flagHigh > poleHigh) continue
       if (flagLow < poleHigh - 0.5 * (poleHigh - poleLow)) continue
-      if (avg(flag.map((bar) => bar.v)) > 0.6 * avg(pole.map((bar) => bar.v))) continue
+      if (avg(flag.map((bar) => bar.v)) > rules.maxFlagVolumeRatio * avg(pole.map((bar) => bar.v))) continue
       if (!freshCloseAbove(bars, n, flagHigh)) return null
       return {
         stop: flagLow - 0.01,
@@ -246,6 +266,7 @@ export function bullFlag({ data, ind, n, midnight }: TechContext): TechSignal | 
     }
   }
   return null
+  }
 }
 
 // ---------- run specs ----------
@@ -261,5 +282,15 @@ for (const [suffix, filter, label] of [['B', band20to30, 'up 20-30%'], ['G', gai
     { id: `PMH-${suffix}`, label: `Pre-market-high breakout, managed exit (${label})`, technical: { name: 'pmh', entryStart: 9 * 60 + 30, entryEnd: 10 * 60 + 30, maxEntriesPerSymbol: 1, maxRiskFraction: 0.08, filter, trigger: pmhBreakout, exit: MANAGED } },
     { id: `MP-${suffix}`, label: `Micro pullback (EMA 9/20, VWAP, RSI 50-80), managed exit (${label})`, technical: { name: 'micro_pullback', entryStart: 9 * 60 + 35, entryEnd: 11 * 60, maxEntriesPerSymbol: 3, maxRiskFraction: 0.08, filter, trigger: microPullback, exit: MANAGED } },
     { id: `FLAG-${suffix}`, label: `5-min bull flag, measured-move target, managed exit (${label})`, technical: { name: 'bull_flag', entryStart: 9 * 60 + 45, entryEnd: 11 * 60, maxEntriesPerSymbol: 2, maxRiskFraction: 0.08, filter, trigger: bullFlag, exit: MANAGED } },
+    { id: `FLAG2-${suffix}`, label: `5-min bull flag, looser (pole +3%, flag volume <= 75%), managed exit (${label})`, technical: { name: 'bull_flag_loose', entryStart: 9 * 60 + 45, entryEnd: 11 * 60, maxEntriesPerSymbol: 2, maxRiskFraction: 0.08, filter, trigger: bullFlagWith(LOOSE_FLAG), exit: MANAGED } },
   )
 }
+
+// Round 2 (after the first technical run): the range-low ORB and pre-market-high break were the only positive
+// setups but had too few trades, mostly because of the gain band and the 0.75% opening spread rule. "W" widens
+// the universe to gainers up 10-60% and allows spreads up to 1%.
+technicalSpecs.push(
+  { id: 'ORB-LOW-W', label: '5-min ORB, stop under range low, managed exit (gainers 10-60%, spread <= 1%)', technical: { name: 'orb5_low_wide', entryStart: 9 * 60 + 35, entryEnd: 11 * 60, maxEntriesPerSymbol: 1, maxRiskFraction: 0.08, filter: gainers10to60, maxSpreadPct: 1, trigger: orb5('range_low'), exit: MANAGED } },
+  { id: 'PMH-W', label: 'Pre-market-high breakout, managed exit (gainers 10-60%, spread <= 1%)', technical: { name: 'pmh_wide', entryStart: 9 * 60 + 30, entryEnd: 10 * 60 + 30, maxEntriesPerSymbol: 1, maxRiskFraction: 0.08, filter: gainers10to60, maxSpreadPct: 1, trigger: pmhBreakout, exit: MANAGED } },
+  { id: 'FLAG2-W', label: '5-min bull flag, looser, managed exit (gainers 10-60%, spread <= 1%)', technical: { name: 'bull_flag_loose_wide', entryStart: 9 * 60 + 45, entryEnd: 11 * 60, maxEntriesPerSymbol: 2, maxRiskFraction: 0.08, filter: gainers10to60, maxSpreadPct: 1, trigger: bullFlagWith(LOOSE_FLAG), exit: MANAGED } },
+)

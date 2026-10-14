@@ -116,3 +116,20 @@ test('Jose band filter: 20-30%, $3+, RVOL 2.5+', () => {
   assert.equal(band20to30({ changePercent: 25, price: 2, relativeVolumeReliable: true, relativeVolume: 3 }), 'min_price')
   assert.equal(band20to30({ changePercent: 25, price: 4, relativeVolumeReliable: true, relativeVolume: 2 }), 'rvol')
 })
+
+test('round 2: wide universe (10-60%) and looser bull flag (+3% pole, flag volume <= 75%)', async () => {
+  const { gainers10to60, bullFlagWith, LOOSE_FLAG, STRICT_FLAG } = await import('../scripts/backtest/technical')
+  assert.equal(gainers10to60({ changePercent: 45, price: 4, relativeVolumeReliable: true, relativeVolume: 3 }), null)
+  assert.equal(gainers10to60({ changePercent: 75, price: 4, relativeVolumeReliable: true, relativeVolume: 3 }), 'gain_range')
+  const rows = []
+  const five = (start, o, h, l, c, v) => { for (let i = 0; i < 5; i += 1) rows.push([start + i, i === 0 ? o : c, h, l, c, v / 5]) }
+  five(570, 5.0, 5.05, 4.95, 5.0, 10000)
+  five(575, 5.0, 5.05, 4.95, 5.01, 10000)
+  five(580, 5.0, 5.18, 4.99, 5.17, 30000) // pole +3.4%
+  five(585, 5.17, 5.16, 5.1, 5.12, 21000) // flag at 70% of pole volume
+  five(590, 5.12, 5.15, 5.09, 5.13, 21000)
+  rows.push([595, 5.13, 5.2, 5.12, 5.19, 8000])
+  const data = day(rows)
+  assert.equal(bullFlagWith(STRICT_FLAG)(ctx(data, rows.length)), null)
+  assert.ok(bullFlagWith(LOOSE_FLAG)(ctx(data, rows.length)))
+})

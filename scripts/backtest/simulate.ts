@@ -518,7 +518,10 @@ export async function simulateDay(state: RunState, market: DayMarket, shared: Sh
         const priced = { ...candidate, price: data.bars[n - 1].c }
         const mark = await executableQuote(market, priced, now)
         if (!mark) { bump(state, 'skip_no_quote'); continue }
-        if (!scannerSpreadPasses(mark, priced, now)) { bump(state, 'skip_spread'); continue }
+        const spreadOk = tech.maxSpreadPct != null
+          ? mark.spreadPct <= tech.maxSpreadPct && (priced.volume ?? 0) * mark.mid >= strategyRegime(new Date(now)).dollarVolume && mark.mid >= scanConfig.minPrice
+          : scannerSpreadPasses(mark, priced, now)
+        if (!spreadOk) { bump(state, 'skip_spread'); continue }
         const risk = mark.ask - signal.stop
         if (!(risk > 0)) { bump(state, 'skip_stop_above_ask'); continue }
         if (risk / mark.ask > tech.maxRiskFraction) { bump(state, 'skip_risk_too_wide'); continue }
