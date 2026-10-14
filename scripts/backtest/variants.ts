@@ -1,5 +1,6 @@
 import { cleanMomentumBlockReason } from '../../lib/strategies/clean-momentum'
 import type { EntryContext, RunSpec } from './simulate'
+import { TECH_FLATTEN_MINUTE, technicalSpecs } from './technical'
 
 export { CLEAN_MOMENTUM_GAIN_RANGE } from '../../lib/strategies/clean-momentum'
 
@@ -58,6 +59,8 @@ export const ruleVariantSpecs: RunSpec[] = [
   { id: 'R1-x3', strategy: 'A', slippageMultiplier: 3, label: 'R1 at 3x slippage', entryFilter: ({ entryIndex }) => (entryIndex > 2 ? 'max_entries' : null) },
   ...cleanMomentumSpecs,
   ...researchCandidateSpecs(),
+  // Technical entry triggers (scripts/backtest/technical.ts), all closed by 15:30 ET like the live Alpaca flatten.
+  ...technicalSpecs.flatMap(({ id, label, technical }) => [1, 2].map((multiplier): RunSpec => ({ id: multiplier > 1 ? `${id}-x${multiplier}` : id, strategy: 'T', slippageMultiplier: multiplier, label: multiplier > 1 ? `${label} at ${multiplier}x slippage` : label, technical, flattenMinute: TECH_FLATTEN_MINUTE }))),
 ]
 
 // Candidates from the 18-month winners-vs-losers study (2025-04-01..2026-10-07, run A trades). Not tuned further here;
