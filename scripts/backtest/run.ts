@@ -5,6 +5,7 @@ import { elliottWaveConfig } from '../../lib/elliott-wave-config'
 import { apiStats, flushQuoteCache, HISTORICAL_FEED, setCacheOnly } from './data'
 import { loadDay, prefetchDay, setFifteenMinuteWindow, TOP_GAINERS } from './market'
 import { writeReport } from './report'
+import { uploadBacktest } from './upload'
 import { createRunState, DEFAULT_SLIPPAGE_OVER5, DEFAULT_SLIPPAGE_SUB5, LIQUIDITY_CAP_FRACTION, simulateDay, type RunSpec } from './simulate'
 import { buildUniverse, floatCoverage, floatLookups } from './universe'
 import { ruleVariantSpecs } from './variants'
@@ -142,6 +143,8 @@ async function main() {
   }
   console.log(JSON.stringify(summary.runs.map((run) => ({ id: run.id, trades: run.summary.trades, winRate: run.summary.winRate, expectancy: run.summary.expectancy, pf: run.summary.profitFactor, pnl: run.summary.totalPnl, ddPct: run.summary.maxDrawdownPct })), null, 2))
   console.log(`[backtest] done in ${runtimeSeconds}s; Alpaca calls=${apiStats.alpaca} cached=${apiStats.alpacaCached} fmp=${apiStats.fmp}`)
+  // --upload saves the results to Supabase (ait_backtest_runs / ait_backtest_trades). The files on disk are written first either way.
+  if (args.get('upload') === 'true') await uploadBacktest(OUTPUT_DIR, args.get('label') ?? undefined)
 }
 
 main().catch((error) => {
