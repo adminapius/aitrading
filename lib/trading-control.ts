@@ -1,7 +1,7 @@
 // Database-backed TRADING_HALT switch with a daily schedule. No redeploy needed to change it.
 //
 // The database is the ONLY switch (the old TRADING_HALT environment variable is no longer read).
-// Effective halt (blocks NEW entries only; stops, targets and the 15:55 flatten always run):
+// Effective halt (blocks NEW entries only; stops, targets and the 15:30 Alpaca flatten always run):
 //   ait_trading_control.trading_halt = true (manual)  -> halted
 //   schedule on and now outside open..close ET        -> halted
 //   otherwise                                         -> trading

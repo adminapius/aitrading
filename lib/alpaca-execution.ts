@@ -12,7 +12,7 @@
 //      sends an extended-hours sell limit when the stop/target is crossed; the OCO goes on at the open.
 //   4. Exit: whatever Alpaca fills (stop, target, flatten, manual) is read back each scan and closed
 //      in the ledger at Alpaca's fill price.
-//   5. Close-5min (15:55 normally, earlier on half days): cancel all orders, market-close everything.
+//   5. Close-30min (15:30 normally, 12:30 on half days): cancel all orders (confirmed), then market-close everything.
 // Anything the app cannot track or protect is closed rather than left open.
 
 import {
@@ -44,8 +44,8 @@ export const ENTRY_FILL_WAIT_MS = 8_000
 export const CANCEL_CONFIRM_WAIT_MS = 6_000
 export const PREMARKET_EXIT_LIMIT_BUFFER = 0.005
 export const FLATTEN_WAIT_MS = 20_000
-/** Flatten this many minutes before Alpaca's next close (15:55 on normal days, 12:55 on half days). */
-export const FLATTEN_MINUTES_BEFORE_CLOSE = 5
+/** Flatten this many minutes before Alpaca's next close (15:30 on normal days, 12:30 on half days). */
+export const FLATTEN_MINUTES_BEFORE_CLOSE = 30
 /** Pre-market entries only when Alpaca's next open is within this window (blocks holidays/weekends). */
 export const PREMARKET_MAX_MINUTES_TO_OPEN = 150
 /** Stop starting new broker entries after this much of the 60s worker budget is used. */
@@ -54,7 +54,7 @@ export const ENTRY_DEADLINE_MS = 35_000
 export const LEDGER_REFUSAL_COOLDOWN_MINUTES = 15
 /** The orphan sweep leaves test-harness shares alone this long (the harness closes its own). */
 export const TEST_ORDER_GRACE_MS = 3 * 60_000
-const FLATTEN_MINUTE = 15 * 60 + 55
+const FLATTEN_MINUTE = 15 * 60 + 30
 const OUR_ORDER = /^ait-[epxt]-/
 
 export const EXIT_REASONS = {
@@ -78,7 +78,7 @@ export function isPremarketSession(clock: MarketClock) {
   return !clock.isOpen && clock.minutesToOpen != null && clock.minutesToOpen > 0 && clock.minutesToOpen <= PREMARKET_MAX_MINUTES_TO_OPEN
 }
 
-/** True in the last minutes before Alpaca's close (or the fixed 15:55 window from the schedule). */
+/** True from 30 minutes before Alpaca's close (15:30, or 12:30 on half days), or in the schedule's 15:55 window. */
 export function isBrokerFlattenTime(clock: MarketClock | null, scheduleFlatten: boolean) {
   if (scheduleFlatten) return true
   return Boolean(clock?.isOpen && clock.minutesToClose != null && clock.minutesToClose <= FLATTEN_MINUTES_BEFORE_CLOSE)
@@ -419,9 +419,9 @@ export function exitReasonForOrder(order: Pick<AlpacaOrder, 'client_order_id' | 
   if (order.type === 'stop' || order.type === 'stop_limit' || order.type === 'trailing_stop') return EXIT_REASONS.stop
   if (order.type === 'limit' && (coid.startsWith('ait-p-') || order.order_class === 'oco')) return EXIT_REASONS.target
   if (order.filled_at) {
-    // Market sells we did not tag come from the close flatten (15:55, or 12:55 on half days).
+    // Market sells we did not tag come from the close flatten (from 15:30, or 12:30 on half days).
     const minute = easternSchedule(new Date(order.filled_at)).minuteOfDay
-    if (minute >= FLATTEN_MINUTE || (minute >= 12 * 60 + 55 && minute < 13 * 60 + 5)) return EXIT_REASONS.flatten
+    if (minute >= FLATTEN_MINUTE || (minute >= 12 * 60 + 30 && minute < 13 * 60 + 5)) return EXIT_REASONS.flatten
   }
   return EXIT_REASONS.manual
 }
@@ -696,17 +696,38 @@ export async function reconcileAlpaca(input: { sessionId: string; scanId: string
 
 /** Close-time: cancel every open order, market-close every position, then wait briefly for the fills. */
 export async function flattenAlpaca(input: { sessionId: string; scanId: string }) {
-  const responses = await closeAllPositions()
-  await logOrderEvent({ sessionId: input.sessionId, scanId: input.scanId, symbol: '*', event: 'flatten_submitted', payload: { responses: responses.map((item) => ({ symbol: item.symbol, status: item.status, orderId: item.body?.id ?? null })) } })
-  const started = Date.now()
+  // Runs on every scan from 15:30 (12:30 on half days); does nothing once the account is flat.
   let remaining = await listPositions()
+  let openOrders = await listOrders({ status: 'open', limit: 500 })
+  if (!remaining.length && !openOrders.length) return { remaining: [] as string[] }
+
+  // Cancel resting stop/target orders first and wait for Alpaca to confirm. Closing while an OCO still holds the
+  // shares is refused (403 "insufficient qty available"), which is what delayed the Oct 14 GRML close.
+  for (const order of openOrders) await cancelOrder(order.id).catch(() => false)
+  const cancelStarted = Date.now()
+  while (openOrders.length && Date.now() - cancelStarted < CANCEL_CONFIRM_WAIT_MS) {
+    await new Promise((resolve) => setTimeout(resolve, 1_000))
+    openOrders = await listOrders({ status: 'open', limit: 500 })
+  }
+
+  const responses = await closeAllPositions()
+  await logOrderEvent({ sessionId: input.sessionId, scanId: input.scanId, symbol: '*', event: 'flatten_submitted', payload: { responses: responses.map((item) => ({ symbol: item.symbol, status: item.status, orderId: item.body?.id ?? null })), ordersStillOpenBeforeClose: openOrders.length } })
+  const started = Date.now()
+  let retried = false
+  remaining = await listPositions()
   while (remaining.length && Date.now() - started < FLATTEN_WAIT_MS) {
     await new Promise((resolve) => setTimeout(resolve, 2_000))
     remaining = await listPositions()
+    if (remaining.length && !retried && Date.now() - started >= 6_000) {
+      // One retry for anything the first close request refused.
+      retried = true
+      const retry = await closeAllPositions()
+      await logOrderEvent({ sessionId: input.sessionId, scanId: input.scanId, symbol: '*', event: 'flatten_submitted', payload: { retry: true, responses: retry.map((item) => ({ symbol: item.symbol, status: item.status, orderId: item.body?.id ?? null })) } })
+    }
   }
   if (remaining.length) {
     await logOrderEvent({ sessionId: input.sessionId, scanId: input.scanId, symbol: '*', event: 'flatten_incomplete', payload: { remaining: remaining.map((position) => ({ symbol: position.symbol, qty: position.qty })) } })
-    await alert('AItrading: flatten incomplete', `Still open at Alpaca after the close flatten: ${remaining.map((position) => `${position.symbol} ${position.qty}`).join(', ')}. Close them manually in Alpaca.`)
+    await alert('AItrading: flatten incomplete', `Still open at Alpaca after the close flatten: ${remaining.map((position) => `${position.symbol} ${position.qty}`).join(', ')}. The app retries every scan until 15:55; close them manually in Alpaca if this repeats.`)
   }
   return { remaining: remaining.map((position) => position.symbol) }
 }
