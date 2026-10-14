@@ -57,4 +57,31 @@ export const ruleVariantSpecs: RunSpec[] = [
   { id: 'R1-x2', strategy: 'A', slippageMultiplier: 2, label: 'R1 at 2x slippage', entryFilter: ({ entryIndex }) => (entryIndex > 2 ? 'max_entries' : null) },
   { id: 'R1-x3', strategy: 'A', slippageMultiplier: 3, label: 'R1 at 3x slippage', entryFilter: ({ entryIndex }) => (entryIndex > 2 ? 'max_entries' : null) },
   ...cleanMomentumSpecs,
+  ...researchCandidateSpecs(),
 ]
+
+// Candidates from the 18-month winners-vs-losers study (2025-04-01..2026-10-07, run A trades). Not tuned further here;
+// this run checks them in the full simulator (real entries, fills, capital and cooldown interactions).
+function researchCandidateSpecs(): RunSpec[] {
+  // C1: up 20-50% on the day, price >= $5, on the gainers list for 60+ minutes.
+  const c1 = ({ candidate, minutesSinceFirstSeen }: EntryContext): string | null => {
+    const change = candidate.changePercent ?? 0
+    if (change < 20 || change > 50) return 'c1_gain_range'
+    if (candidate.price < 5) return 'c1_min_price'
+    if (minutesSinceFirstSeen < 60) return 'c1_too_early'
+    return null
+  }
+  // C2: up less than 50% on the day, entry at or after 11:00 ET, price >= $3.
+  const c2 = ({ candidate, minuteOfDay }: EntryContext): string | null => {
+    if ((candidate.changePercent ?? 0) >= 50) return 'c2_overextended'
+    if (minuteOfDay < 11 * 60) return 'c2_before_11'
+    if (candidate.price < 3) return 'c2_min_price'
+    return null
+  }
+  return [
+    { id: 'C1', strategy: 'A', slippageMultiplier: 1, label: 'C1. Up 20-50%, price >= $5, listed 60+ min', entryFilter: c1 },
+    { id: 'C2', strategy: 'A', slippageMultiplier: 1, label: 'C2. Up < 50%, after 11:00 ET, price >= $3', entryFilter: c2 },
+    { id: 'C1-x2', strategy: 'A', slippageMultiplier: 2, label: 'C1 at 2x slippage', entryFilter: c1 },
+    { id: 'C2-x2', strategy: 'A', slippageMultiplier: 2, label: 'C2 at 2x slippage', entryFilter: c2 },
+  ]
+}
