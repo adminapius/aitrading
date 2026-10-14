@@ -133,3 +133,34 @@ test('round 2: wide universe (10-60%) and looser bull flag (+3% pole, flag volum
   assert.equal(bullFlagWith(STRICT_FLAG)(ctx(data, rows.length)), null)
   assert.ok(bullFlagWith(LOOSE_FLAG)(ctx(data, rows.length)))
 })
+
+test('Strategy J helpers: buy/sell ratio, next round level, wide vs tight stop', async () => {
+  const { buySellRatio, nextRoundLevel, joseSetup, joseChecklist } = await import('../scripts/backtest/technical')
+  const flow = [{ c: 5, v: 0 }, { c: 5.1, v: 300 }, { c: 5.05, v: 100 }, { c: 5.2, v: 300 }]
+  assert.equal(buySellRatio(flow, 3, 15), 6)
+  assert.equal(nextRoundLevel(3.37), 3.5)
+  assert.equal(nextRoundLevel(3.45), 4) // 3.50 is less than 2% away
+  assert.equal(nextRoundLevel(12.3), 13)
+  assert.equal(joseChecklist({ changePercent: 30, price: 5, relativeVolumeReliable: true, relativeVolume: 3, hasNews: false, float: 5e6 }), 'no_news')
+  assert.equal(joseChecklist({ changePercent: 30, price: 5, relativeVolumeReliable: true, relativeVolume: 3, hasNews: true, float: 20e6 }), 'float')
+
+  // Uptrend on heavy up-volume, a 3-bar pullback, then a green candle above the prior high.
+  const build = (pullbackVolume) => {
+    const rows = []
+    let p = 4
+    for (let m = 560; m < 600; m += 1) {
+      const step = m % 2 === 0 ? 0.11 : -0.05
+      rows.push([m, p, Math.max(p, p + step) + 0.01, Math.min(p, p + step) - 0.01, p + step, step > 0 ? 9000 : 3000])
+      p += step
+    }
+    rows.push([600, 5.2, 5.24, 5.14, 5.15, pullbackVolume], [601, 5.15, 5.17, 5.1, 5.12, pullbackVolume], [602, 5.12, 5.16, 5.11, 5.14, 1000], [603, 5.14, 5.22, 5.13, 5.21, 4000])
+    return rows
+  }
+  const bullish = joseSetup(0.2)(ctx(day(build(1000)), 44))
+  assert.ok(bullish && /bullish/.test(bullish.reason))
+  assert.ok(Math.abs(bullish.stop - 5.21 * 0.8) < 1e-9)
+  assert.equal(bullish.target, 5.5)
+  const heavySelling = joseSetup(0.2)(ctx(day(build(60000)), 44))
+  assert.ok(heavySelling && /not bullish/.test(heavySelling.reason))
+  assert.ok(Math.abs(heavySelling.stop - 5.09) < 1e-9)
+})
