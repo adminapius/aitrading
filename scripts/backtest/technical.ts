@@ -38,6 +38,12 @@ export type ExitPlan = {
   trailEma9?: boolean
   /** Exit everything on a 1-min close below VWAP. */
   vwapExit?: boolean
+  /** Treat the signal target as a PARTIAL (sell partialFraction there, stop to breakeven) instead of a full exit. */
+  partialAtTarget?: boolean
+  /** Exit when the last 10 minutes turn seller-dominated (buy/sell volume ratio below 1/1.5). */
+  pressureExit?: boolean
+  /** After the partial, add half the original size once on a new high with 1.5x volume and buyer-dominated flow. */
+  addOnStrength?: boolean
 }
 
 export type UniverseFilter = (candidate: MinuteCandidate) => string | null
@@ -50,6 +56,8 @@ export type TechnicalSpec = {
   /** Skip setups whose stop is wider than this fraction of price. */
   maxRiskFraction: number
   filter: UniverseFilter
+  /** 'risk' (default): shares = 1% of equity / stop distance. 'notional': fixed 25% of equity, whatever the stop. */
+  sizing?: 'risk' | 'notional'
   /** Max bid/ask spread (%) at entry. Defaults to the live scanner rule (0.75% at the open, 1% pre-market). */
   maxSpreadPct?: number
   trigger: (context: TechContext) => TechSignal | null
@@ -129,6 +137,40 @@ export const gainers10to60: UniverseFilter = (candidate) => {
   if (change < 10 || change > 60) return 'gain_range'
   if (candidate.price < 3) return 'min_price'
   if (!candidate.relativeVolumeReliable || (candidate.relativeVolume ?? 0) < 2.5) return 'rvol'
+  return null
+}
+
+/**
+ * Buy vs sell volume over the last `lookback` closed bars (index `last` inclusive). Minute bars have no trade-by-trade
+ * aggressor flag, so each bar's volume counts as buying when it closes above the previous close and selling when it
+ * closes below (unchanged bars are split). Returns buy/sell; > 1 means buyers dominated.
+ */
+export function buySellRatio(bars: MinuteBar[], last: number, lookback = 15) {
+  let buy = 0
+  let sell = 0
+  for (let index = Math.max(1, last - lookback + 1); index <= last; index += 1) {
+    const change = bars[index].c - bars[index - 1].c
+    if (change > 0) buy += bars[index].v
+    else if (change < 0) sell += bars[index].v
+    else { buy += bars[index].v / 2; sell += bars[index].v / 2 }
+  }
+  return sell > 0 ? buy / sell : buy > 0 ? Number.POSITIVE_INFINITY : 1
+}
+
+/** Next half-dollar (or whole dollar for $10+) at least 2% above the entry price. */
+export function nextRoundLevel(price: number) {
+  const step = price >= 10 ? 1 : 0.5
+  let level = Math.ceil(price / step) * step
+  while (level < price * 1.02) level += step
+  return level
+}
+
+/** Jose's checklist: news, float <= 10M, RVOL >= 2.5, price >= $3, up 10-60%. */
+export const joseChecklist: UniverseFilter = (candidate) => {
+  const base = gainers10to60(candidate)
+  if (base) return base
+  if (!candidate.hasNews) return 'no_news'
+  if (!(candidate.float != null && candidate.float <= 10_000_000)) return 'float'
   return null
 }
 
@@ -269,6 +311,38 @@ export function bullFlagWith(rules: FlagRules) {
   }
 }
 
+/**
+ * Strategy J (Jose's idea): all checklist items pass, price above VWAP with EMA 9 > EMA 20, the stock pulled back
+ * from its high and the last candle turns back up (green, closes above the prior candle's high).
+ *   Buyers dominate (buy/sell volume >= 1.5 over 15 min) -> WIDE stop (`wideStop` below entry, e.g. 20%).
+ *   Otherwise -> tight stop under the pullback low ("cut the losses small").
+ * Target: the next half/whole dollar; the exit plan sells half there and rides the rest.
+ */
+export function joseSetup(wideStop: number) {
+  return ({ data, ind, n }: TechContext): TechSignal | null => {
+    const bars = data.bars
+    const last = n - 1
+    if (last - ind.sessionStart < 5 || n < 30) return null
+    if (!(bars[last].c > ind.vwap[last]) || !(ind.ema9[last] > ind.ema20[last])) return null
+    let hod = 0
+    for (let index = 1; index < last; index += 1) if (bars[index].h >= bars[hod].h) hod = index
+    if (hod < last - 10 || hod > last - 2) return null
+    const pullbackLow = Math.min(...bars.slice(hod + 1, last + 1).map((bar) => bar.l))
+    if (!(bars[hod].h - pullbackLow >= bars[hod].h * 0.01)) return null // a real pullback (1%+)
+    if (!(bars[last].c > bars[last].o) || !(bars[last].c > bars[last - 1].h)) return null
+    const ratio = buySellRatio(bars, last, 15)
+    const bullish = ratio >= 1.5
+    const entry = bars[last].c
+    const stop = bullish ? entry * (1 - wideStop) : pullbackLow - 0.01
+    return {
+      stop,
+      target: nextRoundLevel(entry),
+      reason: `J: buy/sell ${Number.isFinite(ratio) ? ratio.toFixed(2) : 'inf'} (${bullish ? `bullish, ${Math.round(wideStop * 100)}% stop` : 'not bullish, tight stop'}), pullback low ${pullbackLow.toFixed(4)}`,
+      setupKey: `j@${hod}`,
+    }
+  }
+}
+
 // ---------- run specs ----------
 
 const MANAGED: ExitPlan = { partialAtR: 2, trailEma9: true, vwapExit: true }
@@ -293,4 +367,14 @@ technicalSpecs.push(
   { id: 'ORB-LOW-W', label: '5-min ORB, stop under range low, managed exit (gainers 10-60%, spread <= 1%)', technical: { name: 'orb5_low_wide', entryStart: 9 * 60 + 35, entryEnd: 11 * 60, maxEntriesPerSymbol: 1, maxRiskFraction: 0.08, filter: gainers10to60, maxSpreadPct: 1, trigger: orb5('range_low'), exit: MANAGED } },
   { id: 'PMH-W', label: 'Pre-market-high breakout, managed exit (gainers 10-60%, spread <= 1%)', technical: { name: 'pmh_wide', entryStart: 9 * 60 + 30, entryEnd: 10 * 60 + 30, maxEntriesPerSymbol: 1, maxRiskFraction: 0.08, filter: gainers10to60, maxSpreadPct: 1, trigger: pmhBreakout, exit: MANAGED } },
   { id: 'FLAG2-W', label: '5-min bull flag, looser, managed exit (gainers 10-60%, spread <= 1%)', technical: { name: 'bull_flag_loose_wide', entryStart: 9 * 60 + 45, entryEnd: 11 * 60, maxEntriesPerSymbol: 2, maxRiskFraction: 0.08, filter: gainers10to60, maxSpreadPct: 1, trigger: bullFlagWith(LOOSE_FLAG), exit: MANAGED } },
+)
+
+// Strategy J: Jose's checklist + buy/sell-volume-based stop width, half off at the next half/whole dollar,
+// ride the rest (EMA 9 trail, exit when sellers take over), add half size once on clear strength.
+const JOSE_EXIT: ExitPlan = { partialAtTarget: true, trailEma9: true, pressureExit: true, addOnStrength: true }
+technicalSpecs.push(
+  { id: 'J20-R', label: 'J: wide 20% stop when buyers dominate, 1% risk sizing', technical: { name: 'jose_20_risk', entryStart: 9 * 60 + 35, entryEnd: 11 * 60, maxEntriesPerSymbol: 2, maxRiskFraction: 0.21, filter: joseChecklist, maxSpreadPct: 1, sizing: 'risk', trigger: joseSetup(0.2), exit: JOSE_EXIT } },
+  { id: 'J20-S', label: 'J: wide 20% stop when buyers dominate, fixed 25% position size', technical: { name: 'jose_20_size', entryStart: 9 * 60 + 35, entryEnd: 11 * 60, maxEntriesPerSymbol: 2, maxRiskFraction: 0.21, filter: joseChecklist, maxSpreadPct: 1, sizing: 'notional', trigger: joseSetup(0.2), exit: JOSE_EXIT } },
+  { id: 'J10-R', label: 'J: wide 10% stop when buyers dominate, 1% risk sizing', technical: { name: 'jose_10_risk', entryStart: 9 * 60 + 35, entryEnd: 11 * 60, maxEntriesPerSymbol: 2, maxRiskFraction: 0.11, filter: joseChecklist, maxSpreadPct: 1, sizing: 'risk', trigger: joseSetup(0.1), exit: JOSE_EXIT } },
+  { id: 'J10-S', label: 'J: wide 10% stop when buyers dominate, fixed 25% position size', technical: { name: 'jose_10_size', entryStart: 9 * 60 + 35, entryEnd: 11 * 60, maxEntriesPerSymbol: 2, maxRiskFraction: 0.11, filter: joseChecklist, maxSpreadPct: 1, sizing: 'notional', trigger: joseSetup(0.1), exit: JOSE_EXIT } },
 )

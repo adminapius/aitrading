@@ -5,7 +5,7 @@ import { elliottWaveConfig } from '../../lib/elliott-wave-config'
 import { scanConfig } from '../../lib/scan-config'
 import { getLatestQuote } from './data'
 import { DECISION_START_MINUTE, FLATTEN_MINUTE, MINUTE, type DayMarket, type MinuteBar, type MinuteCandidate } from './market'
-import { indicatorsFor, type ExitPlan, type TechnicalSpec } from './technical'
+import { buySellRatio, indicatorsFor, type ExitPlan, type TechnicalSpec } from './technical'
 
 export type StrategyId = 'A' | 'B' | 'C' | 'D' | 'T'
 export type EntryContext = {
@@ -89,6 +89,9 @@ type Position = {
   phase: 'standard' | 'wave3' | 'wave4' | 'managed' | 'tech'
   /** Technical exits decided on a bar close are filled at the next bar's open. */
   pendingExit: boolean
+  /** Add-on-strength decided on a bar close, bought at the next bar's open. */
+  pendingAdd: number
+  added: boolean
   breakevenArmed: boolean
   t1Hit: boolean
   t1Shares: number
@@ -279,10 +282,26 @@ function evaluateManagedBar(market: DayMarket, shared: SharedDayContext, positio
 
 // Technical exits: stop/gap first, partial at partialAtR (then breakeven), measured-move target, and close-based
 // exits (below EMA 9 after the partial, below VWAP) that fill at the NEXT bar's open.
-function evaluateTechBar(market: DayMarket, position: Position, bar: MinuteBar, plan: ExitPlan): ExitKind | null {
+function evaluateTechBar(market: DayMarket, position: Position, bar: MinuteBar, plan: ExitPlan, equity: number): ExitKind | null {
   if (position.pendingExit) {
     closeShares(position, position.remaining, bar.o)
     return 'trail'
+  }
+  if (position.pendingAdd > 0) {
+    // Buy the add-on at this bar's open (plus slippage), capped so the whole position stays <= 25% of equity.
+    const fill = bar.o * (1 + position.slippageFraction)
+    const room = Math.floor((equity * strategyGuardrails.maxPositionFraction - position.remaining * fill) / fill)
+    const add = Math.min(position.pendingAdd, Math.max(0, room), Math.floor(bar.v * LIQUIDITY_CAP_FRACTION))
+    position.pendingAdd = 0
+    if (add >= 1 && fill > position.trailingStop) {
+      const held = position.remaining
+      position.entryPrice = (position.entryPrice * held + fill * add) / (held + add)
+      position.rawEntry = (position.rawEntry * held + bar.o * add) / (held + add)
+      position.initialRisk += (fill - position.trailingStop) * add
+      position.shares += add
+      position.remaining += add
+      position.added = true
+    }
   }
   const stopLevel = position.trailingStop
   if (bar.o <= stopLevel) {
@@ -304,8 +323,17 @@ function evaluateTechBar(market: DayMarket, position: Position, bar: MinuteBar, 
     }
   }
   if (position.target != null && bar.h >= position.target) {
-    closeShares(position, position.remaining, Math.max(position.target, bar.o))
-    return 'target'
+    if (plan.partialAtTarget && !position.t1Hit) {
+      const shares = Math.min(position.remaining, Math.max(1, position.t1Shares))
+      closeShares(position, shares, Math.max(position.target, bar.o))
+      position.t1Hit = true
+      position.target = null
+      position.trailingStop = Math.max(position.trailingStop, position.entryPrice / (1 - position.slippageFraction))
+      if (position.remaining <= 0) return 'target'
+    } else {
+      closeShares(position, position.remaining, Math.max(position.target, bar.o))
+      return 'target'
+    }
   }
   const data = market.symbols.get(position.symbol)
   if (data) {
@@ -313,13 +341,19 @@ function evaluateTechBar(market: DayMarket, position: Position, bar: MinuteBar, 
     const ind = indicatorsFor(data, market.midnight)
     if (plan.trailEma9 && (position.t1Hit || !plan.partialAtR) && bar.c < ind.ema9[index]) position.pendingExit = true
     if (plan.vwapExit && bar.c < ind.vwap[index]) position.pendingExit = true
+    if (plan.pressureExit && buySellRatio(data.bars, index, 10) < 1 / 1.5) position.pendingExit = true
+    if (plan.addOnStrength && position.t1Hit && !position.added && !position.pendingExit && bar.c > position.maxHigh) {
+      const prior = data.bars.slice(Math.max(0, index - 10), index).map((item) => item.v)
+      const average = prior.length ? prior.reduce((sum, value) => sum + value, 0) / prior.length : 0
+      if (average > 0 && bar.v >= 1.5 * average && buySellRatio(data.bars, index, 15) >= 1.5) position.pendingAdd = Math.max(1, Math.floor(position.shares * 0.5))
+    }
   }
   return null
 }
 
 function evaluateBar(state: RunState, market: DayMarket, shared: SharedDayContext, position: Position, bar: MinuteBar, minute: number): ExitKind | null {
   const exitAt = bar.t + MINUTE
-  if (position.phase === 'tech') return evaluateTechBar(market, position, bar, state.spec.technical?.exit ?? {})
+  if (position.phase === 'tech') return evaluateTechBar(market, position, bar, state.spec.technical?.exit ?? {}, state.equity)
   if (position.phase === 'managed') return evaluateManagedBar(market, shared, position, bar, minute, exitAt)
   if (position.phase === 'standard') {
     const levels = paperExitLevels({ entry_price: position.entryPrice, stop_price: position.stop, target_price: position.target, metadata: { riskPerShare: position.riskPerShare } })
@@ -474,6 +508,8 @@ export async function simulateDay(state: RunState, market: DayMarket, shared: Sh
         t1Hit: false,
         t1Shares: Math.floor(shares * (input.phase === 'managed' || input.phase === 'tech' ? MANAGED_EXIT.partialFraction : elliottWaveConfig.setup.wave3FirstTargetFraction)),
         pendingExit: false,
+        pendingAdd: 0,
+        added: false,
         trailingStop: stop,
         realized: 0,
         exitShares: 0,
@@ -526,7 +562,9 @@ export async function simulateDay(state: RunState, market: DayMarket, shared: Sh
         if (!(risk > 0)) { bump(state, 'skip_stop_above_ask'); continue }
         if (risk / mark.ask > tech.maxRiskFraction) { bump(state, 'skip_risk_too_wide'); continue }
         state.usedSetups.add(setupKey)
-        const shares = Math.floor(Math.min((equity * strategyGuardrails.riskPerTradeFraction) / risk, (equity * strategyGuardrails.maxPositionFraction) / mark.ask))
+        const shares = tech.sizing === 'notional'
+          ? Math.floor((equity * strategyGuardrails.maxPositionFraction) / mark.ask)
+          : Math.floor(Math.min((equity * strategyGuardrails.riskPerTradeFraction) / risk, (equity * strategyGuardrails.maxPositionFraction) / mark.ask))
         if (shares < 1) { bump(state, 'skip_size'); continue }
         openAt(priced, mark, { shares, stop: signal.stop, target: signal.target ?? null, t2: null, riskPerShare: null, phase: 'tech', reason: signal.reason })
       }
