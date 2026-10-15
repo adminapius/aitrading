@@ -148,6 +148,9 @@ async function main() {
 }
 
 main().catch((error) => {
+  // Save whatever quotes were downloaded so a rerun picks up from the cache instead of re-downloading.
+  try { flushQuoteCache() } catch { /* best effort */ }
   console.error('[backtest] failed', error)
+  console.error('[backtest] everything downloaded so far is cached - rerun the same command and it will fast-forward to where it stopped')
   process.exitCode = 1
 })

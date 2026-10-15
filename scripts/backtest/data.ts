@@ -110,9 +110,25 @@ async function waitForAlpacaWindow() {
   }
 }
 
-async function fetchJson<T>(url: string, kind: string, source: 'alpaca' | 'fmp' = 'alpaca'): Promise<T> {
+// How long a single request keeps retrying through network outages (Wi-Fi/DNS drops, router restarts, Alpaca 5xx/429)
+// before the run gives up. Default 3 hours, so an overnight blip pauses the run instead of killing it.
+const NETWORK_RETRY_MINUTES = Number(process.env.BACKTEST_NETWORK_RETRY_MINUTES ?? 180)
+const MAX_BACKOFF_MS = 60_000
+let outageLogged = false
+
+export function isPermanentHttpError(error: unknown, kind: string) {
+  return error instanceof Error && error.message.startsWith(`${kind} HTTP`)
+}
+
+export function retryDelayMs(attempt: number) {
+  return Math.min(MAX_BACKOFF_MS, 1_000 * 2 ** Math.min(attempt, 10))
+}
+
+export async function fetchJson<T>(url: string, kind: string, source: 'alpaca' | 'fmp' = 'alpaca'): Promise<T> {
   return withSlot(async () => {
-    for (let attempt = 0; attempt < 6; attempt += 1) {
+    const giveUpAt = Date.now() + NETWORK_RETRY_MINUTES * 60_000
+    let lastError: unknown
+    for (let attempt = 0; ; attempt += 1) {
       if (source === 'alpaca') await waitForAlpacaWindow()
       if (source === 'alpaca') apiStats.alpaca += 1
       else apiStats.fmp += 1
@@ -120,19 +136,31 @@ async function fetchJson<T>(url: string, kind: string, source: 'alpaca' | 'fmp' 
       try {
         const response = await fetch(url, { headers: source === 'alpaca' ? alpacaHeaders() : {}, signal: AbortSignal.timeout(60_000) })
         if (response.status === 429 || response.status >= 500) {
-          apiStats.retries += 1
-          await new Promise((resolve) => setTimeout(resolve, 1_000 * 2 ** attempt))
-          continue
+          lastError = new Error(`${kind} retryable status ${response.status}`)
+        } else {
+          if (!response.ok) throw new Error(`${kind} HTTP ${response.status}: ${(await response.text()).slice(0, 200)}`)
+          const body = await response.json() as T
+          if (outageLogged) {
+            console.log('[backtest] network back, continuing')
+            outageLogged = false
+          }
+          return body
         }
-        if (!response.ok) throw new Error(`${kind} HTTP ${response.status}: ${(await response.text()).slice(0, 200)}`)
-        return await response.json() as T
       } catch (error) {
-        if (attempt === 5 || (error instanceof Error && error.message.startsWith(`${kind} HTTP`))) throw error
-        apiStats.retries += 1
-        await new Promise((resolve) => setTimeout(resolve, 1_000 * 2 ** attempt))
+        if (isPermanentHttpError(error, kind)) throw error
+        lastError = error
       }
+      apiStats.retries += 1
+      if (Date.now() >= giveUpAt) {
+        throw new Error(`${kind} failed after ${NETWORK_RETRY_MINUTES} min of retries: ${lastError instanceof Error ? lastError.message : String(lastError)}`)
+      }
+      if (!outageLogged && attempt >= 2) {
+        const reason = lastError instanceof Error ? ((lastError as Error & { cause?: { code?: string } }).cause?.code ?? lastError.message) : String(lastError)
+        console.log(`[backtest] network problem (${reason}) - waiting and retrying for up to ${NETWORK_RETRY_MINUTES} min, do not close this window`)
+        outageLogged = true
+      }
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs(attempt)))
     }
-    throw new Error(`${kind} exhausted retries`)
   })
 }
 
