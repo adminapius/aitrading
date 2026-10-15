@@ -28,6 +28,20 @@ export function nearestAbove(levels: Array<number | null | undefined>, price: nu
   return best
 }
 
+export type TypedLevel = [string, number | null | undefined]
+
+// Nearest resistance strictly above `price`, with its level type (diagnostics).
+export function nearestAboveTyped(levels: TypedLevel[], price: number) {
+  let best = Infinity
+  let type = 'none above'
+  for (const [name, level] of levels) if (level != null && Number.isFinite(level) && level > price + 0.01 && level < best) { best = level; type = name }
+  return { level: best, type }
+}
+
+// Every signal blocked by the room-to-resistance rule (diagnostics; base runs only).
+export type RoomRow = { version: string; ticker: string; day: string; time: number; setup: string; entry: number; stop: number; level: number; type: string; roomR: number; minRoomR: number; otherBlockers: string }
+export const roomLog: RoomRow[] = []
+
 export function roomInR(resistance: number, trigger: number, stop: number) {
   const risk = trigger - stop
   if (!(risk > 0)) return 0

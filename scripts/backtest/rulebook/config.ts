@@ -4,6 +4,16 @@
 // Source: "Strategy S & SP - Day Trading Rulebook" (Oct 14, 2026) + Jose's approved decisions of Oct 14, 2026.
 // Lesson 3.3 (breakouts) is still pending: Setup 1 (SP) and Setup B (S) may change when it arrives.
 
+export type VariantConfig = {
+  rTrailOnFiveMinCloses?: boolean
+  timeStopOnlyIfBelowEntry?: boolean
+  spStopMinWidthAtr?: number
+  widenTightStop?: boolean
+  sConfirmBullishAboveEmaAndPriorHigh?: boolean
+  breakoutVolumeMult?: number
+  stopAfterTuningWindow?: boolean
+}
+
 export const RULEBOOK = {
   period: {
     start: '2024-10-14', // 24 months (Jose, Oct 15): 6 months could not produce enough trades
@@ -183,13 +193,20 @@ export const RULEBOOK = {
 
   // Variant runs: [adapted] changes only, each tested against the frozen rules (Jose, Oct 15, 2026).
   variants: {
+    // Run F = run C plus two [adapted] changes (Jose, Oct 15): judged on the tuning window only; it does not
+    // simulate the holdout at all, so the holdout stays untouched.
+    F: {
+      sConfirmBullishAboveEmaAndPriorHigh: true, // S Setup A: also accept any bullish bar closing above the 20 EMA and the prior bar's high
+      breakoutVolumeMult: 1.5, // S Setup B and SP Setup 1 breakout volume ≥ 1.5× average (base: 2×)
+      stopAfterTuningWindow: true,
+    },
     E: {
       rTrailOnFiveMinCloses: true, // R-trail / breakeven moves only on 5-min closes, not 1-min intrabar highs
       timeStopOnlyIfBelowEntry: true, // at 15 min, exit only if the last close is below entry
       spStopMinWidthAtr: 1.0, // smart stop at least 1.0 × ATR(5m) from entry (base: 0.5)
       widenTightStop: true, // a tighter stop is widened to the minimum (sized off the wider stop), not skipped
     },
-  },
+  } as Record<'E' | 'F', VariantConfig>,
 }
 
 export type RulebookConfig = typeof RULEBOOK

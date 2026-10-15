@@ -1,7 +1,7 @@
 // Strategy SP (penny gappers, long only): minute scanner (top 3), 5m trend gate, Setup 1 (premarket-high /
 // HOD / round-number breakout), Setup 2 (low-volume pullback re-entry), smart stop, and the 5m exit facts.
 import { RULEBOOK } from './config'
-import { aggPivots, lastConfirmed, minuteIn, minuteMaps, nearestAbove, roomInR } from './common'
+import { aggPivots, lastConfirmed, minuteIn, minuteMaps, nearestAboveTyped, roomInR, roomLog, type TypedLevel } from './common'
 import { aggregate, atr, ema, isBearishEngulfing, isBullishEngulfing, isHammer, isShootingStar, keltnerUpper, lastCompleted, macd, rsi, sessionVwap, sma, type Bar } from './indicators'
 import type { FiveEvent, Signal, SymbolDay } from './types'
 
@@ -26,6 +26,7 @@ export type SPInput = {
   stopMinWidthAtr?: number // variant override (base: RULEBOOK.SP.stop.minWidthAtr)
   widenTightStop?: boolean // variant: widen a too-tight stop to the minimum instead of skipping
   countFunnel?: boolean
+  breakoutVolumeMult?: number // variant override (base: RULEBOOK.SP.setup1.volumeMult)
 }
 
 export type ScanSymbol = {
@@ -111,6 +112,7 @@ export function runScanner(symbols: ScanSymbol[]): Map<string, ScannerState> {
 export function buildSP(input: SPInput): SymbolDay {
   funnelOn = input.countFunnel !== false
   const minWidthAtr = input.stopMinWidthAtr ?? SP.stop.minWidthAtr
+  const volumeMult = input.breakoutVolumeMult ?? SP.setup1.volumeMult
   const { symbol, day, midnight, todayBars, prior } = input
   const all = [...(prior?.bars ?? []), ...todayBars]
   const todayStart = prior?.bars.length ?? 0
@@ -188,22 +190,31 @@ export function buildSP(input: SPInput): SymbolDay {
       return bar.c > v1 && a > b && b > c && line > signalLine && strength >= SP.gate5m.rsiMin && strength <= SP.gate5m.rsiMax
     })()
 
-    const smartStop = (pullbackLow: number, trigger: number) => {
+    const smartStop = (pullbackLow: number, trigger: number, setup: '1' | '2') => {
       if (range == null || v1 == null) return null
       let stop = Math.max(pullbackLow - SP.stop.bufferAtr * range, v1 - SP.stop.bufferAtr * range, trigger - SP.stop.maxAtrFromEntry * range)
       if (input.widenTightStop && trigger - stop < minWidthAtr * range) stop = trigger - minWidthAtr * range
       const width = trigger - stop
-      if (width < minWidthAtr * range - 1e-12 || width > SP.stop.maxWidthAtr * range || width > SP.stop.maxWidthPct * trigger) return null
+      let why = ''
+      if (width < minWidthAtr * range - 1e-12) why = `too tight (< ${minWidthAtr} ATR)`
+      else if (width > SP.stop.maxWidthPct * trigger) why = `too wide (> ${SP.stop.maxWidthPct * 100}% of entry)`
+      else if (width > SP.stop.maxWidthAtr * range) why = `too wide (> ${SP.stop.maxWidthAtr} ATR)`
+      if (why) {
+        bump(`${setup} smart stop width: ${why}`)
+        return null
+      }
       return stop
     }
     // High of day BEFORE this 1-min signal candle: the signal candle's own wick is not resistance.
-    const resistances = () => [pdh, pmh, prevHod > -Infinity ? prevHod : null, ...input.dailyPivotHighs,
-      ...pivotHighsNear.filter((pivot) => pivot.confirmedAt <= time).map((pivot) => pivot.price)]
+    const resistances = (): TypedLevel[] => [['prior-day high', pdh], ['premarket high', pmh], ['HOD', prevHod > -Infinity ? prevHod : null],
+      ...input.dailyPivotHighs.map((level): TypedLevel => ['daily swing high (60d)', level]),
+      ...pivotHighsNear.filter((pivot) => pivot.confirmedAt <= time).map((pivot): TypedLevel => ['5-min swing high (today/yesterday)', pivot.price])]
     const scannerOk = minute < 1440 && input.scanner.eligible[minute] === 1
     const gap = minute < 1440 ? input.scanner.gap[minute] : Number.NaN
     const rvolNow = minute < 1440 ? input.scanner.rvol[minute] : Number.NaN
     const emit = (setup: '1' | '2', trigger: number, stop: number, basis: number, minRoomR: number, note: string) => {
-      const roomR = roomInR(nearestAbove(resistances(), trigger), trigger, stop)
+      const nearest = nearestAboveTyped(resistances(), trigger)
+      const roomR = roomInR(nearest.level, trigger, stop)
       const tierOk = !(gap > SP.scanner.standardGapMax) || roomR >= SP.scanner.clearSetupMinRoomR
       const windowOk = minute >= SP.entryStartMinute && minute <= SP.entryEndMinute
       const blockers: string[] = []
@@ -212,6 +223,11 @@ export function buildSP(input: SPInput): SymbolDay {
       if (!tierOk) blockers.push('gap 30-50% without 3R room')
       if (roomR < minRoomR) blockers.push(`room < ${minRoomR}R`)
       bump(`${setup} signal ${blockers.length ? 'blocked' : 'eligible'}`)
+      if (roomR < minRoomR || !tierOk) {
+        bump(`room-blocked nearest: ${nearest.type}`)
+        bump(`room-blocked with no other blocker: ${blockers.every((item) => item.startsWith('room') || item.startsWith('gap 30-50%')) ? 'yes' : 'no'}`)
+        if (funnelOn) roomLog.push({ version: 'SP', ticker: symbol, day, time, setup, entry: trigger, stop, level: nearest.level, type: nearest.type, roomR, minRoomR: tierOk ? minRoomR : SP.scanner.clearSetupMinRoomR, otherBlockers: blockers.filter((item) => !item.startsWith('room') && !item.startsWith('gap 30-50%')).join(' + ') })
+      }
       signals.push({
         version: 'SP', symbol, setup, time, trigger, limit: trigger * (1 + SP.entryLimitOffset), stop, atr5: range!, basisLow: basis,
         level: null, levelKey: null, roomR, minRoomR,
@@ -232,17 +248,16 @@ export function buildSP(input: SPInput): SymbolDay {
         let total = 0
         for (let x = i - SP.setup1.volumeAvgBars; x < i; x += 1) total += all[x].v
         const average = total / SP.setup1.volumeAvgBars
-        if (bar.v < SP.setup1.volumeMult * average) bump('1 level crossed, volume < 2x')
+        if (bar.v < volumeMult * average) bump(`1 level crossed, volume < ${volumeMult}x`)
         else if (bar.c - crossed[1] > SP.setup1.maxChaseAtr * range) bump('1 level crossed, chased > 0.5 ATR')
-        if (bar.v >= SP.setup1.volumeMult * average && bar.c - crossed[1] <= SP.setup1.maxChaseAtr * range) {
+        if (bar.v >= volumeMult * average && bar.c - crossed[1] <= SP.setup1.maxChaseAtr * range) {
           const base = lastSwingLow1(i, time)
           let basis = base?.price
           if (basis == null) {
             basis = Infinity
             for (let x = Math.max(0, i - 10); x <= i; x += 1) basis = Math.min(basis, all[x].l)
           }
-          const stop = smartStop(basis, bar.c)
-          if (stop == null) bump('1 smart stop width check failed')
+          const stop = smartStop(basis, bar.c, '1')
           if (stop != null) emit('1', bar.c, stop, basis, SP.setup1.minRoomR, `${crossed[0]} ${crossed[1].toFixed(2)} breakout, vol ${(bar.v / Math.max(average, 1)).toFixed(1)}x`)
         }
       }
@@ -268,8 +283,7 @@ export function buildSP(input: SPInput): SymbolDay {
           }
           const held = supports.find(([, low, high]) => pullbackLow >= low - tolerance && pullbackLow <= high + tolerance && minClose >= low)
           if (held && pullbackLow > lastPullbackLow) {
-            const stop = smartStop(pullbackLow, bar.h)
-            if (stop == null) bump('2 smart stop width check failed')
+            const stop = smartStop(pullbackLow, bar.h, '2')
             if (stop != null) {
               emit('2', bar.h, stop, pullbackLow, SP.setup2.minRoomR, `pullback held ${held[0]}, low ${pullbackLow.toFixed(2)}`)
               lastPullbackLow = pullbackLow

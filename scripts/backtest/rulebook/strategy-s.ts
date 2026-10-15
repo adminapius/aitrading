@@ -1,7 +1,7 @@
 // Strategy S (regular stocks, LONG ONLY for this backtest): 15m trend gate, 5m Setup A (MA bounce) and
 // Setup B (level breakout / retest), market-structure stops, and the 5m facts its exits need.
 import { RULEBOOK } from './config'
-import { aggPivots, confirmedBy, lastConfirmed, minuteIn, minuteMaps, nearestAbove, roomInR } from './common'
+import { aggPivots, confirmedBy, lastConfirmed, minuteIn, minuteMaps, nearestAboveTyped, roomInR, roomLog, type TypedLevel } from './common'
 import { aggregate, atr, ema, isBearishEngulfing, isBullishEngulfing, isHammer, isMorningStar, isShootingStar, lastCompleted, macd, rsi, sessionVwap, sma, type Bar } from './indicators'
 import type { FiveEvent, Signal, SymbolDay } from './types'
 
@@ -9,7 +9,10 @@ const S = RULEBOOK.S
 
 // Funnel: how many candidates reach / fail each rule (diagnostics only, never changes a decision).
 export const sFunnel: Record<string, number> = {}
-const bump = (key: string) => { sFunnel[key] = (sFunnel[key] ?? 0) + 1 }
+let funnelOn = true
+const bump = (key: string) => { if (funnelOn) sFunnel[key] = (sFunnel[key] ?? 0) + 1 }
+
+export type SOptions = { confirmBullishAboveEmaAndPriorHigh?: boolean; breakoutVolumeMult?: number; countFunnel?: boolean }
 
 export type SInput = {
   symbol: string
@@ -21,7 +24,9 @@ export type SInput = {
   dailyPivotHighs: number[]
 }
 
-export function buildS(input: SInput): SymbolDay {
+export function buildS(input: SInput, options: SOptions = {}): SymbolDay {
+  funnelOn = options.countFunnel !== false
+  const breakoutVolumeMult = options.breakoutVolumeMult ?? S.setupB.breakoutVolumeMult
   const { symbol, day, midnight, todayBars } = input
   bump('stock-days on the S list')
   const sessions = [...input.priorSessions, { day, midnight, bars: todayBars }]
@@ -120,10 +125,11 @@ export function buildS(input: SInput): SymbolDay {
     bump(`${prefix} ${gateWhy(time)}`)
     return false
   }
-  const resistances = (time: number) => [
+  const resistances = (time: number): TypedLevel[] => [
     // High of day BEFORE the 5-min signal candle: the signal candle's own wick is not resistance.
-    pdh, pmh, hodAt(time - 5 * 60_000), ...input.dailyPivotHighs,
-    ...yesterdayPivotHighs.filter((pivot) => pivot.confirmedAt <= time).map((pivot) => pivot.price),
+    ['prior-day high', pdh], ['premarket high', pmh], ['HOD', hodAt(time - 5 * 60_000)],
+    ...input.dailyPivotHighs.map((level): TypedLevel => ['daily swing high (60d)', level]),
+    ...yesterdayPivotHighs.filter((pivot) => pivot.confirmedAt <= time).map((pivot): TypedLevel => ['5-min swing high (today/yesterday)', pivot.price]),
   ]
   // Stop: structure level − 0.25 ATR, then 1.0-3.0 ATR from the trigger (tighter → widen to 1 ATR, wider → skip).
   const placeStop = (basis: number, trigger: number, range: number) => {
@@ -137,9 +143,15 @@ export function buildS(input: SInput): SymbolDay {
   const events: FiveEvent[] = []
   const emit = (setup: Signal['setup'], time: number, trigger: number, basis: number, range: number, minRoomR: number, level: number | null, levelKey: string | null, note: string) => {
     const stop = placeStop(basis, trigger, range)
-    if (stop == null) return bump(`${setup} stop>3ATR`)
-    const roomR = roomInR(nearestAbove(resistances(time), trigger), trigger, stop)
-    if (roomR < minRoomR) return bump(`${setup} room<${minRoomR}R`)
+    if (stop == null) return bump(`${setup} stop too wide (>3 ATR)`)
+    const nearest = nearestAboveTyped(resistances(time), trigger)
+    const roomR = roomInR(nearest.level, trigger, stop)
+    if (roomR < minRoomR) {
+      bump(`${setup} room<${minRoomR}R`)
+      bump(`room-blocked nearest: ${nearest.type}`)
+      if (funnelOn) roomLog.push({ version: 'S', ticker: symbol, day, time, setup, entry: trigger, stop, level: nearest.level, type: nearest.type, roomR, minRoomR, otherBlockers: '' })
+      return
+    }
     bump(`${setup} SIGNAL`)
     signals.push({
       version: 'S', symbol, setup, time, trigger, limit: trigger * (1 + S.entryLimitOffset), stop, atr5: range, basisLow: basis,
@@ -171,7 +183,8 @@ export function buildS(input: SInput): SymbolDay {
       const touches = (bar.l <= fast && bar.c >= fast) || (bar.l <= slow && bar.c >= slow)
       const episode = inTouch || touches
       const episodeLow = inTouch ? Math.min(touchLow, bar.l) : bar.l
-      const confirm = bar.c > fast && (isHammer(bar) || (j > 0 && isBullishEngulfing(five[j - 1], bar)) || (j > 1 && isMorningStar(five[j - 2], five[j - 1], bar)))
+      const confirm = bar.c > fast && (isHammer(bar) || (j > 0 && isBullishEngulfing(five[j - 1], bar)) || (j > 1 && isMorningStar(five[j - 2], five[j - 1], bar))
+        || (options.confirmBullishAboveEmaAndPriorHigh === true && bar.c > bar.o && j > 0 && bar.c > five[j - 1].h))
       let fired = false
       if (inWindow && episode) bump(bounces >= S.setupA.priorBouncesRequired ? 'A touch with ≥2 prior bounces' : 'A touch with <2 prior bounces')
       if (inWindow && episode && bounces >= S.setupA.priorBouncesRequired && !confirm) bump('A no confirmation candle')
@@ -215,8 +228,8 @@ export function buildS(input: SInput): SymbolDay {
         if (!(bar.c > level) || !(j > 0 && five[j - 1].c <= level)) continue
         if (inWindow) bump(`B ${name} close crossed level`)
         const average = volumeAvg(j)
-        if (average == null || bar.v < S.setupB.breakoutVolumeMult * average) {
-          if (inWindow) bump('B volume <2x avg')
+        if (average == null || bar.v < breakoutVolumeMult * average) {
+          if (inWindow) bump(`B volume <${breakoutVolumeMult}x avg`)
           continue
         }
         let count = 0

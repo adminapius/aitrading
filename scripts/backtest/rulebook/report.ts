@@ -139,6 +139,7 @@ export function buildRunReport(run: RunConfig, trades: TradeRecord[], equityByDa
     versions: run.versions,
     spSlippageMultiplier: run.spSlippageMultiplier,
     period: P,
+    locked: Boolean(run.variant && RULEBOOK.variants[run.variant]?.stopAfterTuningWindow), // tuning window only; holdout not simulated
     full: passFail(trades, start, 'full', PC.minTrades, P),
     tuning: passFail(tuning, start, 'tuning', Math.ceil(PC.minTrades * tuningDays / Math.max(totalDays, 1)), P),
     holdout: passFail(holdout, holdoutStart, 'holdout', Math.ceil(PC.minTrades * holdoutDays / Math.max(totalDays, 1)), P),
@@ -212,7 +213,8 @@ ${rows.map((row) => `<tr><td>${esc(row.name)}</td><td>${row.trades}</td><td>${pc
 </tbody></table>`
 }
 
-function checksTable(title: string, result: ReturnType<typeof passFail>) {
+function checksTable(title: string, result: ReturnType<typeof passFail>, locked = false) {
+  if (locked) return `<div class="card"><h4>${title} <span class="badge bad" style="background:var(--muted)">LOCKED</span></h4><p class="muted">Not simulated: this variant is judged on the tuning window only, so the holdout stays untouched.</p></div>`
   return `<div class="card"><h4>${title} <span class="badge ${result.pass ? 'ok' : 'bad'}">${result.pass ? 'PASS' : 'FAIL'}</span></h4>
 <table><thead><tr><th>Metric</th><th>Rule</th><th>Result</th><th></th></tr></thead><tbody>
 ${result.checks.map((check) => `<tr><td>${check.metric}</td><td>${check.rule}</td><td>${check.value}</td><td class="${check.pass ? 'pos' : 'neg'}">${check.pass ? 'pass' : 'fail'}</td></tr>`).join('')}
@@ -235,7 +237,7 @@ export function htmlReport(reports: RunReport[], meta: { generatedAt: string; so
 <div class="tile"><span>Largest loss</span><b>${r2(m.largestLossR)}R</b></div>
 </div>
 ${equitySvg(report.equityByDay, report.period)}
-<div class="grid3">${checksTable(`Full period (${P.start} – ${P.end})`, report.full)}${checksTable(`Tuning window (${P.start} – ${P.tuningEnd})`, report.tuning)}${checksTable(`Holdout (${P.holdoutStart} – ${P.end})`, report.holdout)}</div>
+<div class="grid3">${checksTable(`Full period (${P.start} – ${P.end})`, report.full, report.locked)}${checksTable(`Tuning window (${P.start} – ${P.tuningEnd})`, report.tuning)}${checksTable(`Holdout (${P.holdoutStart} – ${P.end})`, report.holdout, report.locked)}</div>
 <h3>By month</h3>${metricsTable(report.byMonth)}
 <h3>By setup</h3>${metricsTable(report.bySetup)}
 <h3>By exit reason</h3>${metricsTable(report.byExit)}
@@ -261,7 +263,7 @@ nav a{color:var(--accent);margin-right:12px}ul{padding-left:18px}
 <nav>${reports.map((report) => `<a href="#run-${report.id}">Run ${report.id}</a>`).join('')}</nav>
 <h3>Run comparison</h3>
 <table><thead><tr><th>Run</th><th>Trades</th><th>Expectancy R</th><th>PF</th><th>Max DD R</th><th>Final equity</th><th>Full</th><th>Tuning</th><th>Holdout</th></tr></thead><tbody>
-${reports.map((report) => `<tr><td>${report.id}: ${esc(report.label)}</td><td>${report.full.metrics.trades}</td><td>${r2(report.full.metrics.expectancyR)}</td><td>${r2(report.full.metrics.profitFactor)}</td><td>${r2(report.full.metrics.maxDrawdownR)}</td><td>$${report.full.metrics.finalEquity.toFixed(2)}</td><td class="${report.full.pass ? 'pos' : 'neg'}">${report.full.pass ? 'PASS' : 'FAIL'}</td><td class="${report.tuning.pass ? 'pos' : 'neg'}">${report.tuning.pass ? 'PASS' : 'FAIL'}</td><td class="${report.holdout.pass ? 'pos' : 'neg'}">${report.holdout.pass ? 'PASS' : 'FAIL'}</td></tr>`).join('')}
+${reports.map((report) => `<tr><td>${report.id}: ${esc(report.label)}</td><td>${report.full.metrics.trades}</td><td>${r2(report.full.metrics.expectancyR)}</td><td>${r2(report.full.metrics.profitFactor)}</td><td>${r2(report.full.metrics.maxDrawdownR)}</td><td>$${report.full.metrics.finalEquity.toFixed(2)}</td>${report.locked ? '<td class="muted">locked</td>' : `<td class="${report.full.pass ? 'pos' : 'neg'}">${report.full.pass ? 'PASS' : 'FAIL'}</td>`}<td class="${report.tuning.pass ? 'pos' : 'neg'}">${report.tuning.pass ? 'PASS' : 'FAIL'}</td>${report.locked ? '<td class="muted">locked</td>' : `<td class="${report.holdout.pass ? 'pos' : 'neg'}">${report.holdout.pass ? 'PASS' : 'FAIL'}</td>`}</tr>`).join('')}
 </tbody></table>
 ${sections}
 ${meta.funnel ? `<h2>Signal funnel (where candidates stop)</h2>${Object.entries(meta.funnel).map(([version, counts]) => `<h3>${version}</h3><table><tbody>${Object.entries(counts).sort(([l], [r]) => l.localeCompare(r)).map(([key, value]) => `<tr><td>${esc(key)}</td><td>${value}</td></tr>`).join('')}</tbody></table>`).join('')}` : ''}

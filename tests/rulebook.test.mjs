@@ -304,3 +304,30 @@ test('room to resistance ignores the signal candle\'s own wick (HOD breakout wit
   assert.ok(breakout)
   assert.equal(breakout.roomR, Infinity)
 })
+
+test('run F: SP Setup 1 accepts 1.5x breakout volume; base still needs 2x; room log records the nearest level type', async () => {
+  const { nearestAboveTyped } = await import('../scripts/backtest/rulebook/common')
+  const { spFunnel } = await import('../scripts/backtest/rulebook/strategy-sp')
+  assert.deepEqual(nearestAboveTyped([['HOD', 5.5], ['prior-day high', 5.2], ['premarket high', 4.9]], 5), { level: 5.2, type: 'prior-day high' })
+  const bars = []
+  let price = 2.4
+  for (let m = 240; m < 600; m += 1) {
+    const open = price
+    price += 0.0025 + 0.012 * Math.sin(m / 9)
+    bars.push(bar(m, open, Math.max(open, price) + 0.003, Math.min(open, price) - 0.003, price, 20_000))
+  }
+  const last = bars.at(-1)
+  const hod = Math.max(...bars.map((item) => item.h))
+  bars.push(bar(600, last.c, hod + 0.02, last.c - 0.002, hod + 0.012, 32_000)) // 1.6x the 10-bar average
+  const scanner = { eligible: new Uint8Array(1440).fill(1), gap: new Float64Array(1440).fill(0.25), rvol: new Float64Array(1440).fill(9), why: new Uint8Array(1440) }
+  const input = { symbol: 'UP', day: '2026-05-04', midnight: MIDNIGHT, prevClose: 2.0, float: 5e6, todayBars: bars, prior: null, dailyPivotHighs: [], scanner, countFunnel: false }
+  const base = buildSP(input)
+  assert.equal(base.signals.some((item) => item.setup === '1' && item.time === at(601)), false)
+  const variantF = buildSP({ ...input, breakoutVolumeMult: 1.5 })
+  assert.equal(variantF.signals.some((item) => item.setup === '1' && item.time === at(601)), true)
+  // A daily swing high just above the trigger blocks the trade on room and is logged with its type.
+  const before = spFunnel['room-blocked nearest: daily swing high (60d)'] ?? 0
+  const blocked = buildSP({ ...input, breakoutVolumeMult: 1.5, dailyPivotHighs: [hod + 0.05], countFunnel: true }).signals.find((item) => item.time === at(601))
+  assert.deepEqual(blocked.blockers, ['room < 3R'])
+  assert.equal(spFunnel['room-blocked nearest: daily swing high (60d)'], before + 1)
+})

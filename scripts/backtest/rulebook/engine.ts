@@ -1,6 +1,6 @@
 // Account + order engine for the S & SP rulebook backtest. One Account per run; frames (market data + signals)
 // are shared read-only across runs. Stops are held internally by the backtester (no broker stop orders).
-import { RULEBOOK } from './config'
+import { RULEBOOK, type VariantConfig } from './config'
 import { MIN_MS } from './common'
 import type { Bar } from './indicators'
 import type { FiveEvent, Signal, SymbolDay, Version } from './types'
@@ -8,7 +8,7 @@ import type { FiveEvent, Signal, SymbolDay, Version } from './types'
 const A = RULEBOOK.account
 const F = RULEBOOK.fills
 
-export type RunConfig = { id: string; label: string; versions: Version[]; spSlippageMultiplier: number; variant?: 'E' }
+export type RunConfig = { id: string; label: string; versions: Version[]; spSlippageMultiplier: number; variant?: 'E' | 'F' }
 
 export type TradeRecord = {
   run: string
@@ -105,7 +105,7 @@ export class Account {
   private tickerLastBasis = new Map<string, number>()
   private usedLevels = new Set<string>()
 
-  private readonly variant: (typeof RULEBOOK.variants)['E'] | null
+  private readonly variant: VariantConfig | null
 
   constructor(readonly run: RunConfig) {
     this.variant = run.variant ? RULEBOOK.variants[run.variant] : null

@@ -11,7 +11,9 @@ import { easternMidnight } from '../market'
 import { RULEBOOK } from './config'
 import { baselineCumulative, dailyPivotHighs, fifteenVolumes, getDayBars, loadReference, newsBetween, priorDays, setFifteenWindow, strategySList, strategySPCandidates, MINUTE } from './data'
 import { Account, type RunConfig, type TradeRecord } from './engine'
-import { buildRunReport, writeOutputs } from './report'
+import { roomLog } from './common'
+import { writeFileSync } from 'node:fs'
+import { buildRunReport, et, writeOutputs } from './report'
 import { buildS, sFunnel } from './strategy-s'
 import { buildSP, runScanner, spFunnel, type ScanSymbol } from './strategy-sp'
 import type { SymbolDay } from './types'
@@ -23,6 +25,7 @@ export const RUNS: RunConfig[] = [
   { id: 'C', label: 'S + SP on the same $2,000', versions: ['S', 'SP'], spSlippageMultiplier: 1 },
   { id: 'D', label: 'SP with slippage doubled (stress test)', versions: ['SP'], spSlippageMultiplier: 2 },
   { id: 'E', label: 'SP variant E: R-trail on 5-min closes, time stop only below entry, stop ≥ 1.0 ATR', versions: ['SP'], spSlippageMultiplier: 1, variant: 'E' },
+  { id: 'F', label: 'Run C + F: S Setup A also accepts a bullish close above the 20 EMA and the prior high; breakout volume 1.5× (tuning window only)', versions: ['S', 'SP'], spSlippageMultiplier: 1, variant: 'F' },
 ]
 
 const NOTES = [
@@ -66,6 +69,7 @@ async function main() {
   const needS = runs.some((run) => run.versions.includes('S'))
   const needSP = runs.some((run) => run.versions.includes('SP'))
   const needE = runs.some((run) => run.variant === 'E')
+  const needF = runs.some((run) => run.variant === 'F')
   const historyStart = addDays(from, -420) // 200-day SMA + 52-week high
   setFifteenWindow(addDays(from, -45), to)
   console.log(`[rulebook] loading reference data ${historyStart} → ${to}`)
@@ -77,6 +81,7 @@ async function main() {
     const midnight = easternMidnight(day)
     const frames: SymbolDay[] = []
     const framesE: SymbolDay[] = [] // SP frames built with variant E's stop rule
+    const framesF: SymbolDay[] = [] // S + SP frames built with variant F's rules (tuning window only)
     const prev = priorDays(ref, day, Math.max(RULEBOOK.S.warmupSessions, 1))
     const prevDay = prev.at(-1) ?? null
     if (needS) {
@@ -87,11 +92,16 @@ async function main() {
       for (const entry of list) {
         const bars = today.get(entry.symbol) ?? []
         if (!bars.length) continue
-        frames.push(buildS({
+        const sInput = {
           symbol: entry.symbol, day, midnight, prevClose: entry.prevClose, todayBars: bars,
           priorSessions: priorBars.map((session) => ({ day: session.day, midnight: session.midnight, bars: session.bars.get(entry.symbol) ?? [] })),
           dailyPivotHighs: dailyPivotHighs(ref, entry.symbol, day),
-        }))
+        }
+        frames.push(buildS(sInput))
+        if (needF && day <= RULEBOOK.period.tuningEnd) {
+          const F = RULEBOOK.variants.F
+          framesF.push(buildS(sInput, { confirmBullishAboveEmaAndPriorHigh: F.sConfirmBullishAboveEmaAndPriorHigh, breakoutVolumeMult: F.breakoutVolumeMult, countFunnel: false }))
+        }
       }
     }
     if (needSP) {
@@ -132,10 +142,16 @@ async function main() {
           const E = RULEBOOK.variants.E
           framesE.push(buildSP({ ...spInput, stopMinWidthAtr: E.spStopMinWidthAtr, widenTightStop: E.widenTightStop, countFunnel: false }))
         }
+        if (needF && day <= RULEBOOK.period.tuningEnd) {
+          framesF.push(buildSP({ ...spInput, breakoutVolumeMult: RULEBOOK.variants.F.breakoutVolumeMult, countFunnel: false }))
+        }
       }
     }
     for (const account of accounts) {
-      const own = account.run.variant === 'E' ? [...frames.filter((frame) => frame.version === 'S'), ...framesE] : frames
+      const variant = account.run.variant ? RULEBOOK.variants[account.run.variant] : null
+      if (variant?.stopAfterTuningWindow && day > RULEBOOK.period.tuningEnd) continue // holdout stays untouched
+      const own = account.run.variant === 'E' ? [...frames.filter((frame) => frame.version === 'S'), ...framesE]
+        : account.run.variant === 'F' ? framesF : frames
       account.simulateDay(day, own)
     }
     const summary = accounts.map((account) => `${account.run.id} $${account.equity.toFixed(0)} (${account.trades.length})`).join(' · ')
@@ -155,12 +171,46 @@ async function main() {
   }
   for (const account of accounts) console.log(`[rulebook] run ${account.run.id} skipped: ${JSON.stringify(account.stats.skipped)}`)
   writeOutputs(out, reports, tradesByRun, meta)
+  writeRoomDiagnostic(out)
   console.log(`[rulebook] wrote ${out}/report.html, summary.json, trades.csv (+ run-*/ folders)`)
   for (const report of reports) {
     const m = report.full.metrics
+    if (report.locked) {
+      const t = report.tuning.metrics
+      console.log(`[rulebook] run ${report.id} (tuning window only, holdout locked): ${t.trades} trades, expectancy ${t.expectancyR?.toFixed(2) ?? 'n/a'}R, PF ${t.profitFactor?.toFixed(2) ?? 'n/a'}, max DD ${t.maxDrawdownR.toFixed(1)}R, final $${t.finalEquity.toFixed(2)} · tuning ${report.tuning.pass ? 'PASS' : 'FAIL'}`)
+      continue
+    }
     console.log(`[rulebook] run ${report.id}: ${m.trades} trades, expectancy ${m.expectancyR?.toFixed(2) ?? 'n/a'}R, PF ${m.profitFactor?.toFixed(2) ?? 'n/a'}, max DD ${m.maxDrawdownR.toFixed(1)}R, final $${m.finalEquity.toFixed(2)} · full ${report.full.pass ? 'PASS' : 'FAIL'} / tuning ${report.tuning.pass ? 'PASS' : 'FAIL'} / holdout ${report.holdout.pass ? 'PASS' : 'FAIL'}`)
   }
   if (args.get('upload') === 'true') await uploadRulebook(out, args.get('label') ?? 'rulebook-s-sp')
+}
+
+// Room diagnostic: every signal the room-to-resistance rule blocked, with the nearest level and its type.
+function writeRoomDiagnostic(out: string) {
+  const rows = roomLog
+  const header = 'version,day,time_et,ticker,setup,entry,stop,nearest_level,level_type,room_r,needed_r,other_blockers'
+  const csv = [header, ...rows.map((row) => [row.version, row.day, et(row.time), row.ticker, row.setup, row.entry.toFixed(4), row.stop.toFixed(4),
+    row.level === Infinity ? '' : row.level.toFixed(4), row.type, row.roomR === Infinity ? 'inf' : row.roomR.toFixed(2), row.minRoomR, `"${row.otherBlockers}"`].join(','))].join('\n') + '\n'
+  writeFileSync(join(out, 'room-blocked.csv'), csv)
+  for (const version of ['S', 'SP']) {
+    const list = rows.filter((row) => row.version === version)
+    const onlyRoom = list.filter((row) => !row.otherBlockers)
+    const byType = new Map<string, [number, number]>()
+    for (const row of list) {
+      const entry = byType.get(row.type) ?? [0, 0]
+      entry[0] += 1
+      if (!row.otherBlockers) entry[1] += 1
+      byType.set(row.type, entry)
+    }
+    console.log(`[rulebook] ${version} room-blocked signals: ${list.length} (${onlyRoom.length} blocked by room alone) - nearest resistance type:`)
+    for (const [type, [all, alone]] of [...byType.entries()].sort((left, right) => right[1][0] - left[1][0])) console.log(`    ${type.padEnd(40)} ${String(all).padStart(5)}  (room alone: ${alone})`)
+    const examples = (onlyRoom.length >= 5 ? onlyRoom : list)
+    const step = Math.max(1, Math.floor(examples.length / 5))
+    for (let index = 0; index < examples.length && index < step * 5; index += step) {
+      const row = examples[index]
+      console.log(`    e.g. ${row.ticker} ${et(row.time)} setup ${row.setup} entry ${row.entry.toFixed(2)} stop ${row.stop.toFixed(2)} → ${row.type} ${row.level.toFixed(2)} (${row.roomR.toFixed(2)}R < ${row.minRoomR}R)${row.otherBlockers ? ` [also: ${row.otherBlockers}]` : ''}`)
+    }
+  }
 }
 
 main().catch((error) => {
