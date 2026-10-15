@@ -209,7 +209,7 @@ ${result.checks.map((check) => `<tr><td>${check.metric}</td><td>${check.rule}</t
 </tbody></table></div>`
 }
 
-export function htmlReport(reports: RunReport[], meta: { generatedAt: string; sourceCommit: string; tradingDays: number; notes: string[] }) {
+export function htmlReport(reports: RunReport[], meta: { generatedAt: string; sourceCommit: string; tradingDays: number; notes: string[]; funnel?: Record<string, Record<string, number>> }) {
   const sections = reports.map((report) => {
     const m = report.full.metrics
     return `<section id="run-${report.id}"><h2>Run ${report.id}: ${esc(report.label)}</h2>
@@ -253,11 +253,12 @@ nav a{color:var(--accent);margin-right:12px}ul{padding-left:18px}
 ${reports.map((report) => `<tr><td>${report.id}: ${esc(report.label)}</td><td>${report.full.metrics.trades}</td><td>${r2(report.full.metrics.expectancyR)}</td><td>${r2(report.full.metrics.profitFactor)}</td><td>${r2(report.full.metrics.maxDrawdownR)}</td><td>$${report.full.metrics.finalEquity.toFixed(2)}</td><td class="${report.full.pass ? 'pos' : 'neg'}">${report.full.pass ? 'PASS' : 'FAIL'}</td><td class="${report.tuning.pass ? 'pos' : 'neg'}">${report.tuning.pass ? 'PASS' : 'FAIL'}</td><td class="${report.holdout.pass ? 'pos' : 'neg'}">${report.holdout.pass ? 'PASS' : 'FAIL'}</td></tr>`).join('')}
 </tbody></table>
 ${sections}
+${meta.funnel ? `<h2>Signal funnel (where candidates stop)</h2>${Object.entries(meta.funnel).map(([version, counts]) => `<h3>${version}</h3><table><tbody>${Object.entries(counts).sort(([l], [r]) => l.localeCompare(r)).map(([key, value]) => `<tr><td>${esc(key)}</td><td>${value}</td></tr>`).join('')}</tbody></table>`).join('')}` : ''}
 <h2>Assumptions and data limits</h2><ul>${meta.notes.map((note) => `<li>${esc(note)}</li>`).join('')}</ul>
 </body></html>`
 }
 
-export function writeOutputs(outDir: string, reports: RunReport[], tradesByRun: Map<string, TradeRecord[]>, meta: { generatedAt: string; sourceCommit: string; tradingDays: number; notes: string[] }) {
+export function writeOutputs(outDir: string, reports: RunReport[], tradesByRun: Map<string, TradeRecord[]>, meta: { generatedAt: string; sourceCommit: string; tradingDays: number; notes: string[]; funnel?: Record<string, Record<string, number>> }) {
   mkdirSync(outDir, { recursive: true })
   const allTrades = [...tradesByRun.values()].flat()
   writeFileSync(join(outDir, 'trades.csv'), tradesCsv(allTrades))

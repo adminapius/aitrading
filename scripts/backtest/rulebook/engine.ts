@@ -207,7 +207,7 @@ export class Account {
       return
     }
     if (this.orders.some((order) => order.signal.symbol === signal.symbol)) return this.skip('order-working')
-    if (!signal.entryEligible) return this.skip(`${signal.version}-not-eligible`)
+    if (!signal.entryEligible) return this.skip(`${signal.version}-not-eligible: ${(signal.blockers ?? []).join(' + ') || 'unknown'}`)
     const V = signal.version === 'S' ? RULEBOOK.S : RULEBOOK.SP
     if (minute < V.entryStartMinute || minute > V.entryEndMinute || minute >= RULEBOOK.management.flattenMinute) return this.skip('outside-entry-window')
     if (this.dayR <= A.dailyLossStopR) return this.skip('daily-loss-stop')

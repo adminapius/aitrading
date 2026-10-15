@@ -24,6 +24,7 @@ export type Signal = {
   gapPct: number | null
   rvol: number | null
   note: string
+  blockers?: string[] // why entryEligible is false (diagnostics)
 }
 
 // Facts known at the close of a 5-minute bar, used by exits.

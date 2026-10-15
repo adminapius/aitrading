@@ -141,7 +141,7 @@ export async function fetchJson<T>(url: string, kind: string, source: 'alpaca' |
           if (!response.ok) throw new Error(`${kind} HTTP ${response.status}: ${(await response.text()).slice(0, 200)}`)
           const body = await response.json() as T
           if (outageLogged) {
-            console.log('[backtest] network back, continuing')
+            console.log('[backtest] continuing')
             outageLogged = false
           }
           return body
@@ -156,7 +156,10 @@ export async function fetchJson<T>(url: string, kind: string, source: 'alpaca' |
       }
       if (!outageLogged && attempt >= 2) {
         const reason = lastError instanceof Error ? ((lastError as Error & { cause?: { code?: string } }).cause?.code ?? lastError.message) : String(lastError)
-        console.log(`[backtest] network problem (${reason}) - waiting and retrying for up to ${NETWORK_RETRY_MINUTES} min, do not close this window`)
+        const rateLimited = /retryable status 429/.test(String(reason))
+        console.log(rateLimited
+          ? `[backtest] ${source.toUpperCase()} rate limit (HTTP 429) - slowing down and retrying, nothing is wrong`
+          : `[backtest] network problem (${reason}) - waiting and retrying for up to ${NETWORK_RETRY_MINUTES} min, do not close this window`)
         outageLogged = true
       }
       await new Promise((resolve) => setTimeout(resolve, retryDelayMs(attempt)))

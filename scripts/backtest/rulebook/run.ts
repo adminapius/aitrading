@@ -12,8 +12,8 @@ import { RULEBOOK } from './config'
 import { baselineCumulative, dailyPivotHighs, fifteenVolumes, getDayBars, loadReference, newsBetween, priorDays, setFifteenWindow, strategySList, strategySPCandidates, MINUTE } from './data'
 import { Account, type RunConfig, type TradeRecord } from './engine'
 import { buildRunReport, writeOutputs } from './report'
-import { buildS } from './strategy-s'
-import { buildSP, runScanner, type ScanSymbol } from './strategy-sp'
+import { buildS, sFunnel } from './strategy-s'
+import { buildSP, runScanner, spFunnel, type ScanSymbol } from './strategy-sp'
 import type { SymbolDay } from './types'
 import { uploadRulebook } from './upload'
 
@@ -133,7 +133,13 @@ async function main() {
   try { sourceCommit = execSync('git rev-parse --short HEAD').toString().trim() } catch { /* not a git checkout */ }
   const tradesByRun = new Map<string, TradeRecord[]>(accounts.map((account) => [account.run.id, account.trades]))
   const reports = accounts.map((account) => buildRunReport(account.run, account.trades, account.equityByDay, account.stats))
-  const meta = { generatedAt, sourceCommit, tradingDays: ref.periodDays.length, notes: NOTES, period: { start: from, end: to }, apiStats }
+  const funnel = { S: sFunnel, SP: spFunnel }
+  const meta = { generatedAt, sourceCommit, tradingDays: ref.periodDays.length, notes: NOTES, period: { start: from, end: to }, apiStats, funnel }
+  for (const [version, counts] of Object.entries(funnel)) {
+    console.log(`[rulebook] ${version} funnel:`)
+    for (const [key, value] of Object.entries(counts).sort(([left], [right]) => left.localeCompare(right))) console.log(`    ${key.padEnd(48)} ${value}`)
+  }
+  for (const account of accounts) console.log(`[rulebook] run ${account.run.id} skipped: ${JSON.stringify(account.stats.skipped)}`)
   writeOutputs(out, reports, tradesByRun, meta)
   console.log(`[rulebook] wrote ${out}/report.html, summary.json, trades.csv (+ run-*/ folders)`)
   for (const report of reports) {

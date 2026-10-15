@@ -7,7 +7,10 @@ import type { FiveEvent, Signal, SymbolDay } from './types'
 
 const SP = RULEBOOK.SP
 
-export type ScannerState = { eligible: Uint8Array; gap: Float64Array; rvol: Float64Array }
+export type ScannerState = { eligible: Uint8Array; gap: Float64Array; rvol: Float64Array; why: Uint8Array }
+export const SCAN_WHY = ['ok', 'no trade yet', 'price outside $1-$10', 'gap < 20%', 'gap > 50%', 'volume too low', 'RVOL < 5x', 'no news yet', 'halt in last 5 min', 'not top 3'] as const
+export const spFunnel: Record<string, number> = {}
+const bump = (key: string) => { spFunnel[key] = (spFunnel[key] ?? 0) + 1 }
 
 export type SPInput = {
   symbol: string
@@ -36,7 +39,7 @@ export function runScanner(symbols: ScanSymbol[]): Map<string, ScannerState> {
   const out = new Map<string, ScannerState>()
   const data = symbols.map((item) => {
     const { byMinute, cumVolume } = minuteMaps(item.todayBars, item.midnight)
-    out.set(item.symbol, { eligible: new Uint8Array(1440), gap: new Float64Array(1440).fill(Number.NaN), rvol: new Float64Array(1440).fill(Number.NaN) })
+    out.set(item.symbol, { eligible: new Uint8Array(1440), gap: new Float64Array(1440).fill(Number.NaN), rvol: new Float64Array(1440).fill(Number.NaN), why: new Uint8Array(1440).fill(1) })
     return { item, byMinute, cumVolume }
   })
   const lastPrice = data.map(() => Number.NaN)
@@ -66,20 +69,37 @@ export function runScanner(symbols: ScanSymbol[]): Map<string, ScannerState> {
       const rvol = baseline > 0 ? volume / baseline : Infinity
       state.gap[m] = gap
       state.rvol[m] = rvol
-      if (price < S.minPrice || price > S.maxPrice) return
-      if (gap < S.minGap || gap > S.maxGap) return
-      if (volume < (m < S.lateVolumeMinute ? S.minVolumeEarly : S.minVolumeLate)) return
-      if (rvol < S.minRvol) return
-      if (!entry.item.newsTimes.some((at) => at <= entry.item.midnight + m * 60_000)) return
+      const fail = (code: number) => { state.why[m] = code }
+      if (price < S.minPrice || price > S.maxPrice) return fail(2)
+      if (gap < S.minGap) return fail(3)
+      if (gap > S.maxGap) return fail(4)
+      if (volume < (m < S.lateVolumeMinute ? S.minVolumeEarly : S.minVolumeLate)) return fail(5)
+      if (rvol < S.minRvol) return fail(6)
+      if (!entry.item.newsTimes.some((at) => at <= entry.item.midnight + m * 60_000)) return fail(7)
       if (m > SP.regularOpenMinute) {
         const ongoing = lastBarMinute[index] < SP.regularOpenMinute ? false : m - 1 - lastBarMinute[index] >= S.haltHoleMinutes
         const recent = holeEnds[index].some((end) => m - end <= S.haltLookbackMinutes)
-        if (ongoing || recent) return
+        if (ongoing || recent) return fail(8)
       }
+      fail(9)
       passing.push({ index, score: gap * Math.min(rvol, 1e6) })
     })
     passing.sort((left, right) => right.score - left.score)
-    for (const { index } of passing.slice(0, S.topN)) out.get(data[index].item.symbol)!.eligible[m] = 1
+    for (const { index } of passing.slice(0, S.topN)) {
+      const state = out.get(data[index].item.symbol)!
+      state.eligible[m] = 1
+      state.why[m] = 0
+    }
+  }
+  // Per symbol-day: the furthest scanner filter reached (0 = made the top 3 at least once).
+  for (const state of out.values()) {
+    let best = 1
+    for (let m = SP.entryStartMinute; m <= SP.entryEndMinute; m += 1) {
+      const code = state.why[m]
+      if (code === 0) { best = 0; break }
+      if (code > best) best = code
+    }
+    bump(`scanner day: ${best === 0 ? 'made top 3' : `stopped at "${SCAN_WHY[best]}"`}`)
   }
   return out
 }
@@ -177,11 +197,18 @@ export function buildSP(input: SPInput): SymbolDay {
     const emit = (setup: '1' | '2', trigger: number, stop: number, basis: number, minRoomR: number, note: string) => {
       const roomR = roomInR(nearestAbove(resistances(), trigger), trigger, stop)
       const tierOk = !(gap > SP.scanner.standardGapMax) || roomR >= SP.scanner.clearSetupMinRoomR
+      const windowOk = minute >= SP.entryStartMinute && minute <= SP.entryEndMinute
+      const blockers: string[] = []
+      if (!windowOk) blockers.push(minute < SP.entryStartMinute ? 'before 7:00' : 'after 15:00')
+      else if (!scannerOk) blockers.push(`scanner: ${SCAN_WHY[input.scanner.why[minute]] ?? 'unknown'}`)
+      if (!tierOk) blockers.push('gap 30-50% without 3R room')
+      if (roomR < minRoomR) blockers.push(`room < ${minRoomR}R`)
+      bump(`${setup} signal ${blockers.length ? 'blocked' : 'eligible'}`)
       signals.push({
         version: 'SP', symbol, setup, time, trigger, limit: trigger * (1 + SP.entryLimitOffset), stop, atr5: range!, basisLow: basis,
         level: null, levelKey: null, roomR, minRoomR,
         entryEligible: scannerOk && tierOk && roomR >= minRoomR && minute >= SP.entryStartMinute && minute <= SP.entryEndMinute,
-        addEligible: setup === '1', gapPct: Number.isFinite(gap) ? gap : null, rvol: Number.isFinite(rvolNow) ? rvolNow : null, note,
+        addEligible: setup === '1', gapPct: Number.isFinite(gap) ? gap : null, rvol: Number.isFinite(rvolNow) ? rvolNow : null, note, blockers,
       })
     }
 
@@ -197,6 +224,8 @@ export function buildSP(input: SPInput): SymbolDay {
         let total = 0
         for (let x = i - SP.setup1.volumeAvgBars; x < i; x += 1) total += all[x].v
         const average = total / SP.setup1.volumeAvgBars
+        if (bar.v < SP.setup1.volumeMult * average) bump('1 level crossed, volume < 2x')
+        else if (bar.c - crossed[1] > SP.setup1.maxChaseAtr * range) bump('1 level crossed, chased > 0.5 ATR')
         if (bar.v >= SP.setup1.volumeMult * average && bar.c - crossed[1] <= SP.setup1.maxChaseAtr * range) {
           const base = lastSwingLow1(i, time)
           let basis = base?.price
@@ -205,6 +234,7 @@ export function buildSP(input: SPInput): SymbolDay {
             for (let x = Math.max(0, i - 10); x <= i; x += 1) basis = Math.min(basis, all[x].l)
           }
           const stop = smartStop(basis, bar.c)
+          if (stop == null) bump('1 smart stop width check failed')
           if (stop != null) emit('1', bar.c, stop, basis, SP.setup1.minRoomR, `${crossed[0]} ${crossed[1].toFixed(2)} breakout, vol ${(bar.v / Math.max(average, 1)).toFixed(1)}x`)
         }
       }
@@ -231,6 +261,7 @@ export function buildSP(input: SPInput): SymbolDay {
           const held = supports.find(([, low, high]) => pullbackLow >= low - tolerance && pullbackLow <= high + tolerance && minClose >= low)
           if (held && pullbackLow > lastPullbackLow) {
             const stop = smartStop(pullbackLow, bar.h)
+            if (stop == null) bump('2 smart stop width check failed')
             if (stop != null) {
               emit('2', bar.h, stop, pullbackLow, SP.setup2.minRoomR, `pullback held ${held[0]}, low ${pullbackLow.toFixed(2)}`)
               lastPullbackLow = pullbackLow
