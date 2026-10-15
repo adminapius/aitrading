@@ -85,10 +85,17 @@ function upperBound(bars: MinuteBar[], start: number) {
 }
 
 const fifteenMemory = new Map<string, Map<string, Map<number, number>>>()
+// Each entry holds a symbol's whole-period 15-minute volume history. Keep only the most recently used symbols
+// (Map keeps insertion order; re-inserting on use makes it an LRU) so multi-year runs don't run out of heap.
+const FIFTEEN_MEMORY_MAX_SYMBOLS = Number(process.env.BACKTEST_FIFTEEN_CACHE_SYMBOLS) || 400
 
 async function fifteenMinuteSessions(symbol: string) {
   const cached = fifteenMemory.get(symbol)
-  if (cached) return cached
+  if (cached) {
+    fifteenMemory.delete(symbol)
+    fifteenMemory.set(symbol, cached)
+    return cached
+  }
   const bars = await getFifteenMinuteBars(symbol, FIFTEEN_START, FIFTEEN_END)
   const byDate = new Map<string, Map<number, number>>()
   for (const bar of bars) {
@@ -101,6 +108,7 @@ async function fifteenMinuteSessions(symbol: string) {
     buckets.set(bucket, (buckets.get(bucket) ?? 0) + Math.max(0, Number(bar.v ?? 0)))
   }
   fifteenMemory.set(symbol, byDate)
+  while (fifteenMemory.size > FIFTEEN_MEMORY_MAX_SYMBOLS) fifteenMemory.delete(fifteenMemory.keys().next().value!)
   return byDate
 }
 

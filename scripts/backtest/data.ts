@@ -256,6 +256,9 @@ export async function getLatestQuote(day: string, symbol: string, at: Date, look
 export function flushQuoteCache() {
   for (const day of dirtyQuoteDays) writeCache(`quotes/${day}`, Object.fromEntries(quoteMemory.get(day) ?? []))
   dirtyQuoteDays.clear()
+  // Everything is on disk now; drop it from memory so long runs (3+ years) don't run out of heap.
+  // A later lookup for the same day simply reloads that day's file.
+  quoteMemory.clear()
 }
 
 export type ShareCountPoint = { date: string; shares: number }
