@@ -286,3 +286,21 @@ test('variant E: SP smart stop is widened to at least 1.0 ATR(5m)', () => {
   assert.ok(signalE)
   assert.ok(signalE.trigger - signalE.stop >= signalE.atr5 - 1e-9, 'stop at least 1 ATR away')
 })
+
+test('room to resistance ignores the signal candle\'s own wick (HOD breakout with nothing above has unlimited room)', () => {
+  const bars = []
+  let price = 2.4
+  for (let m = 240; m < 600; m += 1) {
+    const open = price
+    price += 0.0025 + 0.012 * Math.sin(m / 9)
+    bars.push(bar(m, open, Math.max(open, price) + 0.003, Math.min(open, price) - 0.003, price, 20_000))
+  }
+  const last = bars.at(-1)
+  const hod = Math.max(...bars.map((item) => item.h))
+  bars.push(bar(600, last.c, hod + 0.05, last.c - 0.002, hod + 0.012, 200_000)) // long upper wick above the close
+  const scanner = { eligible: new Uint8Array(1440).fill(1), gap: new Float64Array(1440).fill(0.25), rvol: new Float64Array(1440).fill(9), why: new Uint8Array(1440) }
+  const frameSP = buildSP({ symbol: 'UP', day: '2026-05-04', midnight: MIDNIGHT, prevClose: 2.0, float: 5e6, todayBars: bars, prior: null, dailyPivotHighs: [], scanner, countFunnel: false })
+  const breakout = frameSP.signals.find((item) => item.setup === '1' && item.time === at(601))
+  assert.ok(breakout)
+  assert.equal(breakout.roomR, Infinity)
+})

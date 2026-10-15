@@ -121,7 +121,8 @@ export function buildS(input: SInput): SymbolDay {
     return false
   }
   const resistances = (time: number) => [
-    pdh, pmh, hodAt(time), ...input.dailyPivotHighs,
+    // High of day BEFORE the 5-min signal candle: the signal candle's own wick is not resistance.
+    pdh, pmh, hodAt(time - 5 * 60_000), ...input.dailyPivotHighs,
     ...yesterdayPivotHighs.filter((pivot) => pivot.confirmedAt <= time).map((pivot) => pivot.price),
   ]
   // Stop: structure level − 0.25 ATR, then 1.0-3.0 ATR from the trigger (tighter → widen to 1 ATR, wider → skip).

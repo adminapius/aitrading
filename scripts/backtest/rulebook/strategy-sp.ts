@@ -196,7 +196,8 @@ export function buildSP(input: SPInput): SymbolDay {
       if (width < minWidthAtr * range - 1e-12 || width > SP.stop.maxWidthAtr * range || width > SP.stop.maxWidthPct * trigger) return null
       return stop
     }
-    const resistances = () => [pdh, pmh, prevHod > -Infinity ? Math.max(prevHod, bar.h) : null, ...input.dailyPivotHighs,
+    // High of day BEFORE this 1-min signal candle: the signal candle's own wick is not resistance.
+    const resistances = () => [pdh, pmh, prevHod > -Infinity ? prevHod : null, ...input.dailyPivotHighs,
       ...pivotHighsNear.filter((pivot) => pivot.confirmedAt <= time).map((pivot) => pivot.price)]
     const scannerOk = minute < 1440 && input.scanner.eligible[minute] === 1
     const gap = minute < 1440 ? input.scanner.gap[minute] : Number.NaN
