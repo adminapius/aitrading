@@ -174,14 +174,16 @@ test('daily loss stop blocks new entries after −3R', () => {
 })
 
 test('pass/fail: rulebook months run 14th to 13th; windows use calendar months', () => {
+  const P6 = { ...RULEBOOK.period, start: '2026-04-14' } // the 6-month layout this test describes
   assert.equal(rulebookMonth('2026-04-14'), '2026-04')
   assert.equal(rulebookMonth('2026-05-13'), '2026-04')
   assert.equal(rulebookMonth('2026-10-13'), '2026-09')
   const trades = Array.from({ length: 120 }, (_, i) => ({ date: `2026-0${4 + (i % 6)}-20`, rResult: i % 3 === 0 ? -1 : 1.2, equityAfter: 2000 + i, pnl: 1 }))
-  const full = passFail(trades, 2000, 'full')
+  const full = passFail(trades, 2000, 'full', 100, P6)
   assert.equal(full.pass, true)
+  assert.equal(passFail(trades, 2000, 'full').checks[5].rule, '≥ 16 of 24') // default 24-month period
   assert.equal(metrics(trades, 2000).trades, 120)
-  const tuning = passFail(trades.slice(0, 30), 2000, 'tuning')
+  const tuning = passFail(trades.slice(0, 30), 2000, 'tuning', 58, P6)
   assert.equal(tuning.checks[0].pass, false) // 30 < 58 trades
 })
 
@@ -239,4 +241,48 @@ test('S builder runs on regular-hours bars and never emits signals outside 9:45-
     assert.ok(item.trigger - item.stop >= item.atr5 * 0.999 && item.trigger - item.stop <= item.atr5 * 3.001)
   }
   assert.ok(frameS.events.length > 0)
+})
+
+test('variant E: R-trail moves on 5-min closes, so a 1-min spike to +1.2R does not move the stop to breakeven', () => {
+  // Entry 5.025 (trigger 5 + 0.5%), stop 4.8, R ≈ 0.225. A 1-min high of 5.30 (+1.2R) then a dip to 5.00.
+  const bars = [VOL, bar(600, 4.98, 5.02, 4.97, 5.01, 5_000_000), bar(601, 5.05, 5.30, 5.04, 5.10, 5_000_000), bar(602, 5.08, 5.09, 5.00, 5.05, 5_000_000), bar(930, 5.6, 5.6, 5.5, 5.55, 5_000_000)]
+  const events = [{ end: at(605), close: 5.06, runnerBelow: false, belowVwap: false, exhaustion: false, structureBreakAt: null, tightenTo: null }]
+  const base = new Account(run())
+  base.simulateDay('2026-05-04', [frame({ bars, signals: [signal()], events })])
+  assert.equal(base.trades[0].exitReason, 'trail-stop') // base: breakeven stop hit by the 5.00 dip
+  const variant = new Account({ ...run(), id: 'E', variant: 'E' })
+  variant.simulateDay('2026-05-04', [frame({ bars, signals: [signal()], events })])
+  assert.equal(variant.trades[0].exitReason, 'flatten') // E: 5-min close 5.06 < +1R, stop stays at 4.8
+})
+
+test('variant E: the time stop exits only if the trade is below entry at 15 minutes', () => {
+  const green = [VOL, bar(600, 4.98, 5.02, 4.97, 5.01, 5_000_000)]
+  for (let m = 601; m <= 620; m += 1) green.push(bar(m, 5.05, 5.08, 5.03, 5.06, 5_000_000))
+  const e1 = new Account({ ...run(), id: 'E', variant: 'E' })
+  e1.simulateDay('2026-05-04', [frame({ bars: [...green, bar(930, 5.06, 5.07, 5.05, 5.06, 5_000_000)], signals: [signal()] })])
+  assert.equal(e1.trades[0].exitReason, 'flatten')
+  const red = [VOL, bar(600, 4.98, 5.02, 4.97, 5.01, 5_000_000)]
+  for (let m = 601; m <= 620; m += 1) red.push(bar(m, 4.95, 4.97, 4.9, 4.94, 5_000_000))
+  const e2 = new Account({ ...run(), id: 'E', variant: 'E' })
+  e2.simulateDay('2026-05-04', [frame({ bars: red, signals: [signal()] })])
+  assert.equal(e2.trades[0].exitReason, 'time-stop')
+})
+
+test('variant E: SP smart stop is widened to at least 1.0 ATR(5m)', () => {
+  const bars = []
+  let price = 2.4
+  for (let m = 240; m < 600; m += 1) {
+    const open = price
+    price += 0.0025 + 0.012 * Math.sin(m / 9)
+    bars.push(bar(m, open, Math.max(open, price) + 0.003, Math.min(open, price) - 0.003, price, 20_000))
+  }
+  const last = bars.at(-1)
+  const hod = Math.max(...bars.map((item) => item.h))
+  bars.push(bar(600, last.c, hod + 0.02, last.c - 0.002, hod + 0.012, 200_000))
+  const scanner = { eligible: new Uint8Array(1440).fill(1), gap: new Float64Array(1440).fill(0.25), rvol: new Float64Array(1440).fill(9), why: new Uint8Array(1440) }
+  const input = { symbol: 'UP', day: '2026-05-04', midnight: MIDNIGHT, prevClose: 2.0, float: 5e6, todayBars: bars, prior: null, dailyPivotHighs: [], scanner }
+  const variant = buildSP({ ...input, stopMinWidthAtr: 1.0, widenTightStop: true, countFunnel: false })
+  const signalE = variant.signals.find((item) => item.setup === '1' && item.time === at(601))
+  assert.ok(signalE)
+  assert.ok(signalE.trigger - signalE.stop >= signalE.atr5 - 1e-9, 'stop at least 1 ATR away')
 })

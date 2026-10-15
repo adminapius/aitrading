@@ -10,7 +10,8 @@ const SP = RULEBOOK.SP
 export type ScannerState = { eligible: Uint8Array; gap: Float64Array; rvol: Float64Array; why: Uint8Array }
 export const SCAN_WHY = ['ok', 'no trade yet', 'price outside $1-$10', 'gap < 20%', 'gap > 50%', 'volume too low', 'RVOL < 5x', 'no news yet', 'halt in last 5 min', 'not top 3'] as const
 export const spFunnel: Record<string, number> = {}
-const bump = (key: string) => { spFunnel[key] = (spFunnel[key] ?? 0) + 1 }
+let funnelOn = true
+const bump = (key: string) => { if (funnelOn) spFunnel[key] = (spFunnel[key] ?? 0) + 1 }
 
 export type SPInput = {
   symbol: string
@@ -22,6 +23,9 @@ export type SPInput = {
   prior: { day: string; midnight: number; bars: Bar[] } | null
   dailyPivotHighs: number[]
   scanner: ScannerState
+  stopMinWidthAtr?: number // variant override (base: RULEBOOK.SP.stop.minWidthAtr)
+  widenTightStop?: boolean // variant: widen a too-tight stop to the minimum instead of skipping
+  countFunnel?: boolean
 }
 
 export type ScanSymbol = {
@@ -105,6 +109,8 @@ export function runScanner(symbols: ScanSymbol[]): Map<string, ScannerState> {
 }
 
 export function buildSP(input: SPInput): SymbolDay {
+  funnelOn = input.countFunnel !== false
+  const minWidthAtr = input.stopMinWidthAtr ?? SP.stop.minWidthAtr
   const { symbol, day, midnight, todayBars, prior } = input
   const all = [...(prior?.bars ?? []), ...todayBars]
   const todayStart = prior?.bars.length ?? 0
@@ -184,9 +190,10 @@ export function buildSP(input: SPInput): SymbolDay {
 
     const smartStop = (pullbackLow: number, trigger: number) => {
       if (range == null || v1 == null) return null
-      const stop = Math.max(pullbackLow - SP.stop.bufferAtr * range, v1 - SP.stop.bufferAtr * range, trigger - SP.stop.maxAtrFromEntry * range)
+      let stop = Math.max(pullbackLow - SP.stop.bufferAtr * range, v1 - SP.stop.bufferAtr * range, trigger - SP.stop.maxAtrFromEntry * range)
+      if (input.widenTightStop && trigger - stop < minWidthAtr * range) stop = trigger - minWidthAtr * range
       const width = trigger - stop
-      if (width < SP.stop.minWidthAtr * range || width > SP.stop.maxWidthAtr * range || width > SP.stop.maxWidthPct * trigger) return null
+      if (width < minWidthAtr * range - 1e-12 || width > SP.stop.maxWidthAtr * range || width > SP.stop.maxWidthPct * trigger) return null
       return stop
     }
     const resistances = () => [pdh, pmh, prevHod > -Infinity ? Math.max(prevHod, bar.h) : null, ...input.dailyPivotHighs,

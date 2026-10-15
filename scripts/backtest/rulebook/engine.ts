@@ -8,7 +8,7 @@ import type { FiveEvent, Signal, SymbolDay, Version } from './types'
 const A = RULEBOOK.account
 const F = RULEBOOK.fills
 
-export type RunConfig = { id: string; label: string; versions: Version[]; spSlippageMultiplier: number }
+export type RunConfig = { id: string; label: string; versions: Version[]; spSlippageMultiplier: number; variant?: 'E' }
 
 export type TradeRecord = {
   run: string
@@ -68,6 +68,7 @@ type Position = {
   target2: number | null
   pendingExit: string | null
   timeChecked: boolean
+  lastClose: number
   runnerCount: number
   eventsSeen: number
   pnl: number
@@ -104,7 +105,11 @@ export class Account {
   private tickerLastBasis = new Map<string, number>()
   private usedLevels = new Set<string>()
 
-  constructor(readonly run: RunConfig) {}
+  private readonly variant: (typeof RULEBOOK.variants)['E'] | null
+
+  constructor(readonly run: RunConfig) {
+    this.variant = run.variant ? RULEBOOK.variants[run.variant] : null
+  }
 
   private skip(reason: string) {
     this.stats.skipped[reason] = (this.stats.skipped[reason] ?? 0) + 1
@@ -180,7 +185,8 @@ export class Account {
         const limit = (position.version === 'S' ? RULEBOOK.S.timeStopMinutes : RULEBOOK.SP.timeStopMinutes) * MIN_MS
         if (!position.timeChecked && boundary - position.entryTime >= limit) {
           position.timeChecked = true
-          if (position.maxHigh < position.entryPrice + position.riskPerShare && !position.pendingExit) position.pendingExit = 'time-stop'
+          const stalled = this.variant?.timeStopOnlyIfBelowEntry ? position.lastClose < position.entryPrice : position.maxHigh < position.entryPrice + position.riskPerShare
+          if (stalled && !position.pendingExit) position.pendingExit = 'time-stop'
         }
       }
       while (cursor < signals.length && signals[cursor].signal.time <= boundary) {
@@ -314,7 +320,7 @@ export class Account {
       id: this.nextId++, frame: order.frame, signal, version: signal.version, symbol: signal.symbol, entryTime: bar.t, entryMinute: m,
       entryPrice: fill, avgCost: fill, shares, initialShares: shares, maxShares: shares, initialStop: stop, stop, riskPerShare,
       riskDollars: shares * riskPerShare, maxHigh: Math.max(fill, bar.c), minLow: Math.min(fill, bar.c), units: 1, scale1Done: false, scale2Done: false,
-      target1: t1, target2: t2, pendingExit: null, timeChecked: false, runnerCount: 0, eventsSeen: 0, pnl: 0, fees: 0, exitShares: 0, exitValue: 0,
+      target1: t1, target2: t2, pendingExit: null, timeChecked: false, lastClose: bar.c, runnerCount: 0, eventsSeen: 0, pnl: 0, fees: 0, exitShares: 0, exitValue: 0,
       partials: [], entryIndex, lastExitTime: bar.t, lastReason: '',
     }
     this.positions.push(position)
@@ -323,6 +329,7 @@ export class Account {
   }
 
   private processBar(position: Position, bar: Bar, m: number) {
+    position.lastClose = bar.c
     const slip = this.slippage(position.version, m)
     const exitAt = bar.t + MIN_MS
     if (m >= RULEBOOK.management.flattenMinute) return this.sell(position, position.shares, bar.o * (1 - slip), 'flatten', bar.t)
@@ -346,6 +353,7 @@ export class Account {
     if (!this.positions.includes(position)) return
     position.maxHigh = Math.max(position.maxHigh, bar.h)
     position.minLow = Math.min(position.minLow, bar.l)
+    if (this.variant?.rTrailOnFiveMinCloses) return // variant E: the R-trail moves on 5-min closes (applyEvent)
     // R-trail: every +1R of open profit raises the stop 1R (from the next bar).
     const steps = Math.floor((position.maxHigh - position.entryPrice) / (RULEBOOK.management.rTrailStepR * position.riskPerShare) + 1e-9)
     if (steps >= 1) position.stop = Math.max(position.stop, position.entryPrice + (steps - 1) * RULEBOOK.management.rTrailStepR * position.riskPerShare)
@@ -353,6 +361,11 @@ export class Account {
 
   private applyEvent(position: Position, event: FiveEvent) {
     if (event.end < position.entryTime + MIN_MS || position.pendingExit) return
+    if (this.variant?.rTrailOnFiveMinCloses) {
+      const step = RULEBOOK.management.rTrailStepR * position.riskPerShare
+      const steps = Math.floor((event.close - position.entryPrice) / step + 1e-9)
+      if (steps >= 1) position.stop = Math.max(position.stop, position.entryPrice + (steps - 1) * step)
+    }
     position.eventsSeen += 1
     if (position.version === 'S') {
       const signal = position.signal

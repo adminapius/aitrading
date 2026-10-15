@@ -6,11 +6,11 @@
 
 export const RULEBOOK = {
   period: {
-    start: '2026-04-14',
+    start: '2024-10-14', // 24 months (Jose, Oct 15): 6 months could not produce enough trades
     end: '2026-10-13',
     tuningEnd: '2026-07-31', // tuning window = start..tuningEnd
     holdoutStart: '2026-08-01', // holdout = holdoutStart..end, run once with frozen settings
-    rulebookMonthStartDay: 14, // "≥4 of 6 months" uses 14th-to-13th months for the full period
+    rulebookMonthStartDay: 14, // full-period months run 14th-to-13th ("≥4 of 6" scales to ≥16 of 24)
   },
 
   account: {
@@ -173,15 +173,22 @@ export const RULEBOOK = {
   },
 
   passCriteria: {
-    minTrades: 100,
-    minTradesTuning: 58,
-    minTradesHoldout: 42,
+    minTrades: 100, // full period; each window needs the same rate, prorated by its share of trading days
     minExpectancyR: 0.2,
     minProfitFactor: 1.5,
     maxDrawdownR: 15,
     maxSingleLossR: 3,
-    minProfitableMonths: 4, // of 6 rulebook months (full period)
-    windowProfitableMonthsFraction: 2 / 3, // per window, calendar months
+    profitableMonthsFraction: 4 / 6, // "≥4 of 6 months": full period uses 14th-13th months, windows use calendar months
+  },
+
+  // Variant runs: [adapted] changes only, each tested against the frozen rules (Jose, Oct 15, 2026).
+  variants: {
+    E: {
+      rTrailOnFiveMinCloses: true, // R-trail / breakeven moves only on 5-min closes, not 1-min intrabar highs
+      timeStopOnlyIfBelowEntry: true, // at 15 min, exit only if the last close is below entry
+      spStopMinWidthAtr: 1.0, // smart stop at least 1.0 × ATR(5m) from entry (base: 0.5)
+      widenTightStop: true, // a tighter stop is widened to the minimum (sized off the wider stop), not skipped
+    },
   },
 }
 
