@@ -182,7 +182,7 @@ async function pagedBars(path: string, params: Record<string, string>, kind: str
   return out
 }
 
-async function pagedMultiSymbolBars(symbols: string[], params: Record<string, string>, kind: string) {
+export async function pagedMultiSymbolBars(symbols: string[], params: Record<string, string>, kind: string) {
   let remaining = [...symbols]
   while (remaining.length) {
     try {
