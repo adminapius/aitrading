@@ -42,6 +42,8 @@ export const RUNNER = {
   sellersEnd: 11 * 60 + 30,
   sellersBars: 5,
   hardExit: 11 * 60 + 30,
+  // Step 2b (Jose, Oct 16, 2026): fixed bracket, declared before seeing any results. No changes after.
+  bracket: { entryEnd: 9 * 60, stopPct: 0.1, targetPct: 0.2, timeExit: 11 * 60 + 30 },
 }
 
 function parseArgs() {
@@ -157,7 +159,9 @@ function printFacts(rows: FactRow[], out: string) {
 // ---------------- Step 2: SP-Runner rules ----------------
 type Signal = { symbol: string; minute: number; trigger: number; stop: number; baseLow: number; pmh: number | null; input: DayInput }
 
-export function runnerSignal(input: DayInput, day: string, midnight: number): Signal | null {
+export function runnerSignal(input: DayInput, day: string, midnight: number, options: { entryEnd?: number; structuralStop?: boolean } = {}): Signal | null {
+  const entryEnd = options.entryEnd ?? RUNNER.entryEnd
+  const structuralStop = options.structuralStop !== false
   // Scanned 7:00-8:30 with the SP filters + news (top 3 included).
   let scanned = false
   for (let m = RUNNER.scanStart; m <= RUNNER.scanEnd; m += 1) if (input.eligible[m] === 1) { scanned = true; break }
@@ -178,7 +182,7 @@ export function runnerSignal(input: DayInput, day: string, midnight: number): Si
     const bar = input.bars[i]
     const m = minuteIn(midnight, bar.t)
     if (m < RUNNER.entryStart) continue
-    if (m >= RUNNER.entryEnd) break
+    if (m >= entryEnd) break
     const v = vwap[i]
     if (v == null || !(bar.c > v) || !(input.bars[i - 1].c <= (vwap[i - 1] ?? Infinity))) continue // 1-min close back above VWAP
     let pullbackLow = Infinity
@@ -192,6 +196,7 @@ export function runnerSignal(input: DayInput, day: string, midnight: number): Si
     let k5 = -1
     for (let x = 0; x < five.length && five[x].end <= time; x += 1) k5 = x
     const range = k5 >= 0 ? atr5[k5] : null
+    if (!structuralStop) return { symbol: input.symbol, minute: m + 1, trigger: bar.c, stop: Number.NaN, baseLow, pmh, input }
     if (range == null) continue
     const stop = Math.min(baseLow, pullbackLow) - RUNNER.stopBufferAtr * range
     if (!(stop < bar.c) || (bar.c - stop) / bar.c > RUNNER.maxStopPct) continue
@@ -316,6 +321,65 @@ export function simulateRunner(signal: Signal, day: string, midnight: number, ri
   }
 }
 
+// Step 2b: fixed bracket from the entry fill: stop -10%, target +20% (resting limit), time exit 11:30.
+export function simulateBracket(signal: Signal, midnight: number, riskDollars: number, equity: number) {
+  const C = RULEBOOK.costs
+  const B = RUNNER.bracket
+  const slip = (m: number) => (m < SP.regularOpenMinute ? SP.slippagePremarket : SP.slippage)
+  const { byMinute, cumVolume } = minuteMaps(signal.input.bars, midnight)
+  const limit = signal.trigger * (1 + SP.entryLimitOffset)
+  let entry: { price: number; minute: number; shares: number } | null = null
+  for (let m = signal.minute; m < signal.minute + RULEBOOK.fills.entryValidMinutes; m += 1) {
+    const bar = byMinute[m]
+    if (!bar || bar.h < signal.trigger) continue
+    const price = Math.max(signal.trigger, bar.o)
+    if (price > limit) continue
+    const fill = price * (1 + slip(m))
+    let shares = Math.floor(riskDollars / (fill * B.stopPct) + 1e-9)
+    shares = Math.min(shares, Math.floor(equity / fill), Math.floor(RULEBOOK.account.maxShareOfDayVolume * cumVolume[signal.minute - 1]))
+    if (shares < 1 || shares * fill * B.stopPct < RULEBOOK.account.minRiskFractionAfterCaps * riskDollars) return { skip: 'caps-below-half-R' as const }
+    if (shares > C.rejectFillAboveBarVolumeShare * bar.v) return { skip: 'fill > 10% of bar volume' as const }
+    entry = { price: fill, minute: m, shares }
+    break
+  }
+  if (!entry) return { skip: 'not filled' as const }
+  const stop = entry.price * (1 - B.stopPct)
+  const target = entry.price * (1 + B.targetPct)
+  let maxHigh = entry.price
+  let minLow = entry.price
+  let exit: { price: number; minute: number; reason: string } | null = null
+  const entryBar = byMinute[entry.minute]!
+  if (entryBar.c <= stop) exit = { price: stop * (1 - slip(entry.minute)), minute: entry.minute + 1, reason: 'stop' }
+  for (let m = entry.minute + 1; m < 16 * 60 && !exit; m += 1) {
+    const bar = byMinute[m]
+    if (!bar) continue
+    if (m >= B.timeExit) { exit = { price: bar.o * (1 - slip(m)), minute: m, reason: 'time-exit-11:30' }; break }
+    if (bar.o <= stop) { exit = { price: bar.o * (1 - slip(m)), minute: m, reason: 'gap-stop' }; break }
+    if (bar.o >= target) { exit = { price: bar.o, minute: m, reason: 'target' }; break }
+    // Both inside one bar: the stop is assumed first (conservative).
+    if (bar.l <= stop) { exit = { price: stop * (1 - slip(m)), minute: m + 1, reason: 'stop' }; break }
+    if (bar.h >= target + RULEBOOK.fills.targetThroughTicks) { exit = { price: target, minute: m + 1, reason: 'target' }; break }
+    maxHigh = Math.max(maxHigh, bar.h)
+    minLow = Math.min(minLow, bar.l)
+  }
+  if (!exit) {
+    const last = signal.input.bars.at(-1)!
+    exit = { price: last.c * (1 - slip(959)), minute: 960, reason: 'time-exit-11:30' }
+  }
+  const riskPerShare = entry.price - stop
+  const proceeds = entry.shares * exit.price
+  const fees = proceeds * C.secFeePerDollar + Math.min(entry.shares * C.finraTafPerShare, C.finraTafMaxPerTrade)
+  const pnl = proceeds - entry.shares * entry.price - fees
+  return {
+    trade: {
+      entryTime: midnight + entry.minute * MINUTE, entryPrice: entry.price, avgCost: entry.price, shares: entry.shares, maxShares: entry.shares, units: 1,
+      exitTime: midnight + exit.minute * MINUTE, exitPrice: exit.price, exitReason: exit.reason, partials: `target ${target.toFixed(4)}`, pnl, fees,
+      rResult: pnl / (entry.shares * riskPerShare), riskDollars: entry.shares * riskPerShare, stop, mfeR: (maxHigh - entry.price) / riskPerShare, maeR: (minLow - entry.price) / riskPerShare,
+      holdMinutes: exit.minute - entry.minute,
+    },
+  }
+}
+
 async function main() {
   const args = parseArgs()
   const step = args.get('step') ?? '1'
@@ -342,15 +406,16 @@ async function main() {
       continue
     }
     // Step 2: one position per day under $10k (small-account mode); earliest signal wins, ties by scanner gap.
-    const signals = inputs.map((input) => runnerSignal(input, day, midnight)).filter((item): item is Signal => item != null)
+    const bracket = step === '2b'
+    const signals = inputs.map((input) => runnerSignal(input, day, midnight, bracket ? { entryEnd: RUNNER.bracket.entryEnd, structuralStop: false } : {})).filter((item): item is Signal => item != null)
       .sort((left, right) => left.minute - right.minute || left.symbol.localeCompare(right.symbol))
     const riskDollars = equity * RUNNER.risk
     for (const signal of signals) {
-      const result = simulateRunner(signal, day, midnight, riskDollars, equity)
+      const result = bracket ? simulateBracket(signal, midnight, riskDollars, equity) : simulateRunner(signal, day, midnight, riskDollars, equity)
       if ('skip' in result) { skipped[result.skip!] = (skipped[result.skip!] ?? 0) + 1; continue }
       const t = result.trade
       equity += t.pnl
-      trades.push({ run: 'SPR', date: day, ticker: signal.symbol, version: 'SP', setup: 'runner', entryIndex: 1, ...t, equityAfter: equity, roomR: Infinity,
+      trades.push({ run: bracket ? 'SPR2B' : 'SPR', date: day, ticker: signal.symbol, version: 'SP', setup: bracket ? 'runner-bracket' : 'runner', entryIndex: 1, ...t, equityAfter: equity, roomR: Infinity,
         gapPct: signal.trigger / signal.input.prevClose - 1, rvol: null, note: `VWAP reclaim ${et(midnight + (signal.minute - 1) * MINUTE)}; base low ${signal.baseLow.toFixed(2)}` })
       break
     }
@@ -358,25 +423,46 @@ async function main() {
     if (index % 25 === 0) console.log(`[runner] ${day} (${index + 1}/${ref.periodDays.length}) trades ${trades.length}, equity $${equity.toFixed(0)}`)
   }
   if (step === '1') return printFacts(facts, out)
-  const run = { id: 'SPR', label: 'SP-Runner: premarket news runner (VWAP reclaim 8:30-9:15, exits by 11:30)', versions: ['SP' as const], spSlippageMultiplier: 1 }
+  const isBracket = step === '2b'
+  const runId = isBracket ? 'SPR2B' : 'SPR'
+  const run = isBracket
+    ? { id: runId, label: 'SP-Runner Step 2b: top 3 by 8:30, VWAP reclaim 8:30-9:00, stop -10% / target +20%, time exit 11:30', versions: ['SP' as const], spSlippageMultiplier: 1 }
+    : { id: runId, label: 'SP-Runner: premarket news runner (VWAP reclaim 8:30-9:15, exits by 11:30)', versions: ['SP' as const], spSlippageMultiplier: 1 }
   const report = buildRunReport(run, trades, equityByDay, { skipped }, period)
-  const meta = { generatedAt: new Date().toISOString(), sourceCommit: 'sp-runner', tradingDays: ref.periodDays.length, notes: [
+  const notes = isBracket ? [
+    'Step 2b, declared before results (Oct 16, 2026): in the SP scanner top 3 at some minute 7:00-8:30 (so it qualifies before the entry); entry 8:30-9:00 on a 1-min close back above VWAP after a pullback to VWAP that held the premarket base (lowest low 7:00-8:29).',
+    'Fixed bracket from the entry fill: stop -10% (approved stop fill model), target +20% (resting limit, filled once traded 1 cent through, or at the open if gapped above), time exit at the 11:30 open. Stop and target inside the same 1-min bar: stop assumed first.',
+    '0.5% risk per trade (position about 5% of equity); one trade per day; fills, slippage (1% before 9:30, 0.5% after), fees, 10%-of-bar and 1%-of-day volume caps as in the rulebook backtest. No changes after this run.',
+  ] : [
     'SP-Runner rules as specified Oct 15, 2026. Scan 7:00-8:30 with SP filters + news (top 3); entry 8:30-9:15 on a 1-min close back above VWAP after a pullback to VWAP that held the premarket base (lowest low 7:00-8:29).',
     'Stop below min(premarket base low, pullback low) - 0.25 ATR(5m), max 20% wide; 0.5% risk; never widened. No time stop, no breakeven before 9:45. One add 9:30-9:45 on a close above the premarket high.',
     'Exits: after 9:45 trail under the last 5-min swing low; 10:00-11:30 sellers take over (1-min lower high + lower low with red volume > green over 5 bars) or a 5-min close below VWAP; hard exit 11:30.',
     'Fills, slippage (1% premarket, 0.5% after), fees, 10%-of-bar and 1%-of-day volume caps as in the rulebook backtest. One trade per day (small-account mode).',
-  ] }
-  writeOutputs(out, [report], new Map([['SPR', trades]]), meta)
+  ]
+  const meta = { generatedAt: new Date().toISOString(), sourceCommit: 'sp-runner', tradingDays: ref.periodDays.length, notes }
+  writeOutputs(out, [report], new Map([[runId, trades]]), meta)
   const line = (name: string, r: typeof report.full) => {
     const m = r.metrics
     console.log(`[runner] ${name}: ${m.trades} trades, win ${m.winRate == null ? 'n/a' : (m.winRate * 100).toFixed(0)}%, avg win ${m.avgWinR?.toFixed(2) ?? 'n/a'}R / avg loss ${m.avgLossR?.toFixed(2) ?? 'n/a'}R, expectancy ${m.expectancyR?.toFixed(2) ?? 'n/a'}R, PF ${m.profitFactor?.toFixed(2) ?? 'n/a'}, max DD ${m.maxDrawdownR.toFixed(1)}R · ${r.pass ? 'PASS' : 'FAIL'}`)
   }
-  line('SP-Runner full', report.full)
-  line('SP-Runner tuning', report.tuning)
-  line('SP-Runner holdout', report.holdout)
+  const name = isBracket ? 'Step 2b' : 'SP-Runner'
+  line(`${name} full`, report.full)
+  line(`${name} tuning`, report.tuning)
+  line(`${name} holdout`, report.holdout)
+  if (isBracket) {
+    const groups: Array<[string, TradeRecord[]]> = [['tuning', trades.filter((t) => t.date <= period.tuningEnd)], ['holdout', trades.filter((t) => t.date >= period.holdoutStart)]]
+    for (const [window, list] of groups) {
+      for (const kind of ['target', 'stop', 'time-exit-11:30']) {
+        const group = list.filter((t) => (kind === 'stop' ? t.exitReason === 'stop' || t.exitReason === 'gap-stop' : t.exitReason === kind))
+        const avg = group.length ? group.reduce((sum, t) => sum + t.rResult, 0) / group.length : Number.NaN
+        const wins = group.filter((t) => t.rResult > 0).length
+        console.log(`[runner] ${window} ${kind === 'time-exit-11:30' ? 'neither hit -> time exit 11:30' : kind === 'stop' ? 'stop (incl. gap-stop)' : 'target +20%'}: ${group.length} trades, avg ${Number.isNaN(avg) ? 'n/a' : avg.toFixed(2)}R, ${group.length ? ((wins / group.length) * 100).toFixed(0) : 'n/a'}% positive`)
+      }
+    }
+  }
   console.log(`[runner] skipped: ${JSON.stringify(skipped)} · exits: ${JSON.stringify(trades.reduce((acc, t) => ({ ...acc, [t.exitReason]: (acc[t.exitReason] ?? 0) + 1 }), {} as Record<string, number>))}`)
   console.log(`[runner] wrote ${out}/report.html, trades.csv`)
-  if (args.get('upload') === 'true') await uploadRulebook(out, 'sp-runner')
+  if (args.get('upload') === 'true') await uploadRulebook(out, isBracket ? 'sp-runner-2b' : 'sp-runner')
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
