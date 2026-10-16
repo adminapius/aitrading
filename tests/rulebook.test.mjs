@@ -374,3 +374,25 @@ test('run H: daily series flags a 20-day-high close in an uptrend (Turtle S1) an
   const down = buildSeries('DN', rows.map((row) => ({ ...row, o: 100 - row.o * 0.2, h: 100 - row.l * 0.2, l: 100 - row.h * 0.2, c: 100 - row.c * 0.2 })))
   assert.equal(down.signal.some((value) => value !== null), false)
 })
+
+test('SP-Runner: fact check finds the high time; runner enters on a VWAP reclaim 8:30-9:15 and exits by 11:30', async () => {
+  const { runnerSignal, simulateRunner } = await import('../scripts/backtest/rulebook/runner')
+  const bars = []
+  // 7:00-8:29 base around 2.45-2.55 with volume; 8:30-8:40 dip below VWAP; 8:41 reclaim; then trend up to ~3.2 by 10:30; fade after.
+  for (let m = 420; m < 510; m += 1) bars.push(bar(m, 2.5, 2.55, 2.45, 2.5 + 0.02 * Math.sin(m / 3), 30_000))
+  for (let m = 510; m < 521; m += 1) bars.push(bar(m, 2.48, 2.49, 2.46, 2.47, 20_000))
+  bars.push(bar(521, 2.47, 2.56, 2.47, 2.55, 60_000)) // close back above VWAP
+  let p = 2.55
+  for (let m = 522; m < 630; m += 1) { const o = p; p += 0.006; bars.push(bar(m, o, p + 0.01, o - 0.01, p, 40_000)) }
+  for (let m = 630; m < 960; m += 1) { const o = p; p -= 0.002; bars.push(bar(m, o, o + 0.005, p - 0.005, p, 20_000)) }
+  const eligible = new Uint8Array(1440).fill(1)
+  const input = { symbol: 'RUN', prevClose: 2.0, bars, prior: [], newsTimes: [at(300)], eligible }
+  const sig = runnerSignal(input, '2026-05-04', MIDNIGHT)
+  assert.ok(sig, 'signal')
+  assert.equal(sig.minute, 522)
+  assert.ok(sig.stop < sig.baseLow)
+  const result = simulateRunner(sig, '2026-05-04', MIDNIGHT, 10, 2000)
+  assert.ok(result.trade, JSON.stringify(result))
+  assert.ok(result.trade.exitTime <= at(690))
+  assert.ok(result.trade.pnl > 0)
+})
