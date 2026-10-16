@@ -40,6 +40,7 @@ export type ScanSymbol = {
 
 // Runs every minute from 7:00 ET. At boundary minute M the scanner sees bars that closed by M (t < M).
 export function runScanner(symbols: ScanSymbol[]): Map<string, ScannerState> {
+  funnelOn = true // the scanner runs once per day for all runs; a variant build may have left the flag off
   const S = SP.scanner
   const out = new Map<string, ScannerState>()
   const data = symbols.map((item) => {
