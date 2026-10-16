@@ -1,6 +1,6 @@
 // Account + order engine for the S & SP rulebook backtest. One Account per run; frames (market data + signals)
 // are shared read-only across runs. Stops are held internally by the backtester (no broker stop orders).
-import { RULEBOOK, type VariantConfig } from './config'
+import { RULEBOOK, type VariantConfig, type VariantId } from './config'
 import { MIN_MS } from './common'
 import type { Bar } from './indicators'
 import type { FiveEvent, Signal, SymbolDay, Version } from './types'
@@ -8,7 +8,7 @@ import type { FiveEvent, Signal, SymbolDay, Version } from './types'
 const A = RULEBOOK.account
 const F = RULEBOOK.fills
 
-export type RunConfig = { id: string; label: string; versions: Version[]; spSlippageMultiplier: number; variant?: 'E' | 'F' }
+export type RunConfig = { id: string; label: string; versions: Version[]; spSlippageMultiplier: number; variant?: VariantId; swing?: boolean }
 
 export type TradeRecord = {
   run: string
@@ -213,7 +213,13 @@ export class Account {
       return
     }
     if (this.orders.some((order) => order.signal.symbol === signal.symbol)) return this.skip('order-working')
-    if (!signal.entryEligible) return this.skip(`${signal.version}-not-eligible: ${(signal.blockers ?? []).join(' + ') || 'unknown'}`)
+    const blockers = signal.blockers ?? []
+    const roomOnly = !signal.entryEligible && blockers.length > 0 && blockers.every((item) => item.startsWith('room') || item.startsWith('gap 30-50%'))
+    if (this.variant?.onlyRoomBlocked) {
+      if (!roomOnly) return this.skip('shadow: not blocked by room alone')
+    } else if (!signal.entryEligible) return this.skip(`${signal.version}-not-eligible: ${blockers.join(' + ') || 'unknown'}`)
+    if (this.variant?.entryEndMinute != null && minute > this.variant.entryEndMinute) return this.skip('variant: after entry cutoff')
+    if (this.variant?.minRvol != null && !((signal.rvol ?? 0) >= this.variant.minRvol)) return this.skip('variant: RVOL below minimum')
     const V = signal.version === 'S' ? RULEBOOK.S : RULEBOOK.SP
     if (minute < V.entryStartMinute || minute > V.entryEndMinute || minute >= RULEBOOK.management.flattenMinute) return this.skip('outside-entry-window')
     if (this.dayR <= A.dailyLossStopR) return this.skip('daily-loss-stop')

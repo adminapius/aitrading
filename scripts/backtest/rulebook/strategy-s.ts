@@ -150,12 +150,13 @@ export function buildS(input: SInput, options: SOptions = {}): SymbolDay {
       bump(`${setup} room<${minRoomR}R`)
       bump(`room-blocked nearest: ${nearest.type}`)
       if (funnelOn) roomLog.push({ version: 'S', ticker: symbol, day, time, setup, entry: trigger, stop, level: nearest.level, type: nearest.type, roomR, minRoomR, otherBlockers: '' })
-      return
-    }
-    bump(`${setup} SIGNAL`)
+    } else bump(`${setup} SIGNAL`)
+    // Room-blocked signals are kept (not eligible) so the room shadow test can trade them; normal runs skip them.
+    const roomBlocked = roomR < minRoomR
     signals.push({
       version: 'S', symbol, setup, time, trigger, limit: trigger * (1 + S.entryLimitOffset), stop, atr5: range, basisLow: basis,
-      level, levelKey, roomR, minRoomR, entryEligible: true, addEligible: false, gapPct: input.prevClose > 0 ? trigger / input.prevClose - 1 : null, rvol: null, note,
+      level, levelKey, roomR, minRoomR, entryEligible: !roomBlocked, addEligible: false, gapPct: input.prevClose > 0 ? trigger / input.prevClose - 1 : null, rvol: null,
+      note: roomBlocked ? `${note} [room ${roomR.toFixed(2)}R to ${nearest.type}]` : note, blockers: roomBlocked ? [`room < ${minRoomR}R`] : [],
     })
   }
 

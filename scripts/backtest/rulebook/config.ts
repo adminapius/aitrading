@@ -4,6 +4,8 @@
 // Source: "Strategy S & SP - Day Trading Rulebook" (Oct 14, 2026) + Jose's approved decisions of Oct 14, 2026.
 // Lesson 3.3 (breakouts) is still pending: Setup 1 (SP) and Setup B (S) may change when it arrives.
 
+export type VariantId = 'E' | 'F' | 'RS' | 'RSP' | 'G'
+
 export type VariantConfig = {
   rTrailOnFiveMinCloses?: boolean
   timeStopOnlyIfBelowEntry?: boolean
@@ -11,7 +13,10 @@ export type VariantConfig = {
   widenTightStop?: boolean
   sConfirmBullishAboveEmaAndPriorHigh?: boolean
   breakoutVolumeMult?: number
-  stopAfterTuningWindow?: boolean
+  window?: 'tuning' | 'holdout' // simulate only this window; the other stays untouched
+  onlyRoomBlocked?: boolean // shadow test: trade ONLY signals whose sole blocker is the room rule
+  entryEndMinute?: number // last entry minute (ET minute of day)
+  minRvol?: number // minimum relative volume at the signal
 }
 
 export const RULEBOOK = {
@@ -170,7 +175,30 @@ export const RULEBOOK = {
     rsiPeriod: 14,
   },
 
-  resistance: { dailyPivotLookbackDays: 60 }, // PDH, PMH, HOD, 5m pivots (today+yesterday), daily pivots; round numbers excluded
+  resistance: { dailyPivotLookbackDays: 60 },
+
+  // H - "S-Swing" by the course, daily bars, long only (Jose, Oct 15, 2026). Decisions at the daily close,
+  // fills at the next open. Split-adjusted daily bars for signals/P&L; raw bars for the price/volume universe.
+  H: {
+    exchanges: ['NYSE', 'NASDAQ', 'AMEX'],
+    minPrice: 5,
+    avgVolumeDays: 20,
+    minAvgVolume: 1_000_000,
+    smas: [20, 50, 200] as const, // trend: 20 > 50 > 200 SMA
+    priorBouncesRequired: 2, // entry A: 3rd touch of the 20 or 50 SMA + bullish confirmation bar (L8, L3)
+    breakoutDays: 20, // entry B: close above the prior 20-day high (L14 Turtle System 1)
+    atrDays: 20, // N = 20-day ATR (Wilder)
+    stopAtr: 2, // stop 2N
+    exitLowDays: 10, // exit on a trade below the prior 10-day low
+    exitClosesBelow50: 2, // or 2 closes below the 50 SMA (exit next open)
+    roomPivotDays: 60, // room check: daily swing highs only, last 60 days
+    minRoomR: 2,
+    riskPerTrade: 0.01,
+    maxOpen: 5,
+    maxOpenRiskFraction: 0.2,
+    slippage: 0.0005,
+    rankLookbackDays: 252, // rank same-day signals by nearness to the 52-week high
+  }, // PDH, PMH, HOD, 5m pivots (today+yesterday), daily pivots; round numbers excluded
 
   candles: {
     hammerLowerToBody: 2,
@@ -198,15 +226,20 @@ export const RULEBOOK = {
     F: {
       sConfirmBullishAboveEmaAndPriorHigh: true, // S Setup A: also accept any bullish bar closing above the 20 EMA and the prior bar's high
       breakoutVolumeMult: 1.5, // S Setup B and SP Setup 1 breakout volume ≥ 1.5× average (base: 2×)
-      stopAfterTuningWindow: true,
+      window: 'tuning',
     },
+    // Room shadow tests (Jose, Oct 15): same rules as run C, but ONLY the signals the room rule alone blocked.
+    RS: { onlyRoomBlocked: true, window: 'tuning' },
+    RSP: { onlyRoomBlocked: true, window: 'tuning' },
+    // G: one-shot holdout test of SP with run C rules + entries 7:00-9:59 AM ET + RVOL >= 100x. No changes after.
+    G: { entryEndMinute: 9 * 60 + 59, minRvol: 100, window: 'holdout' },
     E: {
       rTrailOnFiveMinCloses: true, // R-trail / breakeven moves only on 5-min closes, not 1-min intrabar highs
       timeStopOnlyIfBelowEntry: true, // at 15 min, exit only if the last close is below entry
       spStopMinWidthAtr: 1.0, // smart stop at least 1.0 × ATR(5m) from entry (base: 0.5)
       widenTightStop: true, // a tighter stop is widened to the minimum (sized off the wider stop), not skipped
     },
-  } as Record<'E' | 'F', VariantConfig>,
+  } as Record<VariantId, VariantConfig>,
 }
 
 export type RulebookConfig = typeof RULEBOOK

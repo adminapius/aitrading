@@ -331,3 +331,46 @@ test('run F: SP Setup 1 accepts 1.5x breakout volume; base still needs 2x; room 
   assert.deepEqual(blocked.blockers, ['room < 3R'])
   assert.equal(spFunnel['room-blocked nearest: daily swing high (60d)'], before + 1)
 })
+
+test('room shadow (RS/RSP) trades only signals blocked by room alone; normal runs skip them', () => {
+  const bars = [VOL, bar(600, 4.98, 5.02, 4.97, 5.01, 5_000_000), bar(930, 5.01, 5.02, 5.0, 5.01, 5_000_000)]
+  const roomBlocked = signal({ entryEligible: false, blockers: ['room < 3R'], roomR: 1.2 })
+  const base = new Account(run())
+  base.simulateDay('2026-05-04', [frame({ bars, signals: [roomBlocked] })])
+  assert.equal(base.trades.length, 0)
+  const shadow = new Account({ ...run(), id: 'RSP', variant: 'RSP' })
+  shadow.simulateDay('2026-05-04', [frame({ bars, signals: [roomBlocked] })])
+  assert.equal(shadow.trades.length, 1)
+  const normal = new Account({ ...run(), id: 'RSP', variant: 'RSP' })
+  normal.simulateDay('2026-05-04', [frame({ bars, signals: [signal()] })])
+  assert.equal(normal.trades.length, 0) // eligible signals are not part of the shadow group
+  const scannerBlocked = new Account({ ...run(), id: 'RSP', variant: 'RSP' })
+  scannerBlocked.simulateDay('2026-05-04', [frame({ bars, signals: [signal({ entryEligible: false, blockers: ['scanner: RVOL < 5x', 'room < 3R'] })] })])
+  assert.equal(scannerBlocked.trades.length, 0)
+})
+
+test('run G: entries only until 9:59 AM ET and only with RVOL >= 100x', () => {
+  const bars = [VOL, bar(600, 4.98, 5.02, 4.97, 5.01, 5_000_000), bar(930, 5.01, 5.02, 5.0, 5.01, 5_000_000)]
+  const g = () => new Account({ ...run(), id: 'G', variant: 'G' })
+  const lowRvol = g(); lowRvol.simulateDay('2026-05-04', [frame({ bars, signals: [signal({ rvol: 50 })] })])
+  assert.equal(lowRvol.trades.length, 0)
+  const ok = g(); ok.simulateDay('2026-05-04', [frame({ bars, signals: [signal({ rvol: 150, time: at(599) })] })])
+  assert.equal(ok.trades.length, 1)
+  const late = g(); late.simulateDay('2026-05-04', [frame({ bars, signals: [signal({ rvol: 150, time: at(600) })] })])
+  assert.equal(late.trades.length, 0)
+})
+
+test('run H: daily series flags a 20-day-high close in an uptrend (Turtle S1) and nothing without the 20>50>200 trend', async () => {
+  const { buildSeries } = await import('../scripts/backtest/rulebook/swing')
+  const rows = []
+  let price = 20
+  for (let d = 0; d < 260; d += 1) {
+    const open = price
+    price *= 1 + 0.002 + 0.01 * Math.sin(d / 5)
+    rows.push({ day: `D${String(d).padStart(3, '0')}`, o: open, h: Math.max(open, price) * 1.005, l: Math.min(open, price) * 0.995, c: price, v: 2e6 })
+  }
+  const up = buildSeries('UP', rows)
+  assert.ok(up.signal.some((value) => value === 'B'))
+  const down = buildSeries('DN', rows.map((row) => ({ ...row, o: 100 - row.o * 0.2, h: 100 - row.l * 0.2, l: 100 - row.h * 0.2, c: 100 - row.c * 0.2 })))
+  assert.equal(down.signal.some((value) => value !== null), false)
+})
