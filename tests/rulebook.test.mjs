@@ -418,3 +418,34 @@ test('SP-Runner Step 2b: fixed -10% / +20% bracket from the fill, time exit at 1
   assert.equal(time.trade.exitReason, 'time-exit-11:30')
   assert.equal(time.trade.exitTime, at(690))
 })
+
+test('fill audit model: fills from the next full bar, stop before target, gap-stop at open, flatten at the real minute', async () => {
+  const { modelTrade } = await import('../scripts/backtest/rulebook/audit')
+  const M = 60_000
+  const midnight = Date.parse('2026-10-14T00:00:00-04:00')
+  const at = (m) => midnight + m * M
+  const bar = (m, o, h, l, c) => ({ t: at(m), o, h, l, c })
+  const base = { submitMs: at(577) + 35_000, trigger: 3.85, limit: 3.87, stop: 3.43, target: 4.27, flattenMs: null, midnight, slippage: () => 0.005 }
+  // the 9:37 bar (order sent mid-bar) is ignored; 9:38 opens 3.80, trades up through 3.85 -> fill 3.85 * 1.005
+  const bars = [bar(577, 3.9, 3.95, 3.7, 3.8), bar(578, 3.8, 3.86, 3.78, 3.84), bar(579, 3.84, 4.0, 3.82, 3.98), bar(580, 4.2, 4.4, 4.1, 4.35)]
+  const r = modelTrade(bars, base)
+  assert.equal(r.filled, true)
+  assert.ok(Math.abs(r.entry - 3.85 * 1.005) < 1e-9)
+  assert.equal(r.reason, 'target')
+  assert.equal(r.exit, 4.27) // opened at 4.20 below the target -> fills at the target, no slippage
+  // both stop and target inside one bar -> stop
+  const both = modelTrade([bar(578, 3.8, 3.86, 3.78, 3.84), bar(579, 3.84, 4.5, 3.4, 4.0)], base)
+  assert.equal(both.reason, 'stop')
+  assert.ok(Math.abs(both.exit - 3.43 * 0.995) < 1e-9)
+  // gap below the stop -> open - slippage
+  const gap = modelTrade([bar(578, 3.8, 3.86, 3.78, 3.84), bar(579, 3.3, 3.35, 3.2, 3.25)], base)
+  assert.equal(gap.reason, 'gap-stop')
+  assert.ok(Math.abs(gap.exit - 3.3 * 0.995) < 1e-9)
+  // opens above the limit for the whole valid window -> no fill
+  const miss = modelTrade([bar(578, 3.9, 3.95, 3.88, 3.9), bar(579, 3.9, 3.95, 3.88, 3.9)], base)
+  assert.equal(miss.filled, false)
+  // flatten at the real flatten minute -> that bar's open - slippage
+  const flat = modelTrade([bar(578, 3.8, 3.86, 3.78, 3.84), bar(579, 3.84, 3.9, 3.8, 3.85), bar(955, 3.7, 3.72, 3.6, 3.65)], { ...base, flattenMs: at(955) + 50_000 })
+  assert.equal(flat.reason, 'flatten')
+  assert.ok(Math.abs(flat.exit - 3.7 * 0.995) < 1e-9)
+})
