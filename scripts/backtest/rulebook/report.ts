@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { RULEBOOK } from './config'
 import type { RunConfig, TradeRecord } from './engine'
 
-const P = RULEBOOK.period
+export type Period = typeof RULEBOOK.period
 const PC = RULEBOOK.passCriteria
 
 export type Metrics = {
@@ -67,7 +67,7 @@ function monthGroups(trades: TradeRecord[], key: (trade: TradeRecord) => string,
 }
 
 // Rulebook months for the full period: the 14th to the 13th (Apr 14-May 13 ... Sep 14-Oct 13) = exactly 6.
-export function rulebookMonth(date: string) {
+export function rulebookMonth(date: string, P: Period = RULEBOOK.period) {
   const [year, month, day] = date.split('-').map(Number)
   const start = day >= P.rulebookMonthStartDay ? new Date(Date.UTC(year, month - 1, P.rulebookMonthStartDay)) : new Date(Date.UTC(year, month - 2, P.rulebookMonthStartDay))
   return start.toISOString().slice(0, 7)
@@ -79,22 +79,28 @@ function calendarMonths(from: string, to: string) {
   return out
 }
 
-export function passFail(trades: TradeRecord[], startEquity: number, window: 'full' | 'tuning' | 'holdout') {
+function rulebookMonths(from: string, to: string) {
+  const out: string[] = []
+  const last = rulebookMonth(to)
+  for (let cursor = new Date(`${rulebookMonth(from)}-01T00:00:00Z`); cursor.toISOString().slice(0, 7) <= last; cursor.setUTCMonth(cursor.getUTCMonth() + 1)) out.push(cursor.toISOString().slice(0, 7))
+  return out
+}
+
+export function passFail(trades: TradeRecord[], startEquity: number, window: 'full' | 'tuning' | 'holdout', minTrades: number = PC.minTrades, P: Period = RULEBOOK.period) {
   const m = metrics(trades, startEquity)
   const fmt = (value: number | null, digits = 2) => (value == null ? 'n/a' : value === Infinity ? '∞' : value.toFixed(digits))
   let months: Array<[string, number]>
   let neededMonths: number
   if (window === 'full') {
-    const keys = calendarMonths(P.start, P.end).map((month) => month).filter((month) => month < P.end.slice(0, 7))
+    const keys = rulebookMonths(P.start, P.end)
     months = monthGroups(trades, (trade) => rulebookMonth(trade.date), keys)
-    neededMonths = PC.minProfitableMonths
+    neededMonths = Math.ceil(keys.length * PC.profitableMonthsFraction - 1e-9)
   } else {
     const keys = window === 'tuning' ? calendarMonths(P.start, P.tuningEnd) : calendarMonths(P.holdoutStart, P.end)
     months = monthGroups(trades, (trade) => trade.date.slice(0, 7), keys)
-    neededMonths = Math.ceil(keys.length * PC.windowProfitableMonthsFraction)
+    neededMonths = Math.ceil(keys.length * PC.profitableMonthsFraction - 1e-9)
   }
   const profitable = months.filter(([, r]) => r > 0).length
-  const minTrades = window === 'full' ? PC.minTrades : window === 'tuning' ? PC.minTradesTuning : PC.minTradesHoldout
   const checks: Check[] = [
     { metric: 'Trades', rule: `≥ ${minTrades}`, value: String(m.trades), pass: m.trades >= minTrades },
     { metric: 'Expectancy', rule: `> +${PC.minExpectancyR}R per trade`, value: `${fmt(m.expectancyR)}R`, pass: (m.expectancyR ?? -Infinity) > PC.minExpectancyR },
@@ -119,19 +125,24 @@ function group(trades: TradeRecord[], key: (trade: TradeRecord) => string | null
 
 export type RunReport = ReturnType<typeof buildRunReport>
 
-export function buildRunReport(run: RunConfig, trades: TradeRecord[], equityByDay: Array<{ day: string; equity: number }>, stats: unknown) {
+export function buildRunReport(run: RunConfig, trades: TradeRecord[], equityByDay: Array<{ day: string; equity: number }>, stats: unknown, P: Period = RULEBOOK.period) {
   const start = RULEBOOK.account.startingEquity
   const tuning = trades.filter((trade) => trade.date <= P.tuningEnd)
   const holdout = trades.filter((trade) => trade.date >= P.holdoutStart)
   const holdoutStart = tuning.length ? tuning.at(-1)!.equityAfter : start
+  const totalDays = equityByDay.length
+  const tuningDays = equityByDay.filter((point) => point.day <= P.tuningEnd).length
+  const holdoutDays = equityByDay.filter((point) => point.day >= P.holdoutStart).length
   return {
     id: run.id,
     label: run.label,
     versions: run.versions,
     spSlippageMultiplier: run.spSlippageMultiplier,
-    full: passFail(trades, start, 'full'),
-    tuning: passFail(tuning, start, 'tuning'),
-    holdout: passFail(holdout, holdoutStart, 'holdout'),
+    period: P,
+    locked: Boolean(run.variant && RULEBOOK.variants[run.variant]?.stopAfterTuningWindow), // tuning window only; holdout not simulated
+    full: passFail(trades, start, 'full', PC.minTrades, P),
+    tuning: passFail(tuning, start, 'tuning', Math.ceil(PC.minTrades * tuningDays / Math.max(totalDays, 1)), P),
+    holdout: passFail(holdout, holdoutStart, 'holdout', Math.ceil(PC.minTrades * holdoutDays / Math.max(totalDays, 1)), P),
     byMonth: group(trades, (trade) => trade.date.slice(0, 7), start),
     bySetup: [
       ...group(trades, (trade) => `${trade.version} Setup ${trade.setup}`, start),
@@ -173,7 +184,7 @@ const pct = (value: number | null) => (value == null ? 'n/a' : `${(value * 100).
 const r2 = (value: number | null) => (value == null ? 'n/a' : value === Infinity ? '∞' : value.toFixed(2))
 const esc = (text: string) => text.replace(/[&<>]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[char]!)
 
-function equitySvg(points: Array<{ day: string; equity: number }>) {
+function equitySvg(points: Array<{ day: string; equity: number }>, P: Period) {
   if (points.length < 2) return '<p class="muted">Not enough days for a chart.</p>'
   const width = 720
   const height = 220
@@ -202,14 +213,16 @@ ${rows.map((row) => `<tr><td>${esc(row.name)}</td><td>${row.trades}</td><td>${pc
 </tbody></table>`
 }
 
-function checksTable(title: string, result: ReturnType<typeof passFail>) {
+function checksTable(title: string, result: ReturnType<typeof passFail>, locked = false) {
+  if (locked) return `<div class="card"><h4>${title} <span class="badge bad" style="background:var(--muted)">LOCKED</span></h4><p class="muted">Not simulated: this variant is judged on the tuning window only, so the holdout stays untouched.</p></div>`
   return `<div class="card"><h4>${title} <span class="badge ${result.pass ? 'ok' : 'bad'}">${result.pass ? 'PASS' : 'FAIL'}</span></h4>
 <table><thead><tr><th>Metric</th><th>Rule</th><th>Result</th><th></th></tr></thead><tbody>
 ${result.checks.map((check) => `<tr><td>${check.metric}</td><td>${check.rule}</td><td>${check.value}</td><td class="${check.pass ? 'pos' : 'neg'}">${check.pass ? 'pass' : 'fail'}</td></tr>`).join('')}
 </tbody></table></div>`
 }
 
-export function htmlReport(reports: RunReport[], meta: { generatedAt: string; sourceCommit: string; tradingDays: number; notes: string[] }) {
+export function htmlReport(reports: RunReport[], meta: { generatedAt: string; sourceCommit: string; tradingDays: number; notes: string[]; funnel?: Record<string, Record<string, number>> }) {
+  const P = reports[0]?.period ?? RULEBOOK.period
   const sections = reports.map((report) => {
     const m = report.full.metrics
     return `<section id="run-${report.id}"><h2>Run ${report.id}: ${esc(report.label)}</h2>
@@ -223,8 +236,8 @@ export function htmlReport(reports: RunReport[], meta: { generatedAt: string; so
 <div class="tile"><span>Avg win / loss</span><b>${r2(m.avgWinR)}R / ${r2(m.avgLossR)}R</b></div>
 <div class="tile"><span>Largest loss</span><b>${r2(m.largestLossR)}R</b></div>
 </div>
-${equitySvg(report.equityByDay)}
-<div class="grid3">${checksTable('Full period (Apr 14 – Oct 13)', report.full)}${checksTable('Tuning window (Apr 14 – Jul 31)', report.tuning)}${checksTable('Holdout (Aug 1 – Oct 13)', report.holdout)}</div>
+${equitySvg(report.equityByDay, report.period)}
+<div class="grid3">${checksTable(`Full period (${P.start} – ${P.end})`, report.full, report.locked)}${checksTable(`Tuning window (${P.start} – ${P.tuningEnd})`, report.tuning)}${checksTable(`Holdout (${P.holdoutStart} – ${P.end})`, report.holdout, report.locked)}</div>
 <h3>By month</h3>${metricsTable(report.byMonth)}
 <h3>By setup</h3>${metricsTable(report.bySetup)}
 <h3>By exit reason</h3>${metricsTable(report.byExit)}
@@ -246,18 +259,19 @@ svg{width:100%;height:auto;background:var(--card);border:1px solid var(--line);b
 nav a{color:var(--accent);margin-right:12px}ul{padding-left:18px}
 </style></head><body>
 <h1>Strategy S &amp; SP — rulebook backtest</h1>
-<p class="muted">Apr 14 – Oct 13, 2026 · ${meta.tradingDays} trading days · $${RULEBOOK.account.startingEquity.toLocaleString()} start, compounding · generated ${meta.generatedAt} · commit ${meta.sourceCommit}</p>
+<p class="muted">${P.start} – ${P.end} (holdout from ${P.holdoutStart}) · ${meta.tradingDays} trading days · $${RULEBOOK.account.startingEquity.toLocaleString()} start, compounding · generated ${meta.generatedAt} · commit ${meta.sourceCommit}</p>
 <nav>${reports.map((report) => `<a href="#run-${report.id}">Run ${report.id}</a>`).join('')}</nav>
 <h3>Run comparison</h3>
 <table><thead><tr><th>Run</th><th>Trades</th><th>Expectancy R</th><th>PF</th><th>Max DD R</th><th>Final equity</th><th>Full</th><th>Tuning</th><th>Holdout</th></tr></thead><tbody>
-${reports.map((report) => `<tr><td>${report.id}: ${esc(report.label)}</td><td>${report.full.metrics.trades}</td><td>${r2(report.full.metrics.expectancyR)}</td><td>${r2(report.full.metrics.profitFactor)}</td><td>${r2(report.full.metrics.maxDrawdownR)}</td><td>$${report.full.metrics.finalEquity.toFixed(2)}</td><td class="${report.full.pass ? 'pos' : 'neg'}">${report.full.pass ? 'PASS' : 'FAIL'}</td><td class="${report.tuning.pass ? 'pos' : 'neg'}">${report.tuning.pass ? 'PASS' : 'FAIL'}</td><td class="${report.holdout.pass ? 'pos' : 'neg'}">${report.holdout.pass ? 'PASS' : 'FAIL'}</td></tr>`).join('')}
+${reports.map((report) => `<tr><td>${report.id}: ${esc(report.label)}</td><td>${report.full.metrics.trades}</td><td>${r2(report.full.metrics.expectancyR)}</td><td>${r2(report.full.metrics.profitFactor)}</td><td>${r2(report.full.metrics.maxDrawdownR)}</td><td>$${report.full.metrics.finalEquity.toFixed(2)}</td>${report.locked ? '<td class="muted">locked</td>' : `<td class="${report.full.pass ? 'pos' : 'neg'}">${report.full.pass ? 'PASS' : 'FAIL'}</td>`}<td class="${report.tuning.pass ? 'pos' : 'neg'}">${report.tuning.pass ? 'PASS' : 'FAIL'}</td>${report.locked ? '<td class="muted">locked</td>' : `<td class="${report.holdout.pass ? 'pos' : 'neg'}">${report.holdout.pass ? 'PASS' : 'FAIL'}</td>`}</tr>`).join('')}
 </tbody></table>
 ${sections}
+${meta.funnel ? `<h2>Signal funnel (where candidates stop)</h2>${Object.entries(meta.funnel).map(([version, counts]) => `<h3>${version}</h3><table><tbody>${Object.entries(counts).sort(([l], [r]) => l.localeCompare(r)).map(([key, value]) => `<tr><td>${esc(key)}</td><td>${value}</td></tr>`).join('')}</tbody></table>`).join('')}` : ''}
 <h2>Assumptions and data limits</h2><ul>${meta.notes.map((note) => `<li>${esc(note)}</li>`).join('')}</ul>
 </body></html>`
 }
 
-export function writeOutputs(outDir: string, reports: RunReport[], tradesByRun: Map<string, TradeRecord[]>, meta: { generatedAt: string; sourceCommit: string; tradingDays: number; notes: string[] }) {
+export function writeOutputs(outDir: string, reports: RunReport[], tradesByRun: Map<string, TradeRecord[]>, meta: { generatedAt: string; sourceCommit: string; tradingDays: number; notes: string[]; funnel?: Record<string, Record<string, number>> }) {
   mkdirSync(outDir, { recursive: true })
   const allTrades = [...tradesByRun.values()].flat()
   writeFileSync(join(outDir, 'trades.csv'), tradesCsv(allTrades))

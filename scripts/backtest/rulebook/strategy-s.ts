@@ -1,11 +1,18 @@
 // Strategy S (regular stocks, LONG ONLY for this backtest): 15m trend gate, 5m Setup A (MA bounce) and
 // Setup B (level breakout / retest), market-structure stops, and the 5m facts its exits need.
 import { RULEBOOK } from './config'
-import { aggPivots, confirmedBy, lastConfirmed, minuteIn, minuteMaps, nearestAbove, roomInR } from './common'
+import { aggPivots, confirmedBy, lastConfirmed, minuteIn, minuteMaps, nearestAboveTyped, roomInR, roomLog, type TypedLevel } from './common'
 import { aggregate, atr, ema, isBearishEngulfing, isBullishEngulfing, isHammer, isMorningStar, isShootingStar, lastCompleted, macd, rsi, sessionVwap, sma, type Bar } from './indicators'
 import type { FiveEvent, Signal, SymbolDay } from './types'
 
 const S = RULEBOOK.S
+
+// Funnel: how many candidates reach / fail each rule (diagnostics only, never changes a decision).
+export const sFunnel: Record<string, number> = {}
+let funnelOn = true
+const bump = (key: string) => { if (funnelOn) sFunnel[key] = (sFunnel[key] ?? 0) + 1 }
+
+export type SOptions = { confirmBullishAboveEmaAndPriorHigh?: boolean; breakoutVolumeMult?: number; countFunnel?: boolean }
 
 export type SInput = {
   symbol: string
@@ -17,8 +24,11 @@ export type SInput = {
   dailyPivotHighs: number[]
 }
 
-export function buildS(input: SInput): SymbolDay {
+export function buildS(input: SInput, options: SOptions = {}): SymbolDay {
+  funnelOn = options.countFunnel !== false
+  const breakoutVolumeMult = options.breakoutVolumeMult ?? S.setupB.breakoutVolumeMult
   const { symbol, day, midnight, todayBars } = input
+  bump('stock-days on the S list')
   const sessions = [...input.priorSessions, { day, midnight, bars: todayBars }]
   const sessionOfBar = new Map<number, { day: string; midnight: number }>()
   const rth: Bar[] = []
@@ -101,9 +111,25 @@ export function buildS(input: SInput): SymbolDay {
     if (v == null || fastValue == null || slowValue == null || line == null || signalLine == null || strength == null) return false
     return price > v && fastValue > slowValue && line > signalLine && strength > S.gate15m.rsiMin
   }
-  const resistances = (time: number) => [
-    pdh, pmh, hodAt(time), ...input.dailyPivotHighs,
-    ...yesterdayPivotHighs.filter((pivot) => pivot.confirmedAt <= time).map((pivot) => pivot.price),
+  const gateWhy = (time: number) => {
+    const i1 = last1mIndex(time)
+    const k = lastCompleted(fifteen, time)
+    if (i1 < 0 || k < 0 || vwap1[i1] == null || ema15[k] == null || sma15[k] == null || macd15.line[k] == null || macd15.signal[k] == null || rsi15[k] == null) return 'gate:no-data'
+    if (!(rth[i1].c > vwap1[i1]!)) return 'gate:below-vwap'
+    if (!(ema15[k]! > sma15[k]!)) return 'gate:15m-20ema<=50sma'
+    if (!(macd15.line[k]! > macd15.signal[k]!)) return 'gate:15m-macd<=signal'
+    return 'gate:15m-rsi<=45'
+  }
+  const gated = (time: number, prefix: string) => {
+    if (gate(time)) return true
+    bump(`${prefix} ${gateWhy(time)}`)
+    return false
+  }
+  const resistances = (time: number): TypedLevel[] => [
+    // High of day BEFORE the 5-min signal candle: the signal candle's own wick is not resistance.
+    ['prior-day high', pdh], ['premarket high', pmh], ['HOD', hodAt(time - 5 * 60_000)],
+    ...input.dailyPivotHighs.map((level): TypedLevel => ['daily swing high (60d)', level]),
+    ...yesterdayPivotHighs.filter((pivot) => pivot.confirmedAt <= time).map((pivot): TypedLevel => ['5-min swing high (today/yesterday)', pivot.price]),
   ]
   // Stop: structure level − 0.25 ATR, then 1.0-3.0 ATR from the trigger (tighter → widen to 1 ATR, wider → skip).
   const placeStop = (basis: number, trigger: number, range: number) => {
@@ -117,9 +143,16 @@ export function buildS(input: SInput): SymbolDay {
   const events: FiveEvent[] = []
   const emit = (setup: Signal['setup'], time: number, trigger: number, basis: number, range: number, minRoomR: number, level: number | null, levelKey: string | null, note: string) => {
     const stop = placeStop(basis, trigger, range)
-    if (stop == null) return
-    const roomR = roomInR(nearestAbove(resistances(time), trigger), trigger, stop)
-    if (roomR < minRoomR) return
+    if (stop == null) return bump(`${setup} stop too wide (>3 ATR)`)
+    const nearest = nearestAboveTyped(resistances(time), trigger)
+    const roomR = roomInR(nearest.level, trigger, stop)
+    if (roomR < minRoomR) {
+      bump(`${setup} room<${minRoomR}R`)
+      bump(`room-blocked nearest: ${nearest.type}`)
+      if (funnelOn) roomLog.push({ version: 'S', ticker: symbol, day, time, setup, entry: trigger, stop, level: nearest.level, type: nearest.type, roomR, minRoomR, otherBlockers: '' })
+      return
+    }
+    bump(`${setup} SIGNAL`)
     signals.push({
       version: 'S', symbol, setup, time, trigger, limit: trigger * (1 + S.entryLimitOffset), stop, atr5: range, basisLow: basis,
       level, levelKey, roomR, minRoomR, entryEligible: true, addEligible: false, gapPct: input.prevClose > 0 ? trigger / input.prevClose - 1 : null, rvol: null, note,
@@ -150,12 +183,16 @@ export function buildS(input: SInput): SymbolDay {
       const touches = (bar.l <= fast && bar.c >= fast) || (bar.l <= slow && bar.c >= slow)
       const episode = inTouch || touches
       const episodeLow = inTouch ? Math.min(touchLow, bar.l) : bar.l
-      const confirm = bar.c > fast && (isHammer(bar) || (j > 0 && isBullishEngulfing(five[j - 1], bar)) || (j > 1 && isMorningStar(five[j - 2], five[j - 1], bar)))
+      const confirm = bar.c > fast && (isHammer(bar) || (j > 0 && isBullishEngulfing(five[j - 1], bar)) || (j > 1 && isMorningStar(five[j - 2], five[j - 1], bar))
+        || (options.confirmBullishAboveEmaAndPriorHigh === true && bar.c > bar.o && j > 0 && bar.c > five[j - 1].h))
       let fired = false
-      if (inWindow && range != null && bounces >= S.setupA.priorBouncesRequired && episode && confirm && gate(bar.end)) {
+      if (inWindow && episode) bump(bounces >= S.setupA.priorBouncesRequired ? 'A touch with ≥2 prior bounces' : 'A touch with <2 prior bounces')
+      if (inWindow && episode && bounces >= S.setupA.priorBouncesRequired && !confirm) bump('A no confirmation candle')
+      if (inWindow && range != null && bounces >= S.setupA.priorBouncesRequired && episode && confirm && gated(bar.end, 'A')) {
         const highs = confirmedBy(pivots.highs, bar.end)
         const lows = confirmedBy(pivots.lows, bar.end)
         const trending = highs.length === 2 && lows.length === 2 && highs[1].price > highs[0].price && lows[1].price > lows[0].price
+        if (!trending) bump('A not HH+HL')
         if (trending) {
           emit('A', bar.end, bar.h, episodeLow, range, S.setupA.minRoomR, null, null, `third touch after ${bounces} bounces`)
           bounces = 0
@@ -189,19 +226,29 @@ export function buildS(input: SInput): SymbolDay {
       const state = levelState.get(key)
       if (!state) {
         if (!(bar.c > level) || !(j > 0 && five[j - 1].c <= level)) continue
+        if (inWindow) bump(`B ${name} close crossed level`)
         const average = volumeAvg(j)
-        if (average == null || bar.v < S.setupB.breakoutVolumeMult * average) continue
+        if (average == null || bar.v < breakoutVolumeMult * average) {
+          if (inWindow) bump(`B volume <${breakoutVolumeMult}x avg`)
+          continue
+        }
         let count = 0
         for (let k = j - 1; k >= 0 && today5.has(k); k -= 1) {
           if (five[k].c <= level && five[k].l >= level - S.setupB.consolidationAtr * range) count += 1
           else break
         }
-        if (count < S.setupB.consolidationMinBars) continue
+        if (count < S.setupB.consolidationMinBars) {
+          if (inWindow) bump('B base <3 bars within 1 ATR')
+          continue
+        }
         const base = five.slice(j - count, j)
         const baseAverage = base.reduce((sum, item) => sum + item.v, 0) / count
-        if (!(baseAverage < average && base[count - 1].v < base[0].v)) continue
+        if (!(baseAverage < average && base[count - 1].v < base[0].v)) {
+          if (inWindow) bump('B base volume not falling')
+          continue
+        }
         levelState.set(key, { brokeAt: j, level, retestDone: false })
-        if (inWindow && gate(bar.end)) emit('B', bar.end, bar.c, level, range, S.setupB.minRoomR, level, key, `${name} breakout ${level.toFixed(2)} after ${count}-bar base`)
+        if (inWindow && gated(bar.end, 'B')) emit('B', bar.end, bar.c, level, range, S.setupB.minRoomR, level, key, `${name} breakout ${level.toFixed(2)} after ${count}-bar base`)
       } else if (!state.retestDone && j > state.brokeAt) {
         if (bar.c < level || j - state.brokeAt > S.setupB.retestMaxBars) {
           state.retestDone = true
@@ -209,7 +256,7 @@ export function buildS(input: SInput): SymbolDay {
         }
         if (bar.l <= level + S.stop.bufferAtr * range) {
           state.retestDone = true
-          if (inWindow && gate(bar.end)) emit('B-retest', bar.end, bar.h, level, range, S.setupB.minRoomR, level, key, `${name} retest held ${level.toFixed(2)}`)
+          if (inWindow && gated(bar.end, 'B-retest')) emit('B-retest', bar.end, bar.h, level, range, S.setupB.minRoomR, level, key, `${name} retest held ${level.toFixed(2)}`)
         }
       }
     }
