@@ -6,10 +6,14 @@
 // Reads: ait_trades (Supabase, GET only), Alpaca order details (GET), 1-min SIP bars and quotes (cached).
 // Writes: <out>/audit.csv only. Never places, changes or cancels an order; never writes to Supabase.
 //
-// Model used (the same rules as the rulebook backtest):
-//  - trigger = the ask the app saw when it sent the order; limit = the order's real limit price.
-//  - the order is active from the first full 1-min bar after it was sent, for entryValidMinutes;
-//    a bar whose high reaches the trigger fills at max(trigger, open) + slippage, unless that is above the limit.
+// Entry - Strategy E sends marketable limit orders that fill at once, so the audit uses "instant" mode:
+//  - fill at the SIP ask INSTANT_DELAY_MS (2 s) after the order was sent, + slippage;
+//    no fill if that ask is above the order's real limit price (a marketable limit would not fill either).
+//  - the 1-min bar containing that moment is the fill bar.
+//  ("next-bar" mode, used by the rulebook backtests for resting orders placed at a bar close, is still in
+//  modelTrade: active from the first full 1-min bar after sending, a bar reaching the trigger fills at
+//  max(trigger, open) + slippage unless that is above the limit. The rulebook backtests are unchanged.)
+// Exits (same rules as the rulebook backtest):
 //  - after the fill bar: bar opens at/below the stop -> open - slippage; low touches the stop -> stop - slippage;
 //    high trades a cent through the target -> max(target, open), no slippage; stop is checked before the target.
 //    On the fill bar itself the stop counts only if the bar closes at/below it.
@@ -37,7 +41,11 @@ export type AuditInput = {
   flattenMs: number | null // the real flatten time, when the real trade ended in a session flatten
   slippage: (minute: number) => number
   midnight: number
+  /** Instant mode: the SIP ask shortly after sending (null when no quote was found) and when it was read. */
+  instant?: { ask: number | null; at: number }
 }
+
+export const INSTANT_DELAY_MS = 2_000
 export type ModelResult =
   | { filled: false; why: string }
   | { filled: true; entry: number; entryTime: number; exit: number; exitTime: number; reason: string }
@@ -45,6 +53,7 @@ export type ModelResult =
 // Pure model: no I/O, used by the tests.
 export function modelTrade(bars: AuditBar[], input: AuditInput): ModelResult {
   const minute = (t: number) => Math.round((t - input.midnight) / MINUTE)
+  if (input.instant) return instantTrade(bars, input, input.instant, minute)
   const firstActive = Math.ceil(input.submitMs / MINUTE) * MINUTE
   const expires = firstActive + RULEBOOK.fills.entryValidMinutes * MINUTE
   const start = bars.findIndex((bar) => bar.t >= firstActive)
@@ -62,6 +71,20 @@ export function modelTrade(bars: AuditBar[], input: AuditInput): ModelResult {
     break
   }
   if (index < 0) return { filled: false, why }
+  return manage(bars, index, entry, input, minute)
+}
+
+function instantTrade(bars: AuditBar[], input: AuditInput, instant: { ask: number | null; at: number }, minute: (t: number) => number): ModelResult {
+  if (instant.ask == null || !(instant.ask > 0)) return { filled: false, why: 'no SIP quote found right after sending' }
+  if (instant.ask > input.limit) return { filled: false, why: `SIP ask ${instant.ask} 2 s after sending was above the limit ${input.limit}` }
+  const barStart = Math.floor(instant.at / MINUTE) * MINUTE
+  const index = bars.findIndex((bar) => bar.t >= barStart)
+  if (index < 0) return { filled: false, why: 'no bars after the order was sent' }
+  return manage(bars, index, instant.ask * (1 + input.slippage(minute(barStart))), input, minute)
+}
+
+// Exit management after the fill bar (shared by both entry modes).
+function manage(bars: AuditBar[], index: number, entry: number, input: AuditInput, minute: (t: number) => number): ModelResult {
   const fillBar = bars[index]
   const slip = (bar: AuditBar) => input.slippage(minute(bar.t))
   if (fillBar.c <= input.stop) return { filled: true, entry, entryTime: fillBar.t, exit: input.stop * (1 - slip(fillBar)), exitTime: fillBar.t + MINUTE, reason: 'stop (fill bar)' }
@@ -105,10 +128,11 @@ async function main() {
   const rows = await supabaseRows()
   const entries = rows.filter((row) => row.side === 'buy' && row.metadata?.strategy === 'E' && row.metadata?.broker === 'alpaca')
   console.log(`[audit] ${entries.length} Strategy E entries sent through Alpaca (app-simulated paper rows are skipped: they never reached the broker)`)
+  console.log('[audit] entry mode: instant - model fills at the SIP ask 2 s after the order was sent (+ slippage), no fill if above the real limit')
   const SP = RULEBOOK.SP
   const spSlip = (m: number) => (m < SP.regularOpenMinute ? SP.slippagePremarket : SP.slippage)
   const sSlip = () => RULEBOOK.S.slippage
-  const csv: string[] = ['date,ticker,qty,sent_et,ask_at_send,sip_ask_at_send,limit,stop,target,actual_entry,actual_entry_et,actual_exit,actual_exit_et,actual_exit_type,actual_r,actual_pnl,model_sp_entry,model_sp_entry_et,model_sp_exit,model_sp_exit_et,model_sp_reason,model_sp_r,model_sp_pnl,model_s_r,model_noslip_r,entry_diff_pct,exit_diff_pct,r_diff_sp']
+  const csv: string[] = ['date,ticker,qty,sent_et,ask_at_send,sip_ask_at_send,sip_ask_2s_after,limit,stop,target,actual_entry,actual_entry_et,actual_exit,actual_exit_et,actual_exit_type,actual_r,actual_pnl,model_sp_entry,model_sp_entry_et,model_sp_exit,model_sp_exit_et,model_sp_reason,model_sp_r,model_sp_pnl,model_s_r,model_noslip_r,entry_diff_pct,exit_diff_pct,r_diff_sp']
   const totals = { actual: 0, sp: 0, s: 0, noSlip: 0, n: 0 }
   for (const buy of entries) {
     const sell = rows.find((row) => row.side === 'sell' && row.position_id === buy.position_id)
@@ -134,17 +158,19 @@ async function main() {
     const trigger = Number(buy.metadata.observedAsk ?? buy.requested_price)
     const limit = Number(buy.metadata.limitPrice ?? trigger)
     const sip = await getLatestQuote(day, buy.symbol, new Date(submitMs), 60)
+    const instantAt = submitMs + INSTANT_DELAY_MS
+    const sipAfter = await getLatestQuote(day, buy.symbol, new Date(instantAt), 60)
     const raw: RawBar[] = (await getMinuteBarsForDay(`audit-${day}-${buy.symbol}`, [buy.symbol], new Date(midnight + 4 * 60 * MINUTE).toISOString(), new Date(midnight + 16 * 60 * MINUTE).toISOString()))[buy.symbol] ?? []
     const bars = raw.map((bar) => ({ t: Date.parse(bar.t), o: bar.o, h: bar.h, l: bar.l, c: bar.c })).sort((a, b) => a.t - b.t)
     const flattenMs = /flatten/i.test(reason) ? actualExitMs : null
-    const base = { submitMs, trigger, limit, stop, target, flattenMs, midnight }
+    const base = { submitMs, trigger, limit, stop, target, flattenMs, midnight, instant: { ask: sipAfter?.ap ?? null, at: instantAt } }
     const sp = modelTrade(bars, { ...base, slippage: spSlip })
     const s = modelTrade(bars, { ...base, slippage: sSlip })
     const noSlip = modelTrade(bars, { ...base, slippage: () => 0 })
     const rOf = (entry: number, exit: number) => (exit - entry) / (entry - stop)
     const actualR = rOf(actualEntry, actualExit)
     const actualPnl = qty * (actualExit - actualEntry)
-    console.log(`\n[audit] ${label} x${qty} · sent ${etTime(submitMs)} · app ask ${fmt(trigger)} (SIP ask ${fmt(sip?.ap)}) · limit ${fmt(limit)} · stop ${fmt(stop)} · target ${fmt(target)}`)
+    console.log(`\n[audit] ${label} x${qty} · sent ${etTime(submitMs)} · app ask ${fmt(trigger)} (SIP ask at send ${fmt(sip?.ap)}, 2 s later ${fmt(sipAfter?.ap)}) · limit ${fmt(limit)} · stop ${fmt(stop)} · target ${fmt(target)}`)
     console.log(`  actual: in ${fmt(actualEntry)} @ ${etTime(actualEntryMs)} -> out ${fmt(actualExit)} @ ${etTime(actualExitMs)} (${reason}; ${actualType}) = ${fmt(actualR, 2)}R, $${actualPnl.toFixed(2)}`)
     const line = (name: string, result: ModelResult) => result.filled
       ? `  model ${name}: in ${fmt(result.entry)} @ ${etTime(result.entryTime)} -> out ${fmt(result.exit)} @ ${etTime(result.exitTime)} (${result.reason}) = ${fmt(rOf(result.entry, result.exit), 2)}R`
@@ -162,7 +188,7 @@ async function main() {
       totals.noSlip += noSlip.filled ? rOf(noSlip.entry, noSlip.exit) : 0
       console.log(`  difference (model SP - actual): entry ${(100 * (sp.entry / actualEntry - 1)).toFixed(2)}%, exit ${(100 * (sp.exit / actualExit - 1)).toFixed(2)}%, ${fmt(spR - actualR, 2)}R; model fees $${sellFees(qty, sp.exit).toFixed(3)}`)
     }
-    csv.push([day, buy.symbol, qty, etTime(submitMs), fmt(trigger), fmt(sip?.ap), fmt(limit), fmt(stop), fmt(target), fmt(actualEntry), etTime(actualEntryMs), fmt(actualExit), etTime(actualExitMs), `"${reason} (${actualType})"`, fmt(actualR, 3), actualPnl.toFixed(2),
+    csv.push([day, buy.symbol, qty, etTime(submitMs), fmt(trigger), fmt(sip?.ap), fmt(sipAfter?.ap), fmt(limit), fmt(stop), fmt(target), fmt(actualEntry), etTime(actualEntryMs), fmt(actualExit), etTime(actualExitMs), `"${reason} (${actualType})"`, fmt(actualR, 3), actualPnl.toFixed(2),
       sp.filled ? fmt(sp.entry) : 'not filled', sp.filled ? etTime(sp.entryTime) : '', sp.filled ? fmt(sp.exit) : '', sp.filled ? etTime(sp.exitTime) : '', sp.filled ? sp.reason : `"${sp.why}"`, fmt(spR, 3), spPnl == null ? '' : spPnl.toFixed(2),
       s.filled ? fmt(rOf(s.entry, s.exit), 3) : '', noSlip.filled ? fmt(rOf(noSlip.entry, noSlip.exit), 3) : '',
       sp.filled ? (100 * (sp.entry / actualEntry - 1)).toFixed(3) : '', sp.filled ? (100 * (sp.exit / actualExit - 1)).toFixed(3) : '', spR == null ? '' : fmt(spR - actualR, 3)].join(','))

@@ -449,3 +449,22 @@ test('fill audit model: fills from the next full bar, stop before target, gap-st
   assert.equal(flat.reason, 'flatten')
   assert.ok(Math.abs(flat.exit - 3.7 * 0.995) < 1e-9)
 })
+
+test('fill audit instant mode: fills at the SIP ask 2 s after sending, refuses above the limit, then the same exits', async () => {
+  const { modelTrade } = await import('../scripts/backtest/rulebook/audit')
+  const M = 60_000
+  const midnight = Date.parse('2026-10-14T00:00:00-04:00')
+  const at = (m) => midnight + m * M
+  const bar = (m, o, h, l, c) => ({ t: at(m), o, h, l, c })
+  const base = { submitMs: at(577) + 34_000, trigger: 3.85, limit: 3.87, stop: 3.43, target: 4.27, flattenMs: null, midnight, slippage: () => 0.005 }
+  const bars = [bar(577, 3.9, 3.95, 3.7, 3.8), bar(578, 3.95, 4.1, 3.9, 4.05), bar(579, 4.2, 4.4, 4.1, 4.35)]
+  // the next-bar rule would miss this (9:38 opens 3.95 > limit 3.87); instant mode fills at 3.79 + slippage in the 9:37 bar
+  assert.equal(modelTrade(bars, base).filled, false)
+  const r = modelTrade(bars, { ...base, instant: { ask: 3.79, at: base.submitMs + 2_000 } })
+  assert.equal(r.filled, true)
+  assert.ok(Math.abs(r.entry - 3.79 * 1.005) < 1e-9)
+  assert.equal(r.entryTime, at(577))
+  assert.equal(r.reason, 'target')
+  assert.equal(modelTrade(bars, { ...base, instant: { ask: 3.9, at: base.submitMs + 2_000 } }).filled, false)
+  assert.equal(modelTrade(bars, { ...base, instant: { ask: null, at: base.submitMs + 2_000 } }).filled, false)
+})
