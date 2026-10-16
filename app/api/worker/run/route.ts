@@ -665,6 +665,7 @@ export async function POST(request: NextRequest) {
               symbol: candidate.symbol,
               quantity: decision.suggestedShares,
               ask: mark.ask,
+              appQuote: { bid: mark.bid, ask: mark.ask, at: mark.at },
               riskPerShare: decision.riskPerShare,
               clock: alpacaGate.clock,
               maxNotional: Math.min(brokerAllocation, sizingEquity * strategyGuardrails.maxPositionFraction),

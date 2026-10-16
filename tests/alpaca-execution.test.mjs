@@ -18,7 +18,7 @@ const HOLIDAY_CLOCK = { isOpen: false, nextClose: null, minutesToClose: null, ne
 const guardrails = { maxPositionFraction: 0.25, maxAggregateExposureFraction: 0.75, riskPerTradeFraction: 0.01, maxDailyLossFraction: 0.04, maxOpenPositions: 3, minimumMarginEquity: 2000, reentryCooldownMinutes: 30 }
 
 /** In-memory Alpaca paper account. */
-function fakeAlpaca({ ask = 10, fillMode = 'full', account = { status: 'ACTIVE', equity: '2000', cash: '2000', buying_power: '4000' }, rejectOco = false, timeoutFirstSubmit = false } = {}) {
+function fakeAlpaca({ ask = 10, quote = undefined, fillMode = 'full', account = { status: 'ACTIVE', equity: '2000', cash: '2000', buying_power: '4000' }, rejectOco = false, timeoutFirstSubmit = false } = {}) {
   let submits = 0
   const orders = new Map()
   const positions = new Map()
@@ -31,6 +31,13 @@ function fakeAlpaca({ ask = 10, fillMode = 'full', account = { status: 'ACTIVE',
     const method = init.method ?? 'GET'
     const body = init.body ? JSON.parse(init.body) : null
     requests.push({ method, pathname, search: searchParams.toString(), body })
+    const quoteMatch = pathname.match(/^\/v2\/stocks\/([^/]+)\/quotes\/latest$/)
+    if (quoteMatch) {
+      if (quote === 'error') return json({ message: 'data unavailable' }, 500)
+      if (quote === null) return json({ quote: null })
+      const q = quote ?? { bp: ask - 0.01, ap: ask, t: new Date().toISOString() }
+      return json({ symbol: decodeURIComponent(quoteMatch[1]), quote: q })
+    }
     if (pathname === '/v2/account') return json(account)
     if (pathname === '/v2/clock') return json({ is_open: true, next_close: '2026-10-12T20:00:00Z', next_open: '2026-10-13T13:30:00Z', timestamp: new Date().toISOString() })
     if (pathname === '/v2/orders:by_client_order_id') {
@@ -464,4 +471,47 @@ test('fresh test-harness shares are left for the harness to close', async () => 
   const result = await exec.reconcileAlpaca(reconcileInput({ positions: [] }))
   assert.deepEqual(result.orphansClosed, [])
   assert.ok(alpaca.positions.has('F'))
+})
+
+test('entry pulls a fresh SIP quote right before sending and sets the limit from it, not from the scan quote', async () => {
+  const fresh = { bp: 9.79, ap: 9.8, t: new Date(Date.now() - 1_500).toISOString() }
+  const { alpaca, supabase } = setup({ ask: 9.8, quote: fresh })
+  const result = await exec.enterViaAlpaca(entry({ ask: 10, appQuote: { bid: 9.98, ask: 10, at: new Date(Date.now() - 20_000).toISOString() } }))
+  assert.equal(result.status, 'filled')
+  const quoteCall = alpaca.requests.find((r) => r.pathname === '/v2/stocks/ABCD/quotes/latest')
+  assert.ok(quoteCall, 'fresh quote requested')
+  assert.equal(new URLSearchParams(quoteCall.search).get('feed'), 'sip')
+  const quoteIndex = alpaca.requests.indexOf(quoteCall)
+  const buyIndex = alpaca.requests.findIndex((r) => r.method === 'POST' && r.body?.side === 'buy')
+  assert.ok(quoteIndex < buyIndex, 'quote pulled before the order is sent')
+  assert.equal(alpaca.requests[buyIndex].body.limit_price, '9.83') // 9.80 * 1.003 rounded up, not 10.03
+  const submitted = supabase.events.find((e) => e.event === 'entry_submitted')
+  assert.equal(submitted.payload.appAsk, 10)
+  assert.equal(submitted.payload.sipAsk, 9.8)
+  assert.ok(submitted.payload.sipQuoteAgeMsAtSend >= 1_000 && submitted.payload.sipQuoteAgeMsAtSend < 10_000)
+  assert.ok(submitted.payload.appQuoteAgeMs >= 19_000)
+  assert.equal(submitted.payload.appVsSipAskPct, 2.04)
+  const open = supabase.rpc.find((r) => r.name === 'open')
+  assert.equal(open.body.p_requested_price, 9.8)
+  assert.equal(open.body.p_entry_metadata.quoteCheck.sipAsk, 9.8)
+  assert.equal(open.body.p_entry_metadata.sendAsk, 9.8)
+})
+
+test('no order is sent when the fresh SIP quote is missing, broken, crossed or too old', async () => {
+  for (const quote of ['error', null, { bp: 10.1, ap: 10, t: new Date().toISOString() }, { bp: 9.99, ap: 10, t: new Date(Date.now() - 10 * 60_000).toISOString() }]) {
+    const { alpaca, supabase } = setup({ ask: 10, quote })
+    const result = await exec.enterViaAlpaca(entry())
+    assert.equal(result.status, 'blocked', JSON.stringify(quote))
+    assert.equal(alpaca.requests.some((r) => r.method === 'POST'), false)
+    assert.ok(supabase.events.some((e) => e.event === 'entry_quote_blocked'))
+    assert.equal(supabase.rpc.length, 0)
+  }
+})
+
+test('entry quote check: sane NBBO within the age limit passes; skew tolerated', () => {
+  const now = Date.parse('2026-10-16T14:00:00Z')
+  assert.equal(exec.entryQuoteCheck({ bid: 3.78, ask: 3.79, at: '2026-10-16T13:59:58Z' }, now, 120_000).ok, true)
+  assert.equal(exec.entryQuoteCheck({ bid: 3.78, ask: 3.79, at: '2026-10-16T14:00:03Z' }, now, 120_000).ok, true)
+  assert.equal(exec.entryQuoteCheck({ bid: 0, ask: 3.79, at: '2026-10-16T13:59:58Z' }, now, 120_000).ok, false)
+  assert.equal(exec.entryQuoteCheck({ bid: 3.78, ask: 3.79, at: '2026-10-16T13:57:00Z' }, now, 120_000).ok, false)
 })

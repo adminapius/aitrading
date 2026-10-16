@@ -31,7 +31,11 @@ export class AlpacaError extends Error {
 }
 
 async function call<T>(method: string, path: string, body?: unknown, timeoutMs = 8_000): Promise<T> {
-  const response = await brokerFetch(`${tradingConfig.alpacaBaseUrl}${path}`, {
+  return callUrl<T>(method, `${tradingConfig.alpacaBaseUrl}${path}`, path, body, timeoutMs)
+}
+
+async function callUrl<T>(method: string, url: string, path: string, body?: unknown, timeoutMs = 8_000): Promise<T> {
+  const response = await brokerFetch(url, {
     method,
     headers: { ...alpacaHeaders(), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -153,6 +157,17 @@ export function getClock() {
 
 export function submitOrder(order: Record<string, unknown>) {
   return call<AlpacaOrder>('POST', '/v2/orders', order)
+}
+
+export type SipQuote = { bid: number; ask: number; at: string }
+
+/** Latest consolidated (SIP) NBBO for one symbol, straight from Alpaca's data API (never cached). */
+export async function getLatestSipQuote(symbol: string): Promise<SipQuote | null> {
+  const path = `/v2/stocks/${encodeURIComponent(symbol)}/quotes/latest`
+  const payload = await callUrl<{ quote?: { bp?: number; ap?: number; t?: string } | null }>('GET', `${tradingConfig.alpacaDataUrl}${path}?feed=sip`, path, undefined, 4_000)
+  const quote = payload?.quote
+  if (!quote || typeof quote.t !== 'string') return null
+  return { bid: Number(quote.bp), ask: Number(quote.ap), at: quote.t }
 }
 
 export function getOrder(id: string) {
