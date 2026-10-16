@@ -396,3 +396,25 @@ test('SP-Runner: fact check finds the high time; runner enters on a VWAP reclaim
   assert.ok(result.trade.exitTime <= at(690))
   assert.ok(result.trade.pnl > 0)
 })
+
+test('SP-Runner Step 2b: fixed -10% / +20% bracket from the fill, time exit at 11:30', async () => {
+  const { simulateBracket } = await import('../scripts/backtest/rulebook/runner')
+  const base = []
+  for (let m = 420; m < 521; m += 1) base.push(bar(m, 2.5, 2.52, 2.48, 2.5, 50_000))
+  const make = (after) => {
+    const bars = [...base, bar(521, 2.5, 2.52, 2.49, 2.51, 50_000), ...after]
+    return { symbol: 'BR', minute: 521, trigger: 2.5, stop: Number.NaN, baseLow: 2.4, pmh: null, input: { symbol: 'BR', prevClose: 2, bars, prior: [], newsTimes: [], eligible: new Uint8Array(1440) } }
+  }
+  const fill = 2.5 * 1.01 // premarket slippage 1%
+  const win = simulateBracket(make([bar(522, 2.6, 3.2, 2.55, 3.1, 50_000)]), MIDNIGHT, 10, 2000)
+  assert.equal(win.trade.exitReason, 'target')
+  assert.equal(win.trade.exitPrice.toFixed(4), (fill * 1.2).toFixed(4))
+  const loss = simulateBracket(make([bar(522, 2.45, 2.46, 2.2, 2.25, 50_000)]), MIDNIGHT, 10, 2000)
+  assert.equal(loss.trade.exitReason, 'stop')
+  assert.equal(loss.trade.exitPrice.toFixed(4), (fill * 0.9 * 0.99).toFixed(4))
+  const flat = []
+  for (let m = 522; m <= 700; m += 1) flat.push(bar(m, 2.55, 2.56, 2.54, 2.55, 50_000))
+  const time = simulateBracket(make(flat), MIDNIGHT, 10, 2000)
+  assert.equal(time.trade.exitReason, 'time-exit-11:30')
+  assert.equal(time.trade.exitTime, at(690))
+})
