@@ -18,6 +18,7 @@ import { buildS, sFunnel } from './strategy-s'
 import { buildSP, runScanner, spFunnel, type ScanSymbol } from './strategy-sp'
 import type { SymbolDay } from './types'
 import { uploadRulebook } from './upload'
+import { runSwing } from './swing'
 
 export const RUNS: RunConfig[] = [
   { id: 'A', label: 'S alone (long only)', versions: ['S'], spSlippageMultiplier: 1 },
@@ -26,6 +27,10 @@ export const RUNS: RunConfig[] = [
   { id: 'D', label: 'SP with slippage doubled (stress test)', versions: ['SP'], spSlippageMultiplier: 2 },
   { id: 'E', label: 'SP variant E: R-trail on 5-min closes, time stop only below entry, stop ≥ 1.0 ATR', versions: ['SP'], spSlippageMultiplier: 1, variant: 'E' },
   { id: 'F', label: 'Run C + F: S Setup A also accepts a bullish close above the 20 EMA and the prior high; breakout volume 1.5× (tuning window only)', versions: ['S', 'SP'], spSlippageMultiplier: 1, variant: 'F' },
+  { id: 'RS', label: 'Room shadow (S): only the S signals blocked by the room rule alone, run C rules otherwise (tuning window only)', versions: ['S'], spSlippageMultiplier: 1, variant: 'RS' },
+  { id: 'RSP', label: 'Room shadow (SP): only the SP signals blocked by the room rule alone, run C rules otherwise (tuning window only)', versions: ['SP'], spSlippageMultiplier: 1, variant: 'RSP' },
+  { id: 'G', label: 'G: SP with run C rules + entries 7:00-9:59 AM ET + RVOL ≥ 100× (one-shot holdout test)', versions: ['SP'], spSlippageMultiplier: 1, variant: 'G' },
+  { id: 'H', label: 'H: S-Swing by the course - daily bars, long only, 3rd MA touch or 20-day breakout, 2N stop, 10-day-low / 50 SMA exits', versions: ['S'], spSlippageMultiplier: 1, swing: true },
 ]
 
 const NOTES = [
@@ -66,8 +71,9 @@ async function main() {
   const runIds = (args.get('runs') ?? 'A,B,C,D,E').split(',').map((id) => id.trim().toUpperCase())
   const runs = RUNS.filter((run) => runIds.includes(run.id))
   if (!runs.length) throw new Error(`No runs selected (${runIds.join(',')}); use --runs=A,B,C,D,E`)
-  const needS = runs.some((run) => run.versions.includes('S'))
-  const needSP = runs.some((run) => run.versions.includes('SP'))
+  const intradayRuns = runs.filter((run) => !run.swing)
+  const needS = intradayRuns.some((run) => run.versions.includes('S'))
+  const needSP = intradayRuns.some((run) => run.versions.includes('SP'))
   const needE = runs.some((run) => run.variant === 'E')
   const needF = runs.some((run) => run.variant === 'F')
   const historyStart = addDays(from, -420) // 200-day SMA + 52-week high
@@ -75,9 +81,9 @@ async function main() {
   console.log(`[rulebook] loading reference data ${historyStart} → ${to}`)
   const ref = await loadReference(historyStart, from, to)
   console.log(`[rulebook] ${ref.periodDays.length} trading days, runs ${runs.map((run) => run.id).join(',')}`)
-  const accounts = runs.map((run) => new Account(run))
+  const accounts = intradayRuns.map((run) => new Account(run))
 
-  for (const [dayIndex, day] of ref.periodDays.entries()) {
+  for (const [dayIndex, day] of (accounts.length ? ref.periodDays : []).entries()) {
     const midnight = easternMidnight(day)
     const frames: SymbolDay[] = []
     const framesE: SymbolDay[] = [] // SP frames built with variant E's stop rule
@@ -149,7 +155,8 @@ async function main() {
     }
     for (const account of accounts) {
       const variant = account.run.variant ? RULEBOOK.variants[account.run.variant] : null
-      if (variant?.stopAfterTuningWindow && day > RULEBOOK.period.tuningEnd) continue // holdout stays untouched
+      if (variant?.window === 'tuning' && day > period.tuningEnd) continue // holdout stays untouched
+      if (variant?.window === 'holdout' && day < period.holdoutStart) continue // one-shot holdout test
       const own = account.run.variant === 'E' ? [...frames.filter((frame) => frame.version === 'S'), ...framesE]
         : account.run.variant === 'F' ? framesF : frames
       account.simulateDay(day, own)
@@ -163,6 +170,12 @@ async function main() {
   try { sourceCommit = execSync('git rev-parse --short HEAD').toString().trim() } catch { /* not a git checkout */ }
   const tradesByRun = new Map<string, TradeRecord[]>(accounts.map((account) => [account.run.id, account.trades]))
   const reports = accounts.map((account) => buildRunReport(account.run, account.trades, account.equityByDay, account.stats, period))
+  for (const run of runs.filter((item) => item.swing)) {
+    const swing = await runSwing(ref, { start: from, end: to }, run.id)
+    console.log(`[swing] signals ${swing.stats.signals}, outside universe ${swing.stats.notInUniverse}, room-blocked ${swing.stats.roomBlocked}, filled ${swing.stats.filled}, slots full ${swing.stats.slotsFull}, open-risk cap ${swing.stats.riskCap}, cash cap ${swing.stats.cashCap}`)
+    tradesByRun.set(run.id, swing.trades)
+    reports.push(buildRunReport(run, swing.trades, swing.equityByDay, swing.stats, period))
+  }
   const funnel = { S: sFunnel, SP: spFunnel }
   const meta = { generatedAt, sourceCommit, tradingDays: ref.periodDays.length, notes: NOTES, period: { start: from, end: to }, apiStats, funnel }
   for (const [version, counts] of Object.entries(funnel)) {
@@ -175,12 +188,14 @@ async function main() {
   console.log(`[rulebook] wrote ${out}/report.html, summary.json, trades.csv (+ run-*/ folders)`)
   for (const report of reports) {
     const m = report.full.metrics
-    if (report.locked) {
-      const t = report.tuning.metrics
-      console.log(`[rulebook] run ${report.id} (tuning window only, holdout locked): ${t.trades} trades, expectancy ${t.expectancyR?.toFixed(2) ?? 'n/a'}R, PF ${t.profitFactor?.toFixed(2) ?? 'n/a'}, max DD ${t.maxDrawdownR.toFixed(1)}R, final $${t.finalEquity.toFixed(2)} · tuning ${report.tuning.pass ? 'PASS' : 'FAIL'}`)
+    if (report.window) {
+      const w = report.window === 'tuning' ? report.tuning : report.holdout
+      const t = w.metrics
+      console.log(`[rulebook] run ${report.id} (${report.window} window only): ${t.trades} trades, win ${t.winRate == null ? 'n/a' : (t.winRate * 100).toFixed(0)}%, expectancy ${t.expectancyR?.toFixed(2) ?? 'n/a'}R, PF ${t.profitFactor?.toFixed(2) ?? 'n/a'}, max DD ${t.maxDrawdownR.toFixed(1)}R, final $${t.finalEquity.toFixed(2)} · ${report.window} ${w.pass ? 'PASS' : 'FAIL'}`)
       continue
     }
-    console.log(`[rulebook] run ${report.id}: ${m.trades} trades, expectancy ${m.expectancyR?.toFixed(2) ?? 'n/a'}R, PF ${m.profitFactor?.toFixed(2) ?? 'n/a'}, max DD ${m.maxDrawdownR.toFixed(1)}R, final $${m.finalEquity.toFixed(2)} · full ${report.full.pass ? 'PASS' : 'FAIL'} / tuning ${report.tuning.pass ? 'PASS' : 'FAIL'} / holdout ${report.holdout.pass ? 'PASS' : 'FAIL'}`)
+    const h = report.holdout.metrics
+    console.log(`[rulebook] run ${report.id}: ${m.trades} trades, win ${m.winRate == null ? 'n/a' : (m.winRate * 100).toFixed(0)}%, expectancy ${m.expectancyR?.toFixed(2) ?? 'n/a'}R, PF ${m.profitFactor?.toFixed(2) ?? 'n/a'}, max DD ${m.maxDrawdownR.toFixed(1)}R, final $${m.finalEquity.toFixed(2)} · full ${report.full.pass ? 'PASS' : 'FAIL'} / tuning ${report.tuning.pass ? 'PASS' : 'FAIL'} / holdout ${report.holdout.pass ? 'PASS' : 'FAIL'} (holdout: ${h.trades} trades, ${h.expectancyR?.toFixed(2) ?? 'n/a'}R, PF ${h.profitFactor?.toFixed(2) ?? 'n/a'})`)
   }
   if (args.get('upload') === 'true') await uploadRulebook(out, args.get('label') ?? 'rulebook-s-sp')
 }

@@ -171,7 +171,7 @@ async function pagedBars(path: string, params: Record<string, string>, kind: str
   const out: Record<string, RawBar[]> = {}
   let token: string | undefined
   do {
-    const search = new URLSearchParams({ ...params, limit: '10000', feed: HISTORICAL_FEED, adjustment: 'raw', sort: 'asc' })
+    const search = new URLSearchParams({ limit: '10000', feed: HISTORICAL_FEED, adjustment: 'raw', sort: 'asc', ...params })
     if (token) search.set('page_token', token)
     const payload = await fetchJson<{ bars?: Record<string, RawBar[]> | RawBar[]; symbol?: string; next_page_token?: string | null }>(`${DATA_URL}${path}?${search}`, kind)
     if (Array.isArray(payload.bars)) {
@@ -212,6 +212,15 @@ export async function getDailyBars(symbols: string[], start: string, end: string
   for (let index = 0; index < symbols.length; index += 200) batches.push(symbols.slice(index, index + 200))
   const results = await Promise.all(batches.map((batch) =>
     cached(`daily/${start}_${end}_${hashKey(batch)}`, 'alpaca', () => pagedMultiSymbolBars(batch, { timeframe: '1Day', start, end }, 'daily-bars'))))
+  return Object.assign({}, ...results) as Record<string, RawBar[]>
+}
+
+// Split-adjusted daily bars (for strategies that hold overnight across splits). Raw bars stay the default everywhere else.
+export async function getDailyBarsSplitAdjusted(symbols: string[], start: string, end: string) {
+  const batches: string[][] = []
+  for (let index = 0; index < symbols.length; index += 200) batches.push(symbols.slice(index, index + 200))
+  const results = await Promise.all(batches.map((batch) =>
+    cached(`daily-split/${start}_${end}_${hashKey(batch)}`, 'alpaca', () => pagedMultiSymbolBars(batch, { timeframe: '1Day', start, end, adjustment: 'split' }, 'daily-bars-split'))))
   return Object.assign({}, ...results) as Record<string, RawBar[]>
 }
 
