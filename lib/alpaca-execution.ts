@@ -5,7 +5,9 @@
 // Lifecycle of one trade:
 //   0. Pre-flight: the ledger's own rules (symbol already open, max positions, daily loss stop,
 //      re-entry cooldown, exposure at the limit price) are checked BEFORE anything is sent.
-//   1. Entry: marketable limit BUY (ask + 0.3%), wait up to 8s, cancel any remainder.
+//   1. Entry: a fresh SIP quote is pulled right before sending (the scan's quote can be seconds old);
+//      marketable limit BUY at that ask + 0.3%, wait up to 8s, cancel any remainder. No sane fresh
+//      quote -> no order. The app's quote, the SIP quote and its age at send are logged with the order.
 //   2. Ledger: record the position at Alpaca's real fill price/quantity (idempotency key = client order id).
 //   3. Protection (regular hours): OCO SELL at Alpaca = stop + target resting at the broker.
 //      Pre-market (Alpaca rejects stop orders outside regular hours): the app watches the price and
@@ -22,6 +24,7 @@ import {
   closeAllPositions,
   closePosition,
   getOrder,
+  getLatestSipQuote,
   flattenOrderTree,
   isTerminal,
   listOrders,
@@ -32,11 +35,14 @@ import {
   type AlpacaOrder,
   type AlpacaPosition,
   type MarketClock,
+  type SipQuote,
 } from '@/lib/alpaca-broker'
 import { sendTradingNotification } from '@/lib/notifications'
 import { closePaperPosition, openPaperPosition, paperExitReason, paperExitLevels, type PaperMarketMark, type PaperPosition } from '@/lib/paper-trading'
 import { easternSchedule } from '@/lib/strategy'
 import { easternDayStart } from '@/lib/strategies/live-strategy'
+import { MARK_CLOCK_SKEW_MS } from '@/lib/paper-marks'
+import { scanConfig } from '@/lib/scan-config'
 import { supabaseHeaders, tradingConfig } from '@/lib/trading-config'
 
 export const ENTRY_LIMIT_BUFFER = 0.003
@@ -282,12 +288,26 @@ async function unwind(input: { symbol: string; qty: number; refPrice: number; re
   }
 }
 
+/** Checks the quote pulled right before an entry: sane NBBO, not older than the scan's quote limit. */
+export function entryQuoteCheck(quote: SipQuote | null, nowMs: number, maxAgeMs = scanConfig.maxQuoteAgeSeconds * 1_000):
+  { ok: true; ageMs: number } | { ok: false; reason: string; ageMs: number | null } {
+  if (!quote) return { ok: false, reason: 'no SIP quote returned', ageMs: null }
+  const at = Date.parse(quote.at)
+  const ageMs = Number.isFinite(at) ? nowMs - at : null
+  if (!(Number.isFinite(quote.ask) && quote.ask > 0 && Number.isFinite(quote.bid) && quote.bid > 0 && quote.ask >= quote.bid)) return { ok: false, reason: `SIP quote not usable (bid ${quote.bid}, ask ${quote.ask})`, ageMs }
+  if (ageMs == null || ageMs < -MARK_CLOCK_SKEW_MS || ageMs > maxAgeMs) return { ok: false, reason: `SIP quote too old (${ageMs == null ? '?' : (ageMs / 1_000).toFixed(1)}s)`, ageMs }
+  return { ok: true, ageMs }
+}
+
 export type BrokerEntryInput = {
   sessionId: string
   scanId: string
   symbol: string
   quantity: number
+  /** The ask the scan decided on (may be seconds old). Only logged; the limit comes from the fresh SIP quote. */
   ask: number
+  /** The scan's quote, for the stale-quote log. */
+  appQuote?: { bid: number; ask: number; at: string }
   riskPerShare: number
   clock: MarketClock
   /** Most dollars this entry may use (position cap / exposure / buying power), checked at the LIMIT price. */
@@ -320,11 +340,40 @@ export type BrokerEntryResult = {
 export async function enterViaAlpaca(input: BrokerEntryInput): Promise<BrokerEntryResult> {
   const regular = isRegularSession(input.clock)
   if (!regular && !isPremarketSession(input.clock)) return { status: 'blocked', reason: 'Market is not in a regular or pre-market session per Alpaca clock.' }
-  const limitPrice = roundPrice(input.ask * (1 + ENTRY_LIMIT_BUFFER), 'up')
-  const quantity = Math.min(input.quantity, Math.floor(Math.max(0, input.maxNotional) / limitPrice))
-  if (quantity < 1) return { status: 'blocked', reason: `No room for even 1 share at the $${limitPrice} limit within exposure/buying-power limits.` }
   const coid = clientOrderId('e', [input.scanId.slice(0, 8), input.symbol])
   const base = { sessionId: input.sessionId, scanId: input.scanId, symbol: input.symbol, clientOrderId: coid }
+
+  // Fresh SIP quote right before sending; the limit is set from it, never from the scan's older quote.
+  let sip: SipQuote | null = null
+  let quoteError: string | null = null
+  try {
+    sip = await getLatestSipQuote(input.symbol)
+  } catch (error) {
+    quoteError = errorText(error)
+  }
+  const checkedAt = Date.now()
+  const check = quoteError ? { ok: false as const, reason: `SIP quote request failed: ${quoteError}`, ageMs: null } : entryQuoteCheck(sip, checkedAt)
+  const appQuote = input.appQuote ?? null
+  const appAgeMs = appQuote ? checkedAt - Date.parse(appQuote.at) : null
+  const quoteLog = {
+    appAsk: appQuote?.ask ?? input.ask,
+    appBid: appQuote?.bid ?? null,
+    appQuoteAt: appQuote?.at ?? null,
+    appQuoteAgeMs: appAgeMs != null && Number.isFinite(appAgeMs) ? appAgeMs : null,
+    sipAsk: sip?.ask ?? null,
+    sipBid: sip?.bid ?? null,
+    sipQuoteAt: sip?.at ?? null,
+    sipQuoteAgeMsAtSend: check.ageMs,
+    appVsSipAskPct: sip && sip.ask > 0 ? Math.round(((appQuote?.ask ?? input.ask) / sip.ask - 1) * 10_000) / 100 : null,
+  }
+  if (!check.ok) {
+    await logOrderEvent({ ...base, event: 'entry_quote_blocked', side: 'buy', payload: { reason: check.reason, ...quoteLog } })
+    return { status: 'blocked', reason: `No fresh SIP quote for ${input.symbol}: ${check.reason}`, clientOrderId: coid }
+  }
+  const sendAsk = sip!.ask
+  const limitPrice = roundPrice(sendAsk * (1 + ENTRY_LIMIT_BUFFER), 'up')
+  const quantity = Math.min(input.quantity, Math.floor(Math.max(0, input.maxNotional) / limitPrice))
+  if (quantity < 1) return { status: 'blocked', reason: `No room for even 1 share at the $${limitPrice} limit within exposure/buying-power limits.` }
 
   let order: AlpacaOrder
   try {
@@ -333,7 +382,7 @@ export async function enterViaAlpaca(input: BrokerEntryInput): Promise<BrokerEnt
     await logOrderEvent({ ...base, event: 'entry_rejected', side: 'buy', qty: quantity, price: limitPrice, payload: { error: errorText(error), body: error instanceof AlpacaError ? error.body : null } })
     return { status: 'rejected', reason: errorText(error), clientOrderId: coid }
   }
-  await logOrderEvent({ ...base, event: 'entry_submitted', side: 'buy', qty: quantity, price: limitPrice, brokerOrderId: order.id, brokerStatus: order.status, payload: { ask: input.ask, extendedHours: !regular, requestedQty: input.quantity } })
+  await logOrderEvent({ ...base, event: 'entry_submitted', side: 'buy', qty: quantity, price: limitPrice, brokerOrderId: order.id, brokerStatus: order.status, payload: { ask: sendAsk, extendedHours: !regular, requestedQty: input.quantity, ...quoteLog } })
 
   try {
     order = await waitForOrder(order.id, ENTRY_FILL_WAIT_MS)
@@ -366,7 +415,7 @@ export async function enterViaAlpaca(input: BrokerEntryInput): Promise<BrokerEnt
     scanId: input.scanId,
     symbol: input.symbol,
     quantity: filledQty,
-    requestedPrice: input.ask,
+    requestedPrice: sendAsk,
     fillPrice,
     stopPrice,
     targetPrice,
@@ -379,6 +428,8 @@ export async function enterViaAlpaca(input: BrokerEntryInput): Promise<BrokerEnt
       brokerOrderId: order.id,
       clientOrderId: coid,
       limitPrice,
+      sendAsk,
+      quoteCheck: quoteLog,
       requestedQty: input.quantity,
       extendedHours: !regular,
       protection: regular ? 'alpaca-oco' : 'app-managed-until-open',
