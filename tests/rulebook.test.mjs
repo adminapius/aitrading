@@ -468,3 +468,97 @@ test('fill audit instant mode: fills at the SIP ask 2 s after sending, refuses a
   assert.equal(modelTrade(bars, { ...base, instant: { ask: 3.9, at: base.submitMs + 2_000 } }).filled, false)
   assert.equal(modelTrade(bars, { ...base, instant: { ask: null, at: base.submitMs + 2_000 } }).filled, false)
 })
+
+test('SP-Runner v2: signed volume and pressure sums', async () => {
+  const { signedVolume, pressureSeries } = await import('../scripts/backtest/rulebook/runner-v2')
+  assert.equal(signedVolume({ h: 2, l: 1, c: 2, v: 100 }), 100)
+  assert.equal(signedVolume({ h: 2, l: 1, c: 1, v: 100 }), -100)
+  assert.equal(signedVolume({ h: 2, l: 1, c: 1.5, v: 100 }), 0)
+  assert.equal(signedVolume({ h: 2, l: 2, c: 2, v: 100 }), 0)
+  const byMinute = new Array(1440).fill(undefined)
+  byMinute[600] = { h: 2, l: 1, c: 2, v: 100 }
+  byMinute[602] = { h: 2, l: 1, c: 1, v: 30 } // 601 has no bar -> counts 0
+  const p = pressureSeries(byMinute)
+  assert.equal(p.p5(602), 70)
+  assert.equal(p.sell5(602), 30)
+  assert.equal(p.p5(607), 0) // window 603-607
+  assert.equal(p.sell5Prev(607), 30) // 598-602
+})
+
+const v2Signal = (after, baseLow = 2.45) => {
+  const bars = []
+  for (let m = 420; m < 521; m += 1) bars.push(bar(m, 2.5, 2.52, 2.48, 2.5, 50_000))
+  bars.push(bar(521, 2.5, 2.52, 2.49, 2.51, 50_000))
+  bars.push(...after)
+  return { symbol: 'V2', minute: 522, trigger: 2.5, stop: Number.NaN, baseLow, pmh: Math.max(...bars.filter((b) => b.t < at(570)).map((b) => b.h)), input: { symbol: 'V2', prevClose: 2, bars, prior: [], newsTimes: [], eligible: new Uint8Array(1440) } }
+}
+// two V-shaped cycles of 8 bars with rising lows -> two pivot lows -> a higher low
+const cycles = (start, base0, count = 2) => {
+  const out = []
+  for (let k = 0; k < count; k += 1) {
+    const base = base0 + 0.05 * k
+    const lows = [0.03, 0.02, 0.01, 0, 0.01, 0.02, 0.03, 0.04].map((x) => base + x)
+    lows.forEach((l, i) => out.push(bar(start + 8 * k + i, l + 0.01, l + 0.02, l, l + 0.015, 40_000)))
+  }
+  return out
+}
+
+test('SP-Runner v2: stop below base/VWAP minus 0.25 ATR, capped at 15%; flat day ends at the 15:30 backstop', async () => {
+  const { simulateV2 } = await import('../scripts/backtest/rulebook/runner-v2')
+  const flat = [bar(522, 2.5, 2.56, 2.5, 2.55, 50_000)]
+  for (let m = 523; m < 960; m += 1) flat.push(bar(m, 2.53, 2.54, 2.52, 2.53, 50_000))
+  const fill = 2.5 * 1.01
+  const r = simulateV2(v2Signal(flat), '2026-05-04', MIDNIGHT, 10, 2000, 'full')
+  assert.ok(r.trade, JSON.stringify(r))
+  assert.ok(r.trade.stop < 2.45 && r.trade.stop > fill * 0.85, `stop ${r.trade.stop}`)
+  assert.equal(r.trade.exitReason, 'backstop-15:30')
+  assert.equal(r.trade.exitTime, at(930))
+  assert.ok(Math.abs(r.trade.riskDollars - 10) <= fill - r.trade.stop) // sized to 0.5% risk (10 dollars) within one share
+  const deep = simulateV2(v2Signal(flat, 1.5), '2026-05-04', MIDNIGHT, 10, 2000, 'full')
+  assert.equal(deep.trade.stop.toFixed(6), (fill * 0.85).toFixed(6)) // structural stop too deep -> capped at 15%
+  assert.ok(deep.trade.shares < r.trade.shares) // wider stop -> fewer shares, same dollar risk
+})
+
+test('SP-Runner v2: a higher low lifts the stop; the pressure trio exits at the next open before the raised stop', async () => {
+  const { simulateV2 } = await import('../scripts/backtest/rulebook/runner-v2')
+  const after = [bar(522, 2.51, 2.56, 2.5, 2.55, 50_000), ...cycles(523, 2.6)]
+  const hl = 2.65 // second cycle's pivot low
+  after.push(bar(539, hl + 0.03, hl + 0.035, hl - 0.003, hl - 0.002, 1_000_000)) // heavy selling, close below the higher low, low above the raised stop
+  after.push(bar(540, hl - 0.01, hl, hl - 0.02, hl - 0.015, 50_000))
+  const r = simulateV2(v2Signal(after), '2026-05-04', MIDNIGHT, 10, 2000, 'noAdd')
+  assert.ok(r.trade, JSON.stringify(r))
+  assert.equal(r.trade.exitReason, 'pressure-exit')
+  assert.equal(r.trade.exitTime, at(540))
+  assert.equal(r.trade.exitPrice.toFixed(4), ((hl - 0.01) * 0.99).toFixed(4))
+  assert.ok(r.trade.rResult > 0)
+  // without a higher low the trio cannot fire: the same selling bar after flat bars just holds
+  const flatThenSell = [bar(522, 2.51, 2.56, 2.5, 2.55, 50_000)]
+  for (let m = 523; m < 539; m += 1) flatThenSell.push(bar(m, 2.6, 2.61, 2.59, 2.6, 40_000))
+  flatThenSell.push(bar(539, 2.6, 2.61, 2.56, 2.565, 1_000_000), bar(540, 2.56, 2.57, 2.55, 2.56, 50_000))
+  const hold = simulateV2(v2Signal(flatThenSell), '2026-05-04', MIDNIGHT, 10, 2000, 'noAdd')
+  assert.notEqual(hold.trade.exitReason, 'pressure-exit')
+})
+
+test('SP-Runner v2: one add 9:30-9:45 only after a higher low lifted the stop; none in no-add mode', async () => {
+  const { simulateV2 } = await import('../scripts/backtest/rulebook/runner-v2')
+  const after = [bar(522, 2.51, 2.56, 2.5, 2.55, 50_000)]
+  for (let m = 523; m < 560; m += 1) after.push(bar(m, 2.55, 2.56, 2.54, 2.55, 40_000))
+  after.push(...cycles(560, 2.6)) // pivots at 563 and 571 -> higher low confirmed at the 574 close
+  // the 9:35 close (2.705) is above the premarket high (2.70) with P5 > 0 -> the one add order; 9:36 fills it
+  after.push(bar(576, 2.71, 2.91, 2.7, 2.9, 40_000))
+  after.push(bar(577, 2.9, 2.92, 2.89, 2.915, 40_000))
+  for (let m = 578; m < 600; m += 1) after.push(bar(m, 2.92, 2.93, 2.91, 2.925, 40_000))
+  const full = simulateV2(v2Signal(after), '2026-05-04', MIDNIGHT, 10, 2000, 'full')
+  assert.ok(full.trade, JSON.stringify(full))
+  assert.equal(full.trade.units, 2)
+  assert.ok(full.trade.maxShares > full.trade.shares)
+  assert.ok(full.trade.maxShares * full.trade.avgCost <= 2000 + 1e-6) // never more than 100% of equity
+  const noAdd = simulateV2(v2Signal(after), '2026-05-04', MIDNIGHT, 10, 2000, 'noAdd')
+  assert.equal(noAdd.trade.units, 1)
+  // no higher low before the add window -> open risk is still 1R -> no add
+  const flat = [bar(522, 2.51, 2.56, 2.5, 2.55, 50_000)]
+  for (let m = 523; m < 576; m += 1) flat.push(bar(m, 2.55, 2.56, 2.54, 2.55, 40_000))
+  flat.push(bar(576, 2.6, 2.91, 2.6, 2.9, 40_000), bar(577, 2.9, 2.92, 2.89, 2.915, 40_000))
+  const none = simulateV2(v2Signal(flat), '2026-05-04', MIDNIGHT, 10, 2000, 'full')
+  assert.equal(none.trade.units, 1)
+})

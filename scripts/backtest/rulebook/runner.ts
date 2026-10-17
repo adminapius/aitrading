@@ -46,14 +46,14 @@ export const RUNNER = {
   bracket: { entryEnd: 9 * 60, stopPct: 0.1, targetPct: 0.2, timeExit: 11 * 60 + 30 },
 }
 
-function parseArgs() {
+export function parseArgs() {
   return new Map(process.argv.slice(2).map((arg) => { const [key, ...rest] = arg.replace(/^--/, '').split('='); return [key, rest.join('=') || 'true'] as const }))
 }
-const addDays = (day: string, days: number) => new Date(Date.parse(`${day}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10)
+export const addDays = (day: string, days: number) => new Date(Date.parse(`${day}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10)
 
-type DayInput = { symbol: string; prevClose: number; bars: Bar[]; prior: Bar[]; newsTimes: number[]; eligible: Uint8Array }
+export type DayInput = { symbol: string; prevClose: number; bars: Bar[]; prior: Bar[]; newsTimes: number[]; eligible: Uint8Array }
 
-async function loadDay(ref: Awaited<ReturnType<typeof loadReference>>, day: string): Promise<DayInput[]> {
+export async function loadDay(ref: Awaited<ReturnType<typeof loadReference>>, day: string): Promise<DayInput[]> {
   const midnight = easternMidnight(day)
   const prevDay = priorDays(ref, day, 1).at(-1) ?? null
   const candidates = strategySPCandidates(ref, day)
@@ -157,7 +157,7 @@ function printFacts(rows: FactRow[], out: string) {
 }
 
 // ---------------- Step 2: SP-Runner rules ----------------
-type Signal = { symbol: string; minute: number; trigger: number; stop: number; baseLow: number; pmh: number | null; input: DayInput }
+export type Signal = { symbol: string; minute: number; trigger: number; stop: number; baseLow: number; pmh: number | null; input: DayInput }
 
 export function runnerSignal(input: DayInput, day: string, midnight: number, options: { entryEnd?: number; structuralStop?: boolean } = {}): Signal | null {
   const entryEnd = options.entryEnd ?? RUNNER.entryEnd
