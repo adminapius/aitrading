@@ -562,3 +562,25 @@ test('SP-Runner v2: one add 9:30-9:45 only after a higher low lifted the stop; n
   const none = simulateV2(v2Signal(flat), '2026-05-04', MIDNIGHT, 10, 2000, 'full')
   assert.equal(none.trade.units, 1)
 })
+
+test('SP-Runner v3: a higher low before 9:45 does not raise the stop; from 9:45 it does', async () => {
+  const { simulateV2 } = await import('../scripts/backtest/rulebook/runner-v2')
+  // higher low confirmed at the 8:54 close (premarket): v2 raises the stop, v3 keeps the initial stop
+  const after = [bar(522, 2.51, 2.56, 2.5, 2.55, 50_000), ...cycles(523, 2.6)]
+  // dip to 2.58: below v2's raised stop (~2.64) but above the initial stop (~2.44); no heavy selling
+  after.push(bar(539, 2.66, 2.67, 2.58, 2.66, 20_000))
+  for (let m = 540; m < 600; m += 1) after.push(bar(m, 2.66, 2.67, 2.65, 2.665, 20_000))
+  const v2 = simulateV2(v2Signal(after), '2026-05-04', MIDNIGHT, 10, 2000, 'full')
+  const v3 = simulateV2(v2Signal(after), '2026-05-04', MIDNIGHT, 10, 2000, 'full', { raiseStopFrom: 585 })
+  assert.equal(v2.trade.exitReason, 'trail-stop')
+  assert.equal(v2.trade.exitTime, at(540))
+  assert.notEqual(v3.trade.exitReason, 'trail-stop')
+  assert.ok(v3.trade.exitTime > at(540))
+  // the same pattern after 9:45 raises the stop in v3 too
+  const late = [bar(522, 2.51, 2.56, 2.5, 2.55, 50_000)]
+  for (let m = 523; m < 590; m += 1) late.push(bar(m, 2.55, 2.56, 2.54, 2.55, 40_000))
+  late.push(...cycles(590, 2.6))
+  late.push(bar(606, 2.66, 2.67, 2.58, 2.66, 20_000), bar(607, 2.66, 2.67, 2.65, 2.665, 20_000))
+  const v3late = simulateV2(v2Signal(late), '2026-05-04', MIDNIGHT, 10, 2000, 'full', { raiseStopFrom: 585 })
+  assert.equal(v3late.trade.exitReason, 'trail-stop')
+})
