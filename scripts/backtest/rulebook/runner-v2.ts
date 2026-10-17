@@ -59,9 +59,13 @@ export function pressureSeries(byMinute: Array<Bar | undefined>) {
   }
 }
 
-type V2Trade = Omit<TradeRecord, 'run' | 'date' | 'ticker' | 'version' | 'setup' | 'entryIndex' | 'equityAfter' | 'roomR' | 'gapPct' | 'rvol' | 'note'> & { added: boolean; heldPast930: boolean; exitMinute: number }
+export type V2Trade = Omit<TradeRecord, 'run' | 'date' | 'ticker' | 'version' | 'setup' | 'entryIndex' | 'equityAfter' | 'roomR' | 'gapPct' | 'rvol' | 'note'> & { added: boolean; heldPast930: boolean; exitMinute: number }
 
-export function simulateV2(signal: Signal, day: string, midnight: number, riskDollars: number, equity: number, mode: V2Mode): { skip: string } | { trade: V2Trade } {
+/** v3 (Oct 16, 2026): the stop may only be raised from this minute on (9:45). v2 has no limit (0). */
+export type V2Options = { raiseStopFrom?: number }
+
+export function simulateV2(signal: Signal, day: string, midnight: number, riskDollars: number, equity: number, mode: V2Mode, options: V2Options = {}): { skip: string } | { trade: V2Trade } {
+  const raiseStopFrom = options.raiseStopFrom ?? 0
   const C = RULEBOOK.costs
   const A = RULEBOOK.account
   const slip = (m: number) => (m < SP.regularOpenMinute ? SP.slippagePremarket : SP.slippage)
@@ -184,7 +188,8 @@ export function simulateV2(signal: Signal, day: string, midnight: number, riskDo
           const atrNow = atrAt(midnight + (m + 1) * MINUTE)
           if (atrNow != null) {
             const raised = pivot.l - V2.trailBufferAtr * atrNow
-            if (raised > stop) stop = raised
+            // the raise takes effect from the next bar (m + 1); v3 allows it only from 9:45 on
+            if (raised > stop && m + 1 >= raiseStopFrom) stop = raised
           }
         }
         lastPivot = pivot.l
