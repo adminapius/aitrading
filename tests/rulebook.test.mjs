@@ -584,3 +584,26 @@ test('SP-Runner v3: a higher low before 9:45 does not raise the stop; from 9:45 
   const v3late = simulateV2(v2Signal(late), '2026-05-04', MIDNIGHT, 10, 2000, 'full', { raiseStopFrom: 585 })
   assert.equal(v3late.trade.exitReason, 'trail-stop')
 })
+
+test('order flow: trades at/above ask are buys, at/below bid sells, in between by tick rule; odd lots and flagged prints excluded', async () => {
+  const { classifyTrades } = await import('../scripts/backtest/rulebook/orderflow')
+  const t = (m, s = 0) => at(m) + s * 1000
+  const quotes = [{ t: t(420), bid: 2.0, ask: 2.02 }, { t: t(421, 30), bid: 2.05, ask: 2.07 }]
+  const trades = [
+    { t: t(420, 5), p: 2.02, s: 500, c: ['@', 'T'] }, // at ask -> buy (extended hours kept)
+    { t: t(420, 6), p: 2.0, s: 300, c: ['@', 'T'] }, // at bid -> sell
+    { t: t(420, 7), p: 2.01, s: 200, c: ['@'] }, // in between, up-tick from 2.00 -> buy
+    { t: t(420, 8), p: 2.005, s: 100, c: ['@'] }, // in between, down-tick -> sell
+    { t: t(420, 9), p: 2.01, s: 50, c: ['@', 'I'] }, // odd lot -> excluded
+    { t: t(421, 10), p: 2.02, s: 400, c: ['@', 'W'] }, // flagged (average price) -> excluded
+    { t: t(421, 40), p: 2.05, s: 1000, c: ['@'] }, // new quote: at bid -> sell
+  ]
+  const r = classifyTrades(trades, quotes, MIDNIGHT)
+  assert.equal(r.buy[0], 700)
+  assert.equal(r.sell[0], 400)
+  assert.equal(r.sell[1], 1000)
+  assert.equal(r.counts.oddLot, 1)
+  assert.equal(r.counts.flagged, 1)
+  assert.equal(r.counts.kept, 5)
+  assert.equal(r.counts.tick, 2)
+})
