@@ -28,8 +28,17 @@ export const DIL = {
 
 export type Filing = { form: string; filingDate: string; acceptance: string; accession: string; primaryDocument: string; fileNumber: string }
 
-// EDGAR's acceptanceDateTime is Eastern wall-clock time (the trailing Z is not UTC); the probe checks this against FMP.
-const wallClock = (value: string) => value.replace('T', ' ').replace(/\.\d+Z?$|Z$/, '').slice(0, 19)
+// How EDGAR's acceptanceDateTime is read: 'et' = already Eastern wall-clock time (the trailing Z ignored),
+// 'utc' = real UTC, converted to Eastern. Set with --edgar-tz after checking a sample against the SEC's filing page.
+let edgarTz: 'et' | 'utc' = 'et'
+export function setEdgarTz(value: 'et' | 'utc') { edgarTz = value }
+const etFormat = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })
+function wallClock(value: string) {
+  const plain = value.replace('T', ' ').replace(/\.\d+Z?$|Z$/, '').slice(0, 19)
+  if (edgarTz === 'et' || !/Z$/.test(value)) return plain
+  const parts = Object.fromEntries(etFormat.formatToParts(new Date(Date.parse(`${plain.replace(' ', 'T')}Z`))).map((p) => [p.type, p.value]))
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`
+}
 
 /** Accepted before 7:00 ET on `day` (filings from earlier days always count). Pure. */
 export function beforeCutoff(filing: Pick<Filing, 'filingDate' | 'acceptance'>, day: string) {
@@ -202,6 +211,10 @@ async function main() {
   const out = join(process.cwd(), args.get('out') ?? 'backtests/dilution')
   const probe = args.has('probe') ? Number(args.get('probe') === 'true' ? 8 : args.get('probe')) : 0
   if (!probe && args.get('all') !== 'true') throw new Error('Run --probe=8 first to measure the download, then --all.')
+  const tzArg = args.get("edgar-tz")
+  if (!probe && tzArg !== "et" && tzArg !== "utc") throw new Error('Pass --edgar-tz=et or --edgar-tz=utc (decided from the probe samples checked against the SEC filing page).')
+  if (tzArg === "et" || tzArg === "utc") setEdgarTz(tzArg)
+  const samples: string[] = []
   const setups = readStep2b(join(process.cwd(), 'backtests/sp-runner-v3/trades.csv'))
   const chosen = probe ? Array.from({ length: Math.min(probe, setups.length) }, (_, k) => setups[Math.floor((k * setups.length) / Math.min(probe, setups.length))]) : setups
   const tickers = await tickerMap()
@@ -229,6 +242,8 @@ async function main() {
       for (const f of fmp) {
         const acc = f.link?.match(/\/(\d{18})\//)?.[1]
         const match = acc ? byAcc.get(acc) : undefined
+        if (match && f.acceptedDate && samples.length < 4 && (match.form === '8-K' || match.form.startsWith('424B')) && match.acceptance.slice(0, 10) === f.acceptedDate.slice(0, 10))
+          samples.push(`${match.form} ${setup.symbol}: EDGAR data "${match.acceptance}" | FMP "${f.acceptedDate}" | SEC page: ${f.link}`)
         if (match && f.acceptedDate) tzChecks.push((Date.parse(`${wallClock(match.acceptance).replace(' ', 'T')}Z`) - Date.parse(`${f.acceptedDate.replace(' ', 'T')}Z`)) / 3_600_000)
       }
     }
@@ -247,6 +262,9 @@ async function main() {
   const tz = tzChecks.length ? [...tzChecks].sort((a, b) => a - b)[Math.floor(tzChecks.length / 2)] : Number.NaN
   console.log(`[dil] time check: EDGAR vs FMP acceptance, median difference ${Number.isFinite(tz) ? tz.toFixed(1) : 'n/a'} h over ${tzChecks.length} matched filings (0 = both Eastern, as assumed)`)
   if (probe) {
+    console.log('[dil] samples - open one SEC page link and read its "Accepted" time (the SEC page shows Eastern time):')
+    for (const sample of samples) console.log(`      ${sample}`)
+    console.log('[dil]   if "Accepted" equals the EDGAR data time -> --edgar-tz=et; if it is 4-5 hours earlier -> --edgar-tz=utc')
     const minutes = (Date.now() - started) / 60000
     console.log(`\n[dil] PROBE: ${chosen.length} setups, ${stats.secRequests} SEC requests (${stats.docs} documents), ${(stats.secBytes / 1e6).toFixed(0)} MB, ${stats.fmpRequests} FMP requests, ${minutes.toFixed(1)} min.`)
     console.log(`[dil] Estimate for all ${setups.length} setups: about ${Math.round((stats.secRequests * setups.length) / chosen.length)} SEC requests, ${((stats.secBytes * setups.length) / chosen.length / 1e9).toFixed(1)} GB, ${((minutes * setups.length) / chosen.length).toFixed(0)} min (less if a company repeats: its filings are cached). Disk: flags only, a few MB.`)
