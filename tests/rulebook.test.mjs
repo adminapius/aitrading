@@ -637,3 +637,14 @@ test('dilution: only filings accepted before 7:00 ET count; S-3 needs an EFFECT 
   assert.equal(atmText('<p>the Company terminated the at&#8209;the&#8209;market sales agreement</p>').terminated, true)
   assert.equal(atmText('<p>market conditions and the sales of our products</p>').atm, false)
 })
+
+test('dilution: effective S-1 counts for 90 days after its EFFECT notice, not before, not after, not if withdrawn', async () => {
+  const { exactFlags } = await import('../scripts/backtest/rulebook/dilution')
+  const f = (form, acceptance, fileNumber = '') => ({ form, filingDate: acceptance.slice(0, 10), acceptance, accession: '', primaryDocument: '', fileNumber })
+  const filings = [f('S-1', '2026-06-08T17:44:54.000Z', '333-9'), f('EFFECT', '2026-06-17T00:16:06.000Z', '333-9')]
+  assert.equal(exactFlags(filings, '2026-06-12').effectiveS1_90, false) // filed, not yet effective
+  assert.equal(exactFlags(filings, '2026-06-17').effectiveS1_90, true) // EFFECT accepted 00:16 that morning
+  assert.equal(exactFlags(filings, '2026-09-14').effectiveS1_90, true) // 89 days
+  assert.equal(exactFlags(filings, '2026-09-16').effectiveS1_90, false) // 91 days
+  assert.equal(exactFlags([...filings, f('RW', '2026-07-01T10:00:00.000Z', '333-9')], '2026-07-15').effectiveS1_90, false)
+})
