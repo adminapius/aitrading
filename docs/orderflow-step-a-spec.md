@@ -49,6 +49,9 @@ Source: SEC EDGAR (submissions + filing documents); FMP filing lists as a cross-
 - **Effective S-3 (exact):** an S-3 or S-3ASR registration whose file number has an SEC EFFECT notice (S-3ASR: effective
   on filing) before the cutoff, not withdrawn (RW), effective within the last 3 years. It cannot tell a company shelf
   from a resale registration; reported as is.
+- **Effective S-1 in the last 90 days (exact; added and locked by Jose Oct 16, 23:57 PT, before any dilution result):**
+  an S-1 whose file number got an SEC EFFECT notice within the 90 days before the cutoff, not withdrawn (RW).
+  Judged with the same two-group rule below.
 - **424B takedown in the last 30 days (exact):** a 424B1, 424B2, 424B4, 424B5 or 424B7 accepted in the 30 days before the
   cutoff. 424B3 (mostly resale prospectuses) is counted separately, information only.
 - **Active ATM (APPROXIMATE, information only):** text search of 8-Ks and 424B5s from the last 24 months and the latest

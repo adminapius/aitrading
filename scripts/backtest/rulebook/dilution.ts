@@ -5,7 +5,7 @@
 //
 // Needs SEC_USER_AGENT (SEC requires a name + contact email, e.g. "Your Name your@email") and FMP_API_KEY.
 // For each Step 2b setup day: SEC EDGAR filings accepted before 7:00 ET that morning -> effective S-3 (exact),
-// 424B takedown in the last 30 days (exact), active ATM (approximate, from filing text). FMP filing lists cross-check.
+// effective S-1 in the last 90 days (exact), 424B takedown in the last 30 days (exact), active ATM (approximate, from filing text). FMP filing lists cross-check.
 // Only small flag results are cached (never full filing text).
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -19,6 +19,7 @@ export const DIL = {
   takedownForms: ['424B1', '424B2', '424B4', '424B5', '424B7'],
   takedownDays: 30,
   shelfYears: 3,
+  s1Days: 90, // effective S-1 in the last 90 days (Jose, Oct 16, 23:57 PT)
   atmLookbackDays: 730,
   secDelayMs: 130, // stays under the SEC's 10 requests per second
   minGroup: 30,
@@ -52,7 +53,10 @@ export function exactFlags(filings: Filing[], day: string) {
   const recent = (f: Filing) => daysBetween(wallClock(f.acceptance).slice(0, 10), day) <= DIL.takedownDays
   const takedowns = known.filter((f) => (DIL.takedownForms as readonly string[]).includes(f.form) && recent(f))
   const resale424b3 = known.filter((f) => f.form === '424B3' && recent(f))
-  return { effectiveS3: live.length > 0, shelfFileNumbers: live.map((s) => s.fileNumber), takedown30: takedowns.length > 0, takedownForms: takedowns.map((f) => f.form), resale424b3: resale424b3.length > 0 }
+  // S-1 declared effective (EFFECT on its file number) within the last 90 days, not withdrawn
+  const s1Live = known.filter((f) => f.form === 'S-1' && f.fileNumber && effective.has(f.fileNumber) && !withdrawn.has(f.fileNumber)
+    && daysBetween(effective.get(f.fileNumber)!, day) <= DIL.s1Days)
+  return { effectiveS1_90: s1Live.length > 0, effectiveS3: live.length > 0, shelfFileNumbers: live.map((s) => s.fileNumber), takedown30: takedowns.length > 0, takedownForms: takedowns.map((f) => f.form), resale424b3: resale424b3.length > 0 }
 }
 
 /** ATM text test on one filing's text. Pure. */
@@ -170,8 +174,8 @@ async function atmFlag(cik: string, filings: Filing[], day: string) {
 }
 
 // ---------------- report ----------------
-type Row = { day: string; symbol: string; r: number; mfe: number; cik: string | null; cikSource: string; s3: boolean; takedown: boolean; b3: boolean; atm: boolean | null;
-  fmpS3: boolean | null; fmpTakedown: boolean | null; fmpCik: string | null }
+type Row = { day: string; symbol: string; r: number; mfe: number; cik: string | null; cikSource: string; s3: boolean; s1: boolean; takedown: boolean; b3: boolean; atm: boolean | null;
+  fmpS3: boolean | null; fmpS1: boolean | null; fmpTakedown: boolean | null; fmpCik: string | null }
 
 function groupLine(name: string, rows: Row[]) {
   if (!rows.length) return `${name.padEnd(5)}   0`
@@ -211,11 +215,12 @@ async function main() {
     const edgarCik = tickers[setup.symbol.toUpperCase()] ?? null
     const cik = fmpCik ?? edgarCik
     const row: Row = { day: setup.day, symbol: setup.symbol, r: setup.r, mfe: setup.mfe, cik, cikSource: fmpCik ? (edgarCik && edgarCik !== fmpCik ? 'fmp (edgar differs)' : 'fmp') : edgarCik ? 'edgar' : 'none',
-      s3: false, takedown: false, b3: false, atm: null, fmpS3: null, fmpTakedown: null, fmpCik }
+      s3: false, s1: false, takedown: false, b3: false, atm: null, fmpS3: null, fmpS1: null, fmpTakedown: null, fmpCik }
     if (cik) {
       const filings = await submissions(cik)
       const flags = exactFlags(filings, setup.day)
       row.s3 = flags.effectiveS3
+      row.s1 = flags.effectiveS1_90
       row.takedown = flags.takedown30
       row.b3 = flags.resale424b3
       row.atm = await atmFlag(cik, filings, setup.day)
@@ -233,10 +238,11 @@ async function main() {
       row.fmpTakedown = fmpFlags.takedown30
       // FMP has no file numbers: an S-3 followed by an EFFECT notice within 120 days counts
       const known = asFilings.filter((f) => beforeCutoff(f, setup.day))
+      row.fmpS1 = known.some((s) => s.form === 'S-1' && known.some((e) => e.form === 'EFFECT' && wallClock(e.acceptance) >= wallClock(s.acceptance) && daysBetween(wallClock(s.acceptance).slice(0, 10), wallClock(e.acceptance).slice(0, 10)) <= 180 && daysBetween(wallClock(e.acceptance).slice(0, 10), setup.day) <= DIL.s1Days))
       row.fmpS3 = known.some((s) => (s.form === 'S-3' || s.form === 'S-3ASR') && known.some((e) => e.form === 'EFFECT' && wallClock(e.acceptance) >= wallClock(s.acceptance) && daysBetween(wallClock(s.acceptance).slice(0, 10), wallClock(e.acceptance).slice(0, 10)) <= 120 && daysBetween(wallClock(e.acceptance).slice(0, 10), setup.day) <= 365 * DIL.shelfYears))
     }
     rows.push(row)
-    if (probe || index % 10 === 0) console.log(`[dil] ${index + 1}/${chosen.length} ${setup.day} ${setup.symbol}: cik ${row.cikSource}, FMP filings ${fmp.length}, S-3 ${row.s3}, 424B 30d ${row.takedown}, ATM~ ${row.atm} · ${stats.secRequests} SEC requests, ${(stats.secBytes / 1e6).toFixed(0)} MB, ${((Date.now() - started) / 60000).toFixed(1)} min`)
+    if (probe || index % 10 === 0) console.log(`[dil] ${index + 1}/${chosen.length} ${setup.day} ${setup.symbol}: cik ${row.cikSource}, FMP filings ${fmp.length}, S-3 ${row.s3}, S-1 90d ${row.s1}, 424B 30d ${row.takedown}, ATM~ ${row.atm} · ${stats.secRequests} SEC requests, ${(stats.secBytes / 1e6).toFixed(0)} MB, ${((Date.now() - started) / 60000).toFixed(1)} min`)
   }
   const tz = tzChecks.length ? [...tzChecks].sort((a, b) => a - b)[Math.floor(tzChecks.length / 2)] : Number.NaN
   console.log(`[dil] time check: EDGAR vs FMP acceptance, median difference ${Number.isFinite(tz) ? tz.toFixed(1) : 'n/a'} h over ${tzChecks.length} matched filings (0 = both Eastern, as assumed)`)
@@ -250,15 +256,16 @@ async function main() {
   console.log(`\n[dil] ===== DILUTION CHECK (information only) - ${rows.length} Step 2b setups, ${matched.length} matched to an SEC CIK =====`)
   console.log(`[dil] CIK source: ${JSON.stringify(rows.reduce((acc, r) => ({ ...acc, [r.cikSource]: (acc[r.cikSource] ?? 0) + 1 }), {} as Record<string, number>))}`)
   flagReport('Effective S-3 shelf (EXACT; company or resale registration)', matched, (r) => r.s3, true)
+  flagReport('Effective S-1 in the last 90 days (EXACT)', matched, (r) => r.s1, true)
   flagReport('424B takedown (424B1/2/4/5/7) in the last 30 days (EXACT)', matched, (r) => r.takedown, true)
-  flagReport('Either exact flag (S-3 effective OR 424B takedown 30d)', matched, (r) => r.s3 || r.takedown, true)
+  flagReport('Any exact flag (S-3 effective OR S-1 effective 90d OR 424B takedown 30d)', matched, (r) => r.s3 || r.s1 || r.takedown, true)
   flagReport('424B3 in the last 30 days (resale prospectus, information only)', matched, (r) => r.b3, false)
   flagReport('Active ATM (APPROXIMATE, from filing text, information only)', matched, (r) => r.atm, false)
   const agree = (a: Array<boolean | null>, b: boolean[]) => { let n = 0; let same = 0; a.forEach((x, i) => { if (x != null) { n += 1; if (x === b[i]) same += 1 } }); return `${same}/${n}` }
-  console.log(`\n[dil] FMP cross-check (setups with FMP filings): S-3 effective agrees ${agree(matched.map((r) => r.fmpS3), matched.map((r) => r.s3))}, 424B 30d agrees ${agree(matched.map((r) => r.fmpTakedown), matched.map((r) => r.takedown))}`)
+  console.log(`\n[dil] FMP cross-check (setups with FMP filings): S-3 effective agrees ${agree(matched.map((r) => r.fmpS3), matched.map((r) => r.s3))}, S-1 90d agrees ${agree(matched.map((r) => r.fmpS1), matched.map((r) => r.s1))}, 424B 30d agrees ${agree(matched.map((r) => r.fmpTakedown), matched.map((r) => r.takedown))}`)
   mkdirSync(out, { recursive: true })
-  writeFileSync(join(out, 'dilution.csv'), ['date,ticker,cik,cik_source,r_2b,mfe_2b,effective_s3,takedown_424b_30d,resale_424b3_30d,atm_approx,fmp_effective_s3,fmp_takedown_30d',
-    ...rows.map((r) => [r.day, r.symbol, r.cik ?? '', r.cikSource, r.r.toFixed(3), r.mfe.toFixed(2), r.s3, r.takedown, r.b3, r.atm ?? '', r.fmpS3 ?? '', r.fmpTakedown ?? ''].join(','))].join('\n') + '\n')
+  writeFileSync(join(out, 'dilution.csv'), ['date,ticker,cik,cik_source,r_2b,mfe_2b,effective_s3,effective_s1_90d,takedown_424b_30d,resale_424b3_30d,atm_approx,fmp_effective_s3,fmp_effective_s1_90d,fmp_takedown_30d',
+    ...rows.map((r) => [r.day, r.symbol, r.cik ?? '', r.cikSource, r.r.toFixed(3), r.mfe.toFixed(2), r.s3, r.s1, r.takedown, r.b3, r.atm ?? '', r.fmpS3 ?? '', r.fmpS1 ?? '', r.fmpTakedown ?? ''].join(','))].join('\n') + '\n')
   console.log(`[dil] wrote ${join(out, 'dilution.csv')}`)
 }
 
