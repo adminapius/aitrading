@@ -607,3 +607,33 @@ test('order flow: trades at/above ask are buys, at/below bid sells, in between b
   assert.equal(r.counts.kept, 5)
   assert.equal(r.counts.tick, 2)
 })
+
+test('dilution: only filings accepted before 7:00 ET count; S-3 needs an EFFECT on its file number; 424B takedown within 30 days', async () => {
+  const { beforeCutoff, exactFlags, atmText } = await import('../scripts/backtest/rulebook/dilution')
+  assert.equal(beforeCutoff({ filingDate: '2026-09-24', acceptance: '2026-09-24T06:01:32.000Z' }, '2026-09-24'), true)
+  assert.equal(beforeCutoff({ filingDate: '2026-09-24', acceptance: '2026-09-24T09:22:39.000Z' }, '2026-09-24'), false)
+  assert.equal(beforeCutoff({ filingDate: '2026-09-23', acceptance: '2026-09-23T17:00:00.000Z' }, '2026-09-24'), true)
+  const f = (form, acceptance, fileNumber = '') => ({ form, filingDate: acceptance.slice(0, 10), acceptance, accession: '', primaryDocument: '', fileNumber })
+  const filings = [
+    f('S-3', '2026-01-10T16:00:00.000Z', '333-1'),
+    f('EFFECT', '2026-01-25T00:15:00.000Z', '333-1'),
+    f('S-3', '2026-08-01T16:00:00.000Z', '333-2'), // never declared effective
+    f('424B5', '2026-09-03T08:30:12.000Z'),
+    f('424B5', '2026-09-24T09:22:39.000Z'), // same morning, after 7:00 -> not known yet
+    f('424B3', '2026-09-20T08:00:00.000Z'),
+  ]
+  const day = exactFlags(filings, '2026-09-24')
+  assert.equal(day.effectiveS3, true)
+  assert.deepEqual(day.shelfFileNumbers, ['333-1'])
+  assert.equal(day.takedown30, true) // Sep 3 is within 30 days
+  assert.equal(day.resale424b3, true)
+  const later = exactFlags(filings, '2026-10-06') // Sep 3 now 33 days back; Sep 24 is 12 days back
+  assert.equal(later.takedown30, true)
+  const before = exactFlags(filings, '2026-01-20') // S-3 filed, not yet effective
+  assert.equal(before.effectiveS3, false)
+  const withdrawn = exactFlags([...filings, f('RW', '2026-02-01T10:00:00.000Z', '333-1')], '2026-09-24')
+  assert.equal(withdrawn.effectiveS3, false)
+  assert.equal(atmText('<p>entered into an At-The-Market Sales Agreement with H.C. Wainwright</p>').atm, true)
+  assert.equal(atmText('<p>the Company terminated the at&#8209;the&#8209;market sales agreement</p>').terminated, true)
+  assert.equal(atmText('<p>market conditions and the sales of our products</p>').atm, false)
+})

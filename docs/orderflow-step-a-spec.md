@@ -1,4 +1,4 @@
-# Order-flow diagnostic, Step A (approved by Jose Oct 16, 2026; reading rule pending his approval)
+# Order-flow diagnostic, Step A (approved by Jose Oct 16, 2026; reading rule LOCKED Oct 16, 2026, 23:49 PT)
 
 Diagnostic only. No trading rules, no strategy is built from this unless Step A shows a clear separation.
 Code: `scripts/backtest/rulebook/orderflow.ts`.
@@ -29,7 +29,7 @@ Code: `scripts/backtest/rulebook/orderflow.ts`.
 4. Setups still open at 9:30: does a 5-minute delta flip (positive to negative) come before the 9:30-11:30 high,
    how long before, and how many earlier flips were false alarms.
 
-## Reading rule (proposed by Claude, to be locked by Jose before --all is run)
+## Reading rule (LOCKED: approved by Jose before any order-flow result existed)
 Clear separation means, for report 1 (primary) or report 2:
 - the top group's average R is positive, and
 - it is at least 0.5R better than the bottom group's, and
@@ -42,3 +42,19 @@ If nothing meets this, the idea ends. No fitting, no re-cuts after the result.
 ## Step B (only if Step A meets the rule)
 A locked spec with a delta entry filter and a delta exit, sent for approval. All 174 days have been seen, so the
 only real test is forward paper trading, about 30 trades, same pass rule (positive expectancy, PF above 1.5).
+
+## Dilution check (added Oct 16, 2026; diagnostic only) - `scripts/backtest/rulebook/dilution.ts`
+Source: SEC EDGAR (submissions + filing documents); FMP filing lists as a cross-check. Only filings accepted before
+7:00 ET on the setup day count (a filing dated that day counts only if accepted before 7:00 ET).
+- **Effective S-3 (exact):** an S-3 or S-3ASR registration whose file number has an SEC EFFECT notice (S-3ASR: effective
+  on filing) before the cutoff, not withdrawn (RW), effective within the last 3 years. It cannot tell a company shelf
+  from a resale registration; reported as is.
+- **424B takedown in the last 30 days (exact):** a 424B1, 424B2, 424B4, 424B5 or 424B7 accepted in the 30 days before the
+  cutoff. 424B3 (mostly resale prospectuses) is counted separately, information only.
+- **Active ATM (APPROXIMATE, information only):** text search of 8-Ks and 424B5s from the last 24 months and the latest
+  10-Q for an at-the-market sales / equity distribution agreement, not followed by an 8-K that terminates one.
+- Warrant check dropped (Jose).
+- Report: each flag yes vs no against Step 2b R, win %, MFE, with group sizes.
+- Reading rule (LOCKED): a flag shows an edge only if the "no" group averages positive R, is at least 0.5R better than the
+  "yes" group, and each group has at least 30 setups. If so it becomes an entry filter in the Step B spec, tested
+  forward on paper.

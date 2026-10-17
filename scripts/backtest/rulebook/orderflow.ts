@@ -115,7 +115,7 @@ export async function loadFlowDay(day: string, symbol: string): Promise<FlowDay 
 type Setup = { day: string; symbol: string; catchMinute: number; signalMinute: number; entryMinute: number; exitMinute: number; r: number; mfe: number
   close: number[]; high: number[] } // per-minute close/high 7:00-11:30 (NaN when no bar)
 
-function readStep2b(path: string) {
+export function readStep2b(path: string) {
   if (!existsSync(path)) throw new Error(`Missing ${path}. It comes from the v3 sanity run (backtests/sp-runner-v3).`)
   const [head, ...lines] = readFileSync(path, 'utf8').trim().split(/\r?\n/)
   const cols = head.split(',')
