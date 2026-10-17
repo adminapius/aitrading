@@ -648,3 +648,16 @@ test('dilution: effective S-1 counts for 90 days after its EFFECT notice, not be
   assert.equal(exactFlags(filings, '2026-09-16').effectiveS1_90, false) // 91 days
   assert.equal(exactFlags([...filings, f('RW', '2026-07-01T10:00:00.000Z', '333-9')], '2026-07-15').effectiveS1_90, false)
 })
+
+test('dilution: EDGAR time read as UTC is converted to Eastern before the 7:00 cutoff', async () => {
+  const { beforeCutoff, setEdgarTz } = await import('../scripts/backtest/rulebook/dilution')
+  setEdgarTz('utc')
+  // 10:30 UTC on Sep 24, 2026 = 06:30 EDT -> before 7:00
+  assert.equal(beforeCutoff({ filingDate: '2026-09-24', acceptance: '2026-09-24T10:30:00.000Z' }, '2026-09-24'), true)
+  // 11:30 UTC = 07:30 EDT -> after 7:00
+  assert.equal(beforeCutoff({ filingDate: '2026-09-24', acceptance: '2026-09-24T11:30:00.000Z' }, '2026-09-24'), false)
+  // 02:00 UTC on Sep 25 = 22:00 EDT on Sep 24 -> counts for Sep 25
+  assert.equal(beforeCutoff({ filingDate: '2026-09-24', acceptance: '2026-09-25T02:00:00.000Z' }, '2026-09-25'), true)
+  setEdgarTz('et')
+  assert.equal(beforeCutoff({ filingDate: '2026-09-24', acceptance: '2026-09-24T06:30:00.000Z' }, '2026-09-24'), true)
+})
