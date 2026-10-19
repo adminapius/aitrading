@@ -662,6 +662,151 @@ test('dilution: EDGAR time read as UTC is converted to Eastern before the 7:00 c
   assert.equal(beforeCutoff({ filingDate: '2026-09-24', acceptance: '2026-09-24T06:30:00.000Z' }, '2026-09-24'), true)
 })
 
+test('Strategy F probe: point-in-time top by prior 20-day dollar volume, price above $10, no look-ahead', async () => {
+  const { topByDollarVolume } = await import('../scripts/backtest/rulebook/strategy-f-probe')
+  const days = Array.from({ length: 25 }, (_, i) => `2026-01-${String(i + 1).padStart(2, '0')}`)
+  const rows = (price, volume, todayVolume = volume) => days.map((day, i) => ({ day, o: price, h: price, l: price, c: price, v: i === 21 ? todayVolume : volume }))
+  const daily = new Map([
+    ['BIG', rows(50, 1_000_000)],
+    ['MID', rows(20, 1_000_000, 1e12)], // huge volume ON the day itself must not count
+    ['CHEAP', rows(9, 1e9)], // prior close under $10
+    ['SPY', rows(500, 1e9)], // index ETFs are a separate line
+    ['XETF', rows(100, 1e9)],
+  ])
+  const names = new Map([['BIG', 'Big Inc'], ['MID', 'Mid Corp'], ['CHEAP', 'Cheap Co'], ['SPY', 'SPDR S&P 500 ETF Trust'], ['XETF', 'Some Leveraged 3x ETF']])
+  const top = topByDollarVolume(daily, names, days, 1)
+  assert.deepEqual(top.get(days[21]), ['BIG'])
+  assert.deepEqual(topByDollarVolume(daily, names, days, 5).get(days[21]), ['BIG', 'MID'])
+  assert.deepEqual(top.get(days[10]), []) // fewer than 20 prior days
+})
+
+// ---------------- Strategy F ----------------
+const FM = Date.parse('2026-05-04T00:00:00-04:00')
+const fb = (m, o, h, l, c, v = 1_000_000) => ({ t: FM + m * 60_000, o, h, l, c, v })
+// Red OR 9:30-9:44: open 101, low 98, high 102, close 99 (range 4). Flat bars elsewhere at `p`.
+function fDay(after = [], pre = []) {
+  const bars = [...pre]
+  for (let m = 570; m <= 584; m += 1) bars.push(m === 570 ? fb(m, 101, 102, 100, 100.5) : m === 577 ? fb(m, 100, 100, 98, 99.5) : m === 584 ? fb(m, 99.5, 99.6, 98.9, 99) : fb(m, 100, 100.4, 99.6, 100))
+  const set = new Map(after.map((b) => [Math.round((b.t - FM) / 60_000), b]))
+  for (let m = 585; m <= 960; m += 1) bars.push(set.get(m) ?? fb(m, 99.5, 99.6, 99.4, 99.5))
+  return bars
+}
+
+test('Strategy F: OR, direction, liquidity filter and F-A levels', async () => {
+  const { buildSetup, ordersFA } = await import('../scripts/backtest/rulebook/strategy-f')
+  const s = buildSetup('X', 0, 'stock', fDay(), FM, 10, 100, false)
+  assert.equal(s.orHigh, 102); assert.equal(s.orLow, 98); assert.equal(s.range, 4); assert.equal(s.dir, 1)
+  assert.equal(s.liquid, true) // 4 >= 25% of 10
+  assert.equal(buildSetup('X', 0, 'stock', fDay(), FM, 20, 100, false).liquid, false) // 4 < 5
+  const [o] = ordersFA(s)
+  assert.equal(o.level, 98)
+  assert.ok(Math.abs(o.target - (98 + 0.382 * 4)) < 1e-9)
+  assert.ok(Math.abs(o.stop - (98 - 0.191 * 4)) < 1e-9)
+  assert.equal(o.from, 585); assert.equal(o.to, 659)
+})
+
+test('Strategy F: fills - limit needs a 1-tick trade-through (touch line excepted); stop orders pay slippage', async () => {
+  const { fillOn } = await import('../scripts/backtest/rulebook/strategy-f')
+  const limit = { kind: 'limit', level: 98, stop: 97.236, target: 99.528, from: 585, to: 659, setup: 'F-A' }
+  assert.equal(fillOn(limit, 1, fb(600, 98.5, 98.6, 98, 98.2), 'trade'), null) // touch only
+  assert.equal(fillOn(limit, 1, fb(600, 98.5, 98.6, 98, 98.2), 'touch'), 98)
+  assert.equal(fillOn(limit, 1, fb(600, 98.5, 98.6, 97.99, 98.2), 'trade'), 98)
+  assert.equal(fillOn(limit, 1, fb(600, 97.8, 98.6, 97.5, 98.2), 'trade'), 97.8) // opened through the limit: better price
+  const stopOrder = { kind: 'stop', level: 99, stop: 97, target: 102, from: 600, to: 604, setup: 'F-B hammer' }
+  assert.ok(Math.abs(fillOn(stopOrder, 1, fb(600, 98.8, 99.2, 98.7, 99), 'trade') - 99 * 1.0005) < 1e-9)
+  assert.equal(fillOn(stopOrder, 1, fb(600, 98.8, 98.9, 98.7, 98.8), 'trade'), null)
+})
+
+test('Strategy F: exits - entry-bar stop, worst case on stop+target, trade-through target, time exit at 11:00', async () => {
+  const { simulateExit } = await import('../scripts/backtest/rulebook/strategy-f')
+  const mk = (list) => list.map(([m, o, h, l, c]) => ({ ...fb(m, o, h, l, c), m }))
+  // entry bar touches the stop -> stop, even though a target is hit there too
+  let e = simulateExit(mk([[600, 98, 100, 97, 99]]), 0, 1, 97.236, 99.528, 660, 'trade')
+  assert.equal(e.reason, 'stop (entry bar)'); assert.ok(Math.abs(e.price - 97.236 * 0.9995) < 1e-9)
+  // later bar hits both -> stop
+  e = simulateExit(mk([[600, 98, 98.1, 97.9, 98], [601, 98, 100, 97, 99]]), 0, 1, 97.236, 99.528, 660, 'trade')
+  assert.equal(e.reason, 'stop')
+  // target touched but not traded through -> no fill; next bar trades through -> target price
+  e = simulateExit(mk([[600, 98, 98.1, 97.9, 98], [601, 99, 99.528, 98.9, 99.5], [602, 99.5, 99.54, 99.4, 99.5]]), 0, 1, 97.236, 99.528, 660, 'trade')
+  assert.equal(e.reason, 'target'); assert.equal(e.minute, 602); assert.equal(e.price, 99.528)
+  // nothing hit -> 11:00 bar open minus slippage
+  e = simulateExit(mk([[600, 98, 98.1, 97.9, 98], [659, 98.5, 98.6, 98.4, 98.5], [660, 98.7, 98.8, 98.6, 98.7]]), 0, 1, 97.236, 99.528, 660, 'trade')
+  assert.equal(e.reason, 'time 11:00'); assert.ok(Math.abs(e.price - 98.7 * 0.9995) < 1e-9)
+  // gap through the stop -> open
+  e = simulateExit(mk([[600, 98, 98.1, 97.9, 98], [601, 96, 96.5, 95.5, 96]]), 0, 1, 97.236, 99.528, 660, 'trade')
+  assert.equal(e.reason, 'gap-stop'); assert.ok(Math.abs(e.price - 96 * 0.9995) < 1e-9)
+  // short mirror
+  e = simulateExit(mk([[600, 102, 102.1, 101.9, 102], [601, 101, 101.2, 100.4, 100.5]]), 0, -1, 102.764, 100.472, 660, 'trade')
+  assert.equal(e.reason, 'target'); assert.equal(e.price, 100.472)
+})
+
+test('Strategy F: F-B hammer after two red candles below the OR low, reward check, one-candle validity', async () => {
+  const { buildSetup, ordersFB } = await import('../scripts/backtest/rulebook/strategy-f')
+  const after = []
+  // 9:45 and 9:50 red 5-minute candles, 9:55 hammer with low 97 below the OR low 98
+  for (let m = 585; m < 595; m += 1) after.push(fb(m, 99.4 - (m - 585) * 0.1, 99.45 - (m - 585) * 0.1, 98.3 - (m - 585) * 0.05, 99.3 - (m - 585) * 0.1))
+  after.push(fb(595, 98.4, 98.45, 97, 98.3), fb(596, 98.3, 98.4, 98.2, 98.35), fb(597, 98.35, 98.45, 98.3, 98.4), fb(598, 98.4, 98.45, 98.35, 98.42), fb(599, 98.42, 98.45, 98.4, 98.45))
+  const s = buildSetup('X', 0, 'stock', fDay(after), FM, 10, 100, false)
+  const orders = ordersFB(s)
+  const h = orders.find((o) => o.setup.startsWith('F-B hammer'))
+  assert.ok(h, 'hammer order')
+  assert.equal(h.from, 600); assert.equal(h.to, 604)
+  assert.ok(Math.abs(h.level - 98.46) < 1e-9); assert.ok(Math.abs(h.stop - 96.99) < 1e-9); assert.equal(h.target, 102)
+  assert.equal(h.setup, 'F-B hammer') // reward 3.54 >= 1.5 x 1.47
+})
+
+test('Strategy F: portfolio - flat $20 risk, max 3 open, SSR blocks shorts, daily -3R stop', async () => {
+  const { buildSetup, runLineDay } = await import('../scripts/backtest/rulebook/strategy-f')
+  // trade-through of the OR low at 9:50, then stop at 9:52 (loss)
+  const loser = () => fDay([fb(590, 98.2, 98.3, 97.9, 98), fb(591, 97.5, 97.6, 97, 97.1)])
+  const spec = { id: 't', variant: 'F-A', sizing: 'flat', mode: 'trade' }
+  const st = { equity: 2000, trades: [], skips: {}, equityByDay: [] }
+  const setups = ['A', 'B', 'C', 'D'].map((sym, i) => buildSetup(sym, i, 'stock', loser(), FM, 10, 100, false))
+  runLineDay(spec, st, '2026-05-04', setups)
+  assert.equal(st.trades.length, 3) // D finds all 3 slots busy at 9:50; after the stops (-3R) the daily stop ends the day
+  assert.ok(st.trades.every((t) => Math.abs(t.riskDollars - 20) < 1)) // flat $20 (rounded shares)
+  assert.ok(st.trades.every((t) => t.r < -1)) // stop slippage + fees
+  assert.equal(st.skips['daily stop -3R reached (days)'], 1)
+  // SSR: a short setup on a stock that fell 10% below the prior close
+  const green = fDay().map((b) => ({ ...b, o: 200 - b.c, c: 200 - b.o, h: 200 - b.l, l: 200 - b.h }))
+  const st2 = { equity: 2000, trades: [], skips: {}, equityByDay: [] }
+  const short = buildSetup('S', 0, 'stock', green.map((b) => (Math.round((b.t - FM) / 60_000) === 590 ? { ...b, h: 102.2, l: 101.8 } : b)), FM, 10, 120, false)
+  assert.equal(short.dir, -1); assert.ok(short.ssrMinute != null)
+  runLineDay(spec, st2, '2026-05-04', [short])
+  assert.equal(st2.trades.length, 0); assert.equal(st2.skips['short skipped: SSR'], 1)
+})
+
+test('Strategy F: FVG detector (Jose definition) and confluence distance', async () => {
+  const { findGaps, fvgConfluence } = await import('../scripts/backtest/rulebook/strategy-f')
+  const mk = (list) => list.map(([m, o, h, l, c]) => ({ ...fb(m, o, h, l, c), m }))
+  // three green 5-minute candles 8:00, 8:05, 8:10: first high 10.2, third low 10.5 -> bullish gap [10.2, 10.5]
+  const pre = mk([[480, 10, 10.2, 9.9, 10.1], [485, 10.2, 10.6, 10.2, 10.55], [490, 10.6, 10.9, 10.5, 10.8], [600, 10.8, 10.9, 10.6, 10.7]])
+  const gaps = findGaps(pre)
+  assert.equal(gaps.length, 1); assert.equal(gaps[0].dir, 1); assert.equal(gaps[0].low, 10.2); assert.equal(gaps[0].high, 10.5); assert.equal(gaps[0].closedAt, null)
+  assert.equal(fvgConfluence(gaps, 1, 610, 10.6, 1).fvg, true) // 0.10 from the top edge <= 0.25 x ATR 1
+  assert.equal(fvgConfluence(gaps, 1, 610, 10.9, 1).fvg, false) // 0.40 away
+  assert.equal(fvgConfluence(gaps, -1, 610, 10.4, 1).fvg, false) // wrong direction
+  const closed = findGaps(mk([[480, 10, 10.2, 9.9, 10.1], [485, 10.2, 10.6, 10.2, 10.55], [490, 10.6, 10.9, 10.5, 10.8], [500, 10.4, 10.4, 10.15, 10.3]]))
+  assert.equal(closed[0].closedAt, 500)
+  assert.equal(fvgConfluence(closed, 1, 610, 10.3, 1).fvg, false)
+  // a red candle among the three -> no gap
+  assert.equal(findGaps(mk([[480, 10, 10.2, 9.9, 10.1], [485, 10.6, 10.6, 10.2, 10.3], [490, 10.6, 10.9, 10.5, 10.8]])).length, 0)
+})
+
+test('Strategy F: daily context in today\'s price terms across a split; diagnostic', async () => {
+  const { dayContext, diagnose, emptyDiag, buildSetup } = await import('../scripts/backtest/rulebook/strategy-f')
+  // 2:1 split on day 3: adjusted rows are already halved; raw rows show 200 before, 100 after
+  const days = ['2026-01-01', '2026-01-02', '2026-01-03', '2026-01-04']
+  const adjRows = days.map((day) => ({ day, o: 100, h: 102, l: 98, c: 100, v: 1 }))
+  const rawRows = days.map((day, i) => (i < 2 ? { day, o: 200, h: 204, l: 196, c: 200, v: 1 } : { day, o: 100, h: 102, l: 98, c: 100, v: 1 }))
+  const adjAtr = [4, 4, 4, 4]
+  assert.deepEqual(dayContext(adjRows, adjAtr, rawRows, '2026-01-02'), { atr: 8, prevClose: 200, ssrCarry: false }) // pre-split day: raw scale
+  assert.deepEqual(dayContext(adjRows, adjAtr, rawRows, '2026-01-03'), { atr: 4, prevClose: 100, ssrCarry: false }) // split day: no fake -50%
+  const d = emptyDiag()
+  diagnose(buildSetup('X', 0, 'stock', fDay([fb(590, 98.2, 98.3, 97.9, 98), fb(600, 99, 99.6, 98.9, 99.5)]), FM, 10, 100, false), d)
+  assert.deepEqual(d, { days: 1, liquid: 1, doji: 0, back: 1, target: 1, stop: 0, neither: 0 })
+})
+
 test('H v2: breakout needs trend, 1.5x volume and a tight 15-day range; retest within 0.5N closing back above the level', async () => {
   const { buildSeries2 } = await import('../scripts/backtest/rulebook/swing-v2')
   const day = (i) => new Date(Date.UTC(2025, 0, 1) + i * 86_400_000).toISOString().slice(0, 10)

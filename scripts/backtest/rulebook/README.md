@@ -11,6 +11,7 @@ touches live or paper order execution; the live worker never imports these files
 | `strategy-sp.ts` | SP: minute scanner (top 3), 5m gate, Setup 1, Setup 2, smart stop, 5m exit facts. |
 | `engine.ts` | Account rules, sizing, fills (approved model), stops held internally, scale-outs, R-trail, exits, fees. |
 | `report.ts` | trades.csv, summary.json, report.html (equity curve, month/setup/exit breakdowns, pass/fail per window). |
+| `strategy-f.ts` | Strategy F (opening-range reversal + FVG), spec `docs/strategy-f-spec.md`; `strategy-f-probe.ts` = its data probe. |
 | `upload.ts` | Saves results to `ait_backtest_runs` / `ait_backtest_trades` (run ids `rulebook-A` … `rulebook-D`). |
 
 Run (PowerShell, from the repo folder; keys set in your own terminal):
