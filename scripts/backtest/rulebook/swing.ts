@@ -104,7 +104,9 @@ type Position = {
 
 type PendingEntry = { symbol: string; setup: 'A' | 'B'; n: number; riskDollars: number; note: string; roomR: number; rank: number }
 
-export async function runSwing(ref: Reference, period: { start: string; end: string }, runId = 'H') {
+// `simulate` (optional): simulate only these days while loading/universe use `period` (so H v2 can run its
+// tuning/holdout windows from the same cached bars). Default: simulate the whole period (H v1 unchanged).
+export async function runSwing(ref: Reference, period: { start: string; end: string }, runId = 'H', simulate?: { start: string; end: string }) {
   // 1) Universe candidates from RAW daily bars (no look-ahead: each day uses that day's raw close and volume).
   const rawOk = new Map<string, Set<string>>()
   for (const [symbol, stats] of ref.dailyStats) {
@@ -131,7 +133,8 @@ export async function runSwing(ref: Reference, period: { start: string; end: str
   }
 
   // 2) Day-by-day simulation over the period.
-  const days = ref.allDays.filter((day) => day >= period.start && day <= period.end)
+  const sim = simulate ?? period
+  const days = ref.allDays.filter((day) => day >= sim.start && day <= sim.end)
   const C = RULEBOOK.costs
   let cash: number = RULEBOOK.account.startingEquity
   const positions: Position[] = []
