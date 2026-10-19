@@ -1,7 +1,7 @@
-# Strategy F: opening-range reversal + FVG (DRAFT, Oct 19, 2026; decisions answered, locks after the probe output)
+# Strategy F: opening-range reversal + FVG (LOCKED, Oct 19, 2026)
 
 BACKTEST ONLY. Nothing live. Rules as Jose wrote them; items marked **[D#]** were decided by Jose on Oct 19 (section 11).
-No code beyond the data probe (`scripts/backtest/rulebook/strategy-f-probe.ts`) until the spec is locked.
+Locked after the data probe (section 12), before any strategy code or result. Nothing changes after a run.
 
 ## 1. Universe (point in time, decided each morning)
 - Common stocks with a prior close above $10, ranked by average dollar volume (raw close x volume) over the prior 20
@@ -111,3 +111,17 @@ Pass (per variant, judged on the large-cap run at the flat $20 risk, locked at a
 - **D8 F-B:** 2-candle rule for the hammer only; engulfing order valid one candle; reward check at order placement;
   later signals allowed if an order didn't fill. Default accepted.
 - **D9 FVG:** built from Jose's written definition only; "unfilled" = no later candle has fully closed the gap.
+
+## 12. Data probe (Oct 19, 2026, before any strategy code; no trades simulated)
+- 504 trading days (tuning 450, holdout 54 to Oct 16). Universe: 231 unique symbols incl. SPY/QQQ, 51,408 symbol-days,
+  about 1.5 names change per day, 100 names every day. First day top 10: NVDA, TSLA, AAPL, MSFT, META, AMZN, AMD, AVGO,
+  GOOGL, MU. Last day: MU, NVDA, META, SNDK, SPCX (SpaceX), AMD, AAPL, TSLA, INTC, MSFT.
+- Download: 48,476 missing symbol-days, about 2,754 requests, about 0.4 h, about 0.29 GB. SP penny line: 15,508
+  symbol-days to Oct 13, all cached.
+- Shortable today: 231 of 231 active; not shortable QUBT; hard to borrow none. D4 assumption stands (no history).
+- Sample of 6 days, top-100 stocks (600 symbol-days): OR range median 1.40% of price; OR / daily ATR median 0.43;
+  25% filter passes 555 of 600. F-A stop median 0.275% of price. The $2,000 cash cap limits 535 of 555 positions
+  (median actual risk $4.98 vs $20), which confirms D3 (judged line = flat $20 risk, no cash cap).
+  0.05% stop slippage alone costs a median 0.18R per stop-out (p75 0.28R).
+- SPY/QQQ (12 symbol-days): OR median 0.34% of price; filter passes 7 of 12; F-A stop median 0.104%; stop slippage
+  alone median 0.48R per stop-out. Report-only line (D2).
