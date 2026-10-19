@@ -125,3 +125,33 @@ Pass (per variant, judged on the large-cap run at the flat $20 risk, locked at a
   0.05% stop slippage alone costs a median 0.18R per stop-out (p75 0.28R).
 - SPY/QQQ (12 symbol-days): OR median 0.34% of price; filter passes 7 of 12; F-A stop median 0.104%; stop slippage
   alone median 0.48R per stop-out. Report-only line (D2).
+
+## 13. Result (Oct 19, 2026): FAIL, both variants, both windows. Parked; no forward paper test.
+| Window | Line | Trades | Win | Exp | PF | Max DD | Largest loss | Total R | Total $ |
+|---|---|---|---|---|---|---|---|---|---|
+| Tuning | F-A judged (flat $20) | 3,797 | 29% | -0.29R | 0.71 | 1,181R | -42.76R | -1,097.6R | -$21,708 |
+| Tuning | F-B judged (flat $20) | 2,315 | 35% | -0.23R | 0.63 | 527R | -1.55R | -525.6R | -$10,229 |
+| Holdout | F-A judged (flat $20) | 356 | 28% | -0.51R | 0.52 | 186R | -18.47R | -180.9R | -$3,547 |
+| Holdout | F-B judged (flat $20) | 282 | 37% | -0.14R | 0.75 | 49R | -1.27R | -39.0R | -$744 |
+
+- Tuning condition (total R and $ > 0): not met for either variant. Holdout: F-A fails expectancy, PF, largest loss
+  and dollars; F-B fails expectancy, PF and dollars. Profitable months: F-A 1 of 22 / 0 of 3; F-B 0 of 22 / 1 of 3.
+- Diagnostic (no sizing, no costs): price came back to the OR edge by 11:00 on 70% of liquid stock days, but from
+  there the 38.2% target came before the 2:1 stop only 29% (tuning) and 28% (holdout) of the time. A 2:1 setup
+  needs 33.3% to break even before costs, about 37% after the median 0.19R stop slippage. The video's claim does not
+  hold for the top-100 stocks. SPY/QQQ: 32% (tuning, 390) and 52% (holdout, 54).
+- Breakeven win rate (actual avg win/loss): F-A needs 37% / 42%, has 29% / 28%. F-B needs 46% / 44%, has 35% / 37%.
+- OR size: no consistent pattern. F-A expectancy by OR/ATR quartile, tuning -0.42 / -0.37 / -0.08 / -0.30R,
+  holdout -0.71 / -0.43 / -0.35 / -0.55R. F-B tuning -0.24 / -0.19 / -0.25 / -0.23R; holdout Q4 +0.11R on 71 trades
+  is not supported by tuning (-0.23R).
+- Holding to 15:55 does not help (F-A -1,053.6R tuning, F-B -584.4R). Touch fills do not help (F-A -889.6R).
+- Information lines: SPY/QQQ F-A holdout +12.4R (54 trades, PF 1.28) but tuning -180.4R; SP penny line negative.
+
+## 14. Known flaw: F-A gap-through fills with flat $20 sizing (recorded after the runs; verdict unchanged, no rerun)
+D7 fills the F-A limit at the bar's open when the bar opens through it, keeps the stop fixed from the OR, and
+measures R from the fill. When the open lands just above the stop, risk per share is near zero, flat $20 sizing
+(D3) buys a very large position, and the 0.05% stop slippage on that position is many R (largest losses -42.76R
+tuning, -18.47R holdout; entry-bar stops averaged -2.02R in tuning). This inflates F-A's losses and largest-loss
+figures. It does not change the verdict: the cost-free diagnostic already puts F-A's target-before-stop rate (28-29%)
+below the 33.3% a 2:1 setup needs. A future version would need a minimum stop distance or a skip when the fill
+gaps most of the way to the stop.
