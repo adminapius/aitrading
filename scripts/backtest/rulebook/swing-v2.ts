@@ -323,10 +323,12 @@ async function main() {
   }
   const symbols = [...rawOk.keys()].sort()
   const adjusted = await getDailyBarsSplitAdjusted(symbols, ref.allDays[0], full.end)
-  const spyBars = ((await getDailyBarsSplitAdjusted(['SPY'], ref.allDays[0], full.end)).SPY ?? []) as RawBar[]
-  const spyCloses = spyBars.map((bar) => bar.c)
+  // SPY from the already-loaded reference data (no new download). SPY has never split, so raw = split-adjusted.
+  const spyRows = ref.universe.daily.get('SPY') ?? []
+  if (spyRows.length < H2.spySmas[1]) throw new Error('SPY daily bars missing from the reference data')
+  const spyCloses = spyRows.map((row) => row.c)
   const spy50 = sma(spyCloses, H2.spySmas[0]), spy200 = sma(spyCloses, H2.spySmas[1])
-  const spyOk = new Map(spyBars.map((bar, i) => [toEasternDay(bar.t), spy50[i] != null && spy200[i] != null && spy50[i]! > spy200[i]!]))
+  const spyOk = new Map(spyRows.map((row, i) => [row.day, spy50[i] != null && spy200[i] != null && spy50[i]! > spy200[i]!]))
   const series = new Map<string, Series2>()
   for (const symbol of symbols) {
     const rows = ((adjusted[symbol] ?? []) as RawBar[]).map((bar) => ({ day: toEasternDay(bar.t), o: bar.o, h: bar.h, l: bar.l, c: bar.c, v: bar.v }))

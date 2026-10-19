@@ -16,7 +16,7 @@ H v1 already used the holdout window, so a pass here goes to forward paper tradi
 - $2,000 compounding (each window starts at $2,000); slippage 0.05%; SEC fee + FINRA TAF. Signals on closed daily bars; fills at the next open.
 
 ## 2. Filters (checked at the signal day's close)
-- Market: SPY 50 SMA > SPY 200 SMA (split-adjusted SPY). Applies to every entry (decision 1).
+- Market: SPY 50 SMA > SPY 200 SMA (SPY daily closes from the cached reference data; SPY has never split, so these equal split-adjusted closes). Applies to every entry (decision 1).
 - Stock trend: 20 EMA > 50 SMA > 200 SMA (breakout and retest). Entry A keeps its v1 test 20 SMA > 50 SMA > 200 SMA (decision 1).
 
 ## 3. Breakout entry ("BO")
