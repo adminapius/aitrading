@@ -661,3 +661,21 @@ test('dilution: EDGAR time read as UTC is converted to Eastern before the 7:00 c
   setEdgarTz('et')
   assert.equal(beforeCutoff({ filingDate: '2026-09-24', acceptance: '2026-09-24T06:30:00.000Z' }, '2026-09-24'), true)
 })
+
+test('Strategy F probe: point-in-time top by prior 20-day dollar volume, price above $10, no look-ahead', async () => {
+  const { topByDollarVolume } = await import('../scripts/backtest/rulebook/strategy-f-probe')
+  const days = Array.from({ length: 25 }, (_, i) => `2026-01-${String(i + 1).padStart(2, '0')}`)
+  const rows = (price, volume, todayVolume = volume) => days.map((day, i) => ({ day, o: price, h: price, l: price, c: price, v: i === 21 ? todayVolume : volume }))
+  const daily = new Map([
+    ['BIG', rows(50, 1_000_000)],
+    ['MID', rows(20, 1_000_000, 1e12)], // huge volume ON the day itself must not count
+    ['CHEAP', rows(9, 1e9)], // prior close under $10
+    ['SPY', rows(500, 1e9)], // index ETFs are a separate line
+    ['XETF', rows(100, 1e9)],
+  ])
+  const names = new Map([['BIG', 'Big Inc'], ['MID', 'Mid Corp'], ['CHEAP', 'Cheap Co'], ['SPY', 'SPDR S&P 500 ETF Trust'], ['XETF', 'Some Leveraged 3x ETF']])
+  const top = topByDollarVolume(daily, names, days, 1)
+  assert.deepEqual(top.get(days[21]), ['BIG'])
+  assert.deepEqual(topByDollarVolume(daily, names, days, 5).get(days[21]), ['BIG', 'MID'])
+  assert.deepEqual(top.get(days[10]), []) // fewer than 20 prior days
+})
