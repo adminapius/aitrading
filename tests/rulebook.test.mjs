@@ -661,3 +661,45 @@ test('dilution: EDGAR time read as UTC is converted to Eastern before the 7:00 c
   setEdgarTz('et')
   assert.equal(beforeCutoff({ filingDate: '2026-09-24', acceptance: '2026-09-24T06:30:00.000Z' }, '2026-09-24'), true)
 })
+
+test('H v2: breakout needs trend, 1.5x volume and a tight 15-day range; retest within 0.5N closing back above the level', async () => {
+  const { buildSeries2 } = await import('../scripts/backtest/rulebook/swing-v2')
+  const day = (i) => new Date(Date.UTC(2025, 0, 1) + i * 86_400_000).toISOString().slice(0, 10)
+  const rows = []
+  // 230 days of a steady uptrend (EMA20 > SMA50 > SMA200), then a 15-day flat base, then a breakout on high volume
+  let p = 50
+  for (let i = 0; i < 230; i += 1) { p *= 1.002; rows.push({ day: day(i), o: p, h: p * 1.01, l: p * 0.99, c: p, v: 1_000_000 }) }
+  const base = p
+  for (let i = 230; i < 245; i += 1) rows.push({ day: day(i), o: base, h: base * 1.01, l: base * 0.99, c: base, v: 1_000_000 })
+  const level = Math.max(...rows.slice(225, 245).map((r) => r.h))
+  rows.push({ day: day(245), o: base, h: level * 1.03, l: base * 0.995, c: level * 1.02, v: 2_000_000 }) // breakout, 2x volume
+  rows.push({ day: day(246), o: level * 1.04, h: level * 1.06, l: level * 1.04, c: level * 1.05, v: 1_000_000 }) // holds well above the level
+  rows.push({ day: day(247), o: level * 1.01, h: level * 1.015, l: level * 1.0, c: level * 1.005, v: 1_000_000 }) // retest: low at the level, closes above
+  const s = buildSeries2('TST', rows)
+  assert.ok(s.bo[245], 'qualified breakout')
+  assert.ok(Math.abs(s.bo[245].level - level) < 1e-9)
+  assert.ok(s.rt[247], 'retest signal')
+  assert.equal(s.rt[247].level, s.bo[245].level)
+  assert.equal(s.rt[246], null)
+  // same breakout on normal volume -> not qualified, no retest
+  const weak = rows.map((r, i) => (i === 245 ? { ...r, v: 1_200_000 } : r))
+  const w = buildSeries2('TST', weak)
+  assert.equal(w.bo[245], null)
+  assert.equal(w.rt[247], null)
+  // a wide (not tight) base -> not qualified
+  const wide = rows.map((r, i) => (i >= 230 && i < 245 && i % 2 ? { ...r, h: base * 1.25, l: base * 0.8 } : r))
+  assert.equal(buildSeries2('TST', wide).bo[245], null)
+})
+
+test('H v2 earnings: block entries within 5 trading days from the fill; exit at the last close before the report', async () => {
+  const { earningsBlocks, earningsExitToday } = await import('../scripts/backtest/rulebook/swing-v2')
+  const days = ['2026-03-02', '2026-03-03', '2026-03-04', '2026-03-05', '2026-03-06', '2026-03-09', '2026-03-10']
+  assert.equal(earningsBlocks([{ date: '2026-03-06', time: 'bmo' }], days, 0), true) // 5th trading day from the fill
+  assert.equal(earningsBlocks([{ date: '2026-03-09', time: 'bmo' }], days, 0), false) // 6th trading day
+  assert.equal(earningsBlocks([{ date: '2026-02-27', time: 'amc' }], days, 0), false) // already past
+  assert.equal(earningsExitToday([{ date: '2026-03-05', time: 'amc' }], '2026-03-05', '2026-03-06'), true) // after the close today
+  assert.equal(earningsExitToday([{ date: '2026-03-06', time: 'bmo' }], '2026-03-05', '2026-03-06'), true) // before tomorrow's open
+  assert.equal(earningsExitToday([{ date: '2026-03-06', time: null }], '2026-03-05', '2026-03-06'), true) // unknown -> before the open
+  assert.equal(earningsExitToday([{ date: '2026-03-06', time: 'amc' }], '2026-03-05', '2026-03-06'), false) // exit tomorrow at the close instead
+  assert.equal(earningsExitToday([{ date: '2026-03-09', time: 'bmo' }], '2026-03-06', '2026-03-09'), true) // Monday report, exit Friday
+})
