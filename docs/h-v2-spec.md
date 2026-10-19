@@ -66,11 +66,14 @@ H v1 already used the holdout window, so a pass here goes to forward paper tradi
 | Tuning | H v2 retest only | 167 | 30% | +0.08R | 1.12 | 36.6R | +12.7R | +$7.45 |
 | Tuning | H v2 Entry A only | 33 | 36% | -0.11R | 0.76 | 5.4R | -3.6R | -$65.69 |
 | Tuning | H v2 combined | 172 | 30% | -0.14R | 0.77 | 31.2R | -24.9R | -$517.88 |
-| Holdout | H v1 reference | 20 | 35% | +0.27R | 1.67 | 5.3R | +5.4R | not recorded |
-| Holdout | H v2 combined | 24 | 25% | -0.43R | 0.28 | 10.9R | -10.3R | not recorded |
+| Holdout | H v1 reference | 20 | 35% | +0.27R | 1.67 | 5.3R | +5.4R | +$108 |
+| Holdout | H v2 breakout only | 25 | 20% | -0.54R | 0.09 | 14.3R | -13.4R | -$238 |
+| Holdout | H v2 retest only | 25 | 32% | -0.42R | 0.52 | 15.3R | -10.5R | +$54 |
+| Holdout | H v2 Entry A only | 1 | 100% | +0.34R | n/a | 0.0R | +0.3R | +$6 |
+| Holdout | H v2 combined | 24 | 25% | -0.43R | 0.28 | 10.9R | -10.3R | -$143 |
 
-Dollars: tuning from backtests/h-v2/tuning/trades.csv ($2,000 start). The holdout console did not print dollars and its
-trades.csv was not reviewed; the summary now prints R / $ per run (added after the runs, no rerun).
+Dollars ($2,000 start): tuning from backtests/h-v2/tuning/trades.csv; holdout from backtests/h-v2/holdout/trades.csv,
+totals supplied by Jose (Oct 19, 2026). The summary now prints R / $ per run (added after the runs, no rerun).
 
 Tuning fails expectancy, PF, max DD, largest loss (CART 2025-08-12 gap-stop -3.06R), profitable months (6/20).
 Holdout fails expectancy, PF, profitable months (0/3). No variant (breakout, retest, Entry A) passes either window.
@@ -82,5 +85,6 @@ or only just above it, the second term sits at or just under the fill, so the st
 (found by Jose: KO, SBRA, GNW and others). Shares are then limited by the cash cap, not by risk, so those trades
 risk only a few dollars, and one R on them is a few dollars. Their R results are large and their dollar results tiny,
 which distorts every R statistic for Entry B. Tuning, retest only: +12.7R but +$7.45; the 8 trades that risked under $2
-made +12.6R of it (e.g. CRGY 2026-03-04: risk $1.53, +14.3R = +$21.88). Read Entry B's R figures with this in mind.
+made +12.6R of it (e.g. CRGY 2026-03-04: risk $1.53, +14.3R = +$21.88). In the holdout the R and dollar results point opposite ways: retest only -10.5R but +$54.
+Read Entry B's R figures with this in mind.
 A future version would need a minimum stop distance (or skip the trade) before Entry B could be judged.
