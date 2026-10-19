@@ -59,13 +59,28 @@ H v1 already used the holdout window, so a pass here goes to forward paper tradi
 4. Same-day priority: rank all signals by nearness to the 52-week high, regardless of entry type.
 
 ## Result (Oct 19, 2026): FAIL, both windows. Parked; no forward paper test.
-| Window | Run | Trades | Win | Exp | PF | Max DD | Total |
-|---|---|---|---|---|---|---|---|
-| Tuning | H v2 combined | 172 | 30% | -0.14R | 0.77 | 31.2R | -24.9R |
-| Tuning | H v1 reference | 139 | 36% | +0.01R | 1.02 | 19.8R | +1.5R |
-| Holdout | H v2 combined | 24 | 25% | -0.43R | 0.28 | 10.9R | -10.3R |
-| Holdout | H v1 reference | 20 | 35% | +0.27R | 1.67 | 5.3R | +5.4R |
+| Window | Run | Trades | Win | Exp | PF | Max DD | Total R | Total $ |
+|---|---|---|---|---|---|---|---|---|
+| Tuning | H v1 reference | 139 | 36% | +0.01R | 1.02 | 19.8R | +1.5R | +$7.48 |
+| Tuning | H v2 breakout only | 156 | 33% | -0.09R | 0.84 | 19.6R | -14.3R | -$280.26 |
+| Tuning | H v2 retest only | 167 | 30% | +0.08R | 1.12 | 36.6R | +12.7R | +$7.45 |
+| Tuning | H v2 Entry A only | 33 | 36% | -0.11R | 0.76 | 5.4R | -3.6R | -$65.69 |
+| Tuning | H v2 combined | 172 | 30% | -0.14R | 0.77 | 31.2R | -24.9R | -$517.88 |
+| Holdout | H v1 reference | 20 | 35% | +0.27R | 1.67 | 5.3R | +5.4R | not recorded |
+| Holdout | H v2 combined | 24 | 25% | -0.43R | 0.28 | 10.9R | -10.3R | not recorded |
+
+Dollars: tuning from backtests/h-v2/tuning/trades.csv ($2,000 start). The holdout console did not print dollars and its
+trades.csv was not reviewed; the summary now prints R / $ per run (added after the runs, no rerun).
 
 Tuning fails expectancy, PF, max DD, largest loss (CART 2025-08-12 gap-stop -3.06R), profitable months (6/20).
 Holdout fails expectancy, PF, profitable months (0/3). No variant (breakout, retest, Entry A) passes either window.
 Earnings rule: tuning 212 signals blocked, 19 pre-report exits +40.5R; holdout 14 blocked, 0 exits. Market filter blocked 0 in the holdout.
+
+## Known flaw: Entry B stop (recorded after the runs; verdict unchanged, no rerun)
+Entry B's stop is the tighter of (fill - 2N) and (retest-day low - 0.5N). When the next open is below the retest-day low,
+or only just above it, the second term sits at or just under the fill, so the stop distance is near zero
+(found by Jose: KO, SBRA, GNW and others). Shares are then limited by the cash cap, not by risk, so those trades
+risk only a few dollars, and one R on them is a few dollars. Their R results are large and their dollar results tiny,
+which distorts every R statistic for Entry B. Tuning, retest only: +12.7R but +$7.45; the 8 trades that risked under $2
+made +12.6R of it (e.g. CRGY 2026-03-04: risk $1.53, +14.3R = +$21.88). Read Entry B's R figures with this in mind.
+A future version would need a minimum stop distance (or skip the trade) before Entry B could be judged.

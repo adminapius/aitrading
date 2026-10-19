@@ -366,14 +366,14 @@ async function main() {
     const m = metrics(r.trades, RULEBOOK.account.startingEquity)
     const pf = passFail(r.trades, RULEBOOK.account.startingEquity, window, minTrades, P)
     const failed = pf.checks.filter((c) => !c.pass).map((c) => c.metric).join(', ')
-    console.log(`[h2] ${labels.get(id)!.padEnd(46)} ${String(m.trades).padStart(4)} trades, win ${m.winRate == null ? 'n/a' : (m.winRate * 100).toFixed(0)}%, avg win ${fmt(m.avgWinR)}R / loss ${fmt(m.avgLossR)}R, exp ${fmt(m.expectancyR)}R, PF ${fmt(m.profitFactor)}, max DD ${m.maxDrawdownR.toFixed(1)}R, total ${r.trades.reduce((s, t) => s + t.rResult, 0).toFixed(1)}R · ${pf.pass ? 'PASS' : `FAIL (${failed})`}`)
+    console.log(`[h2] ${labels.get(id)!.padEnd(46)} ${String(m.trades).padStart(4)} trades, win ${m.winRate == null ? 'n/a' : (m.winRate * 100).toFixed(0)}%, avg win ${fmt(m.avgWinR)}R / loss ${fmt(m.avgLossR)}R, exp ${fmt(m.expectancyR)}R, PF ${fmt(m.profitFactor)}, max DD ${m.maxDrawdownR.toFixed(1)}R, total ${r.trades.reduce((s, t) => s + t.rResult, 0).toFixed(1)}R / $${r.trades.reduce((s, t) => s + t.pnl, 0).toFixed(2)} · ${pf.pass ? 'PASS' : `FAIL (${failed})`}`)
   }
   const all = results.get('H2ALL')!
   console.log('\n[h2] combined run by entry type:')
   for (const setup of ['BO', 'RT', 'A'] as const) {
     const list = all.trades.filter((t) => t.setup === setup)
     const m = metrics(list, RULEBOOK.account.startingEquity)
-    console.log(`      ${setup.padEnd(3)} ${String(list.length).padStart(4)} trades, win ${m.winRate == null ? 'n/a' : (m.winRate * 100).toFixed(0)}%, exp ${fmt(m.expectancyR)}R, PF ${fmt(m.profitFactor)}, total ${list.reduce((s, t) => s + t.rResult, 0).toFixed(1)}R`)
+    console.log(`      ${setup.padEnd(3)} ${String(list.length).padStart(4)} trades, win ${m.winRate == null ? 'n/a' : (m.winRate * 100).toFixed(0)}%, exp ${fmt(m.expectancyR)}R, PF ${fmt(m.profitFactor)}, total ${list.reduce((s, t) => s + t.rResult, 0).toFixed(1)}R / $${list.reduce((s, t) => s + t.pnl, 0).toFixed(2)}`)
   }
   for (const [id, r] of results) {
     const exits = r.trades.reduce((acc, t) => { acc[t.exitReason] = acc[t.exitReason] ?? [0, 0]; acc[t.exitReason][0] += 1; acc[t.exitReason][1] += t.rResult; return acc }, {} as Record<string, [number, number]>)
