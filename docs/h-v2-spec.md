@@ -57,3 +57,15 @@ H v1 already used the holdout window, so a pass here goes to forward paper tradi
 2. Room rule (>= 2R to the nearest daily swing high, 60 days) for Entry A only, not for breakouts or retests.
 3. Earnings dates accepted as [approximate]; probe the FMP download first; report how many trades the earnings rule blocked or exited.
 4. Same-day priority: rank all signals by nearness to the 52-week high, regardless of entry type.
+
+## Result (Oct 19, 2026): FAIL, both windows. Parked; no forward paper test.
+| Window | Run | Trades | Win | Exp | PF | Max DD | Total |
+|---|---|---|---|---|---|---|---|
+| Tuning | H v2 combined | 172 | 30% | -0.14R | 0.77 | 31.2R | -24.9R |
+| Tuning | H v1 reference | 139 | 36% | +0.01R | 1.02 | 19.8R | +1.5R |
+| Holdout | H v2 combined | 24 | 25% | -0.43R | 0.28 | 10.9R | -10.3R |
+| Holdout | H v1 reference | 20 | 35% | +0.27R | 1.67 | 5.3R | +5.4R |
+
+Tuning fails expectancy, PF, max DD, largest loss (CART 2025-08-12 gap-stop -3.06R), profitable months (6/20).
+Holdout fails expectancy, PF, profitable months (0/3). No variant (breakout, retest, Entry A) passes either window.
+Earnings rule: tuning 212 signals blocked, 19 pre-report exits +40.5R; holdout 14 blocked, 0 exits. Market filter blocked 0 in the holdout.
