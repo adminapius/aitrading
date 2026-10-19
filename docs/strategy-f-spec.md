@@ -1,7 +1,7 @@
-# Strategy F: opening-range reversal + FVG (DRAFT, Oct 19, 2026, not locked until Jose approves)
+# Strategy F: opening-range reversal + FVG (DRAFT, Oct 19, 2026; decisions answered, locks after the probe output)
 
-BACKTEST ONLY. Nothing live. Rules as Jose wrote them; items marked **[D#]** are open decisions (section 11) with a
-proposed default. No code beyond the data probe (`scripts/backtest/rulebook/strategy-f-probe.ts`) until approval.
+BACKTEST ONLY. Nothing live. Rules as Jose wrote them; items marked **[D#]** were decided by Jose on Oct 19 (section 11).
+No code beyond the data probe (`scripts/backtest/rulebook/strategy-f-probe.ts`) until the spec is locked.
 
 ## 1. Universe (point in time, decided each morning)
 - Common stocks with a prior close above $10, ranked by average dollar volume (raw close x volume) over the prior 20
@@ -23,13 +23,14 @@ proposed default. No code beyond the data probe (`scripts/backtest/rulebook/stra
 - One trade per symbol per day. Max 3 open positions. **[D5]**
 - Daily stop at -3R: once the day's closed trades sum to -3R or worse, cancel all working orders and take no new
   entries; open positions run to their own exits. **[D6]**
-- Risk 1% of equity per trade, $2,000 compounding, no leverage. Rulebook caps: <= 1% of the day's volume, no fill
-  above 10% of a bar's volume. **[D3]**
+- Sizing **[D3]**:
+  - Judged line: flat $20 risk per trade (1% of $2,000), no cash cap, not compounding. The pass rule (R and $) applies here.
+  - Information line: the real $2,000 account, 1% of equity compounding, no leverage (cash cap applies).
+  - Both lines: rulebook caps, <= 1% of the day's volume and no fill above 10% of a bar's volume.
 - Shorts: Alpaca has no history of shortable / hard-to-borrow flags (only today's). Assumption: every top-100 stock was
   shortable and easy to borrow on every day; today's flags are reported by the probe. No borrow fee intraday. **[D4]**
 - Short-sale restriction (Rule 201): skip a short when the stock is under SSR that day (it traded 10% or more below the
   prior close earlier today, or did so yesterday). **[D4]**
-- Not modeled: the pattern-day-trader rule. A real $2,000 margin account gets 3 day trades per 5 business days. **[D3]**
 
 ## 4. Variant F-A, Touch & Turn
 - From 9:45 (OR closed): a limit order at the OR edge. Long at the OR low on a red day; short at the OR high on a green day.
@@ -90,25 +91,23 @@ Per variant: trades, win %, average win and loss, expectancy, PF, max drawdown, 
 R and dollar totals; splits long/short, large caps vs SPY/QQQ, FVG yes/no; exit reasons; entry time buckets
 9:45-10:00, 10:00-10:30, 10:30-11:00. Plus the information lines (hold to 15:55, touch fills, SP penny line).
 
-Pass (per variant, judged on the large-cap run only, locked at approval):
+Pass (per variant, judged on the large-cap run at the flat $20 risk, locked at approval):
 - Holdout: >= 30 trades, expectancy > +0.2R after costs, PF > 1.5, largest loss < 3R, positive in dollars.
 - Tuning: total R > 0 and total dollars > 0.
 - A pass goes to forward paper trading on Alpaca (about 30 trades) before any live money.
 
-## 11. Open decisions (proposed defaults in bold)
-- **D1 ADRs:** the rulebook's common-stock filter excludes ADRs (TSM, BABA, etc.). **Keep them out.**
-- **D2 SPY/QQQ:** **separate run, same rules, own $2,000, report only, not judged.**
-- **D3 Sizing (important):** at $2,000 with no leverage, a 1% risk ($20) on a large cap usually needs far more than
-  $2,000 of stock (the F-A stop is about 0.19 x OR range, often a few tenths of a percent of price). The cash cap
-  then sets the size, every trade risks only a few dollars, and the dollar totals stay tiny (the H v2 Entry B flaw,
-  but on almost every trade). The probe measures how often. Options: (a) as written; (b) as written plus an
-  information line at a fixed $20 risk with no cash cap, so R and dollars both mean something. **Proposed: (b).**
-  PDT not modeled (stated, not changed).
-- **D4 Shorts:** **assume all shortable / easy to borrow (no history); apply the SSR rule.**
-- **D5 Slots:** **earlier fill first, ties by dollar-volume rank; cash for each position comes from cash not already
-  in open positions; working orders may fill when a slot frees.**
-- **D6 Daily stop:** **closed-trade R only; stops new entries, open positions run.**
-- **D7 F-A fills:** **fixed OR levels; fill at the open if it gaps through the limit; no target in the entry bar.**
-- **D8 F-B:** **2-candle rule for the hammer only (as written); engulfing order valid one candle; reward check at
-  order placement; later signals allowed if an order didn't fill.**
-- **D9 FVG:** **built from this definition; "unfilled" = not fully closed.**
+## 11. Decisions (Jose, Oct 19, 2026)
+- **D1 ADRs:** kept out (rulebook common-stock filter). Default accepted.
+- **D2 SPY/QQQ:** separate run, same rules, own sizing lines, report only, not judged. Default accepted.
+- **D3 Sizing:** judged line = flat $20 risk per trade, no cash cap; pass rule (R and $) applies to it. The real
+  $2,000 cash-capped account is an information line. No pattern-day-trader limit: FINRA eliminated the PDT rule
+  effective June 4, 2026.
+- **D4 Shorts:** assume shortable and easy to borrow on every day (no history); skip shorts under the short-sale
+  restriction (after a 10% drop from the prior close, that day or carried from the day before).
+- **D5 Slots:** earlier fill first, ties by dollar-volume rank; in the cash-capped line each position uses cash not
+  already in open positions; working orders may fill when a slot frees. Default accepted.
+- **D6 Daily stop:** closed-trade R only; stops new entries, open positions run. Default accepted.
+- **D7 F-A fills:** fixed OR levels; fill at the open if it gaps through the limit; no target in the entry bar. Default accepted.
+- **D8 F-B:** 2-candle rule for the hammer only; engulfing order valid one candle; reward check at order placement;
+  later signals allowed if an order didn't fill. Default accepted.
+- **D9 FVG:** built from Jose's written definition only; "unfilled" = no later candle has fully closed the gap.
