@@ -1,6 +1,8 @@
 # Strategy E paper run: pass rule (LOCKED, Oct 19, 2026, before any further E results)
 
 Set by Jose on Oct 19, 2026 at about 17:40 ET. Nothing here changes during the test.
+The three details (SP model for the gap, flat -0.4R for unmodelable trades, verdict at exactly the 30th counted
+trade) were approved by Jose at 17:47 ET. Rule fully locked; no changes until the verdict.
 
 ## What is tested
 - Strategy E exactly as live on Alpaca paper on Oct 19, 2026 (`lib/strategies/clean-momentum.ts`: day gain 20-30%,
