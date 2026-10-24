@@ -515,3 +515,57 @@ test('entry quote check: sane NBBO within the age limit passes; skew tolerated',
   assert.equal(exec.entryQuoteCheck({ bid: 0, ask: 3.79, at: '2026-10-16T13:59:58Z' }, now, 120_000).ok, false)
   assert.equal(exec.entryQuoteCheck({ bid: 3.78, ask: 3.79, at: '2026-10-16T13:57:00Z' }, now, 120_000).ok, false)
 })
+
+// ---- Oct 24, 2026 fail-closed guardrail fixes ----
+
+function preflightFetch(opts = {}) {
+  const startingEquity = 'startingEquity' in opts ? opts.startingEquity : 2000 // undefined = no session row
+  const sessionStatus = opts.sessionStatus ?? 200
+  return async (url) => {
+    const { pathname } = new URL(url)
+    const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+    if (pathname.endsWith('/ait_sessions')) return sessionStatus === 200 ? json(startingEquity === undefined ? [] : [{ starting_equity: startingEquity }]) : json({ message: 'down' }, sessionStatus)
+    return json([])
+  }
+}
+const preflightInput = (equity = 2000) => ({ sessionId: 's1', now: REGULAR, equity, openSymbols: [], openCount: 0, maxOpenPositions: 3, maxDailyLossFraction: 0.04, reentryCooldownMinutes: 30 })
+
+test('daily loss limit fails closed when the session starting equity is missing', async () => {
+  const saved = globalThis.fetch
+  try {
+    for (const startingEquity of [null, undefined, 0, 'abc']) {
+      globalThis.fetch = preflightFetch({ startingEquity })
+      const state = await exec.loadEntryPreflightState(preflightInput())
+      assert.equal(state.dailyLossUnavailable, true, `starting_equity ${startingEquity}`)
+      assert.equal(exec.entryBlockReason(state, 'BBB'), exec.DAILY_LOSS_UNAVAILABLE)
+    }
+  } finally { globalThis.fetch = saved }
+})
+
+test('daily loss limit still works with a valid starting equity', async () => {
+  const saved = globalThis.fetch
+  try {
+    globalThis.fetch = preflightFetch({ startingEquity: '2000.00' })
+    const ok = await exec.loadEntryPreflightState(preflightInput(1950))
+    assert.equal(ok.dailyLossUnavailable, false)
+    assert.equal(exec.entryBlockReason(ok, 'BBB'), null)
+    const stopped = await exec.loadEntryPreflightState(preflightInput(1920)) // -4%
+    assert.equal(exec.entryBlockReason(stopped, 'BBB'), 'daily loss guardrail reached')
+  } finally { globalThis.fetch = saved }
+})
+
+test('daily loss limit: starting equity that cannot be loaded throws (the worker blocks entries)', async () => {
+  const saved = globalThis.fetch
+  try {
+    globalThis.fetch = preflightFetch({ sessionStatus: 503 })
+    await assert.rejects(exec.loadEntryPreflightState(preflightInput()), /Entry pre-flight read failed/)
+  } finally { globalThis.fetch = saved }
+})
+
+test('max positions counts entry orders still pending at Alpaca', () => {
+  assert.equal(exec.openPositionCount(['AAA', 'BBB'], []), 2)
+  assert.equal(exec.openPositionCount(['AAA', 'BBB'], ['CCC']), 3)
+  assert.equal(exec.openPositionCount(['AAA'], ['AAA', 'CCC', 'CCC']), 2) // a pending order for a held symbol, or twice, counts once
+  const state = { openSymbols: new Set(['AAA', 'BBB', 'CCC']), openCount: exec.openPositionCount(['AAA', 'BBB'], ['CCC']), maxOpenPositions: 3, dailyLossStopped: false, cooldownSymbols: new Set() }
+  assert.equal(exec.entryBlockReason(state, 'DDD'), 'maximum open positions reached')
+})

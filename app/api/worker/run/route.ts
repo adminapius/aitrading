@@ -15,7 +15,7 @@ import { decideStrategyEntry, loadSymbolDayHistory, resolveStrategyConfig, type 
 import { loadOpenShadowRows, loadShadowLedger, loadShadowMarks, openShadowEntries, resolveShadowPositions, shadowAvailableAllocation, type ShadowEntryCandidate, type ShadowLedger, type ShadowResolutionStats, type ShadowStrategyStats } from '@/lib/strategies/shadow-strategy'
 import { checkPaperGate, executionMode, paperCredentialsCheck, type GateResult } from '@/lib/alpaca-broker'
 import { loadTradingControl, recordTradingControlTransition } from '@/lib/trading-control'
-import { ENTRY_DEADLINE_MS, enterViaAlpaca, entryBlockReason, flattenAlpaca, isAlpacaPosition, isBrokerFlattenTime, isPremarketSession, isRegularSession, loadEntryPreflightState, reconcileAlpaca, type EntryPreflightState, type ReconcileClose } from '@/lib/alpaca-execution'
+import { ENTRY_DEADLINE_MS, enterViaAlpaca, openPositionCount, entryBlockReason, flattenAlpaca, isAlpacaPosition, isBrokerFlattenTime, isPremarketSession, isRegularSession, loadEntryPreflightState, reconcileAlpaca, type EntryPreflightState, type ReconcileClose } from '@/lib/alpaca-execution'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -372,6 +372,7 @@ export async function POST(request: NextRequest) {
     // Alpaca execution: sync the ledger with what Alpaca actually filled before managing anything.
     let alpacaGate: GateResult | null = null
     let alpacaBrokerSymbols: string[] | null = null
+    let alpacaPendingEntrySymbols: string[] = []
     let brokerPreflight: EntryPreflightState | undefined
     const brokerClosedIds = new Set<string>()
     const recordBrokerClose = async (close: ReconcileClose) => {
@@ -416,6 +417,7 @@ export async function POST(request: NextRequest) {
         try {
           const reconciled = await reconcileAlpaca({ sessionId, scanId, now, clock: alpacaGate.clock, positions: openPositions, marks, flatten: brokerFlatten })
           alpacaBrokerSymbols = [...reconciled.brokerSymbols, ...reconciled.pendingEntrySymbols]
+          alpacaPendingEntrySymbols = [...reconciled.pendingEntrySymbols]
           for (const close of reconciled.closes) await recordBrokerClose(close)
           for (const warning of reconciled.warnings) {
             await writeScanEvent('ALPACA_RECONCILE_WARNING', warning, context, { warning }).catch(() => undefined)
@@ -643,13 +645,15 @@ export async function POST(request: NextRequest) {
               now,
               equity,
               openSymbols: [...remainingPositions.map((position) => position.symbol), ...(alpacaBrokerSymbols ?? [])],
-              openCount: remainingPositions.length,
+              openCount: openPositionCount(remainingPositions.map((position) => position.symbol), alpacaPendingEntrySymbols),
               maxOpenPositions: strategyGuardrails.maxOpenPositions,
               maxDailyLossFraction: strategyGuardrails.maxDailyLossFraction,
               reentryCooldownMinutes: strategyGuardrails.reentryCooldownMinutes,
             })
           } catch (error) {
-            paperExecutions.push({ symbol: candidate.symbol, status: 'blocked', reason: error instanceof Error ? error.message : 'Entry pre-flight unavailable' })
+            const reason = `${error instanceof Error ? error.message : 'Entry pre-flight unavailable'}; entries blocked (daily loss limit cannot be checked)`
+            paperExecutions.push({ symbol: candidate.symbol, status: 'blocked', reason })
+            await writeScanEvent('ENTRY_BLOCKED', `${candidate.symbol}: ${reason}`, context, { symbol: candidate.symbol, broker: 'alpaca', reason }).catch(() => undefined)
             continue
           }
           const preflightBlock = entryBlockReason(brokerPreflight, candidate.symbol)
