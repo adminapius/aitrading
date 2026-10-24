@@ -888,3 +888,116 @@ test('Strategy SW prefetch: point-in-time universe uses prior 50 days only, $10 
   assert.deepEqual(universeMembers(daily, days, { ...opts, top: 5 }).get(days[55]), ['BIG', 'MID'])
   assert.deepEqual(universeMembers(daily, days, opts).get(days[40]), []) // under 50 prior days
 })
+
+// ---------------- Strategy SW ----------------
+test('Strategy SW: history split at >60-day gaps, ISO week keys, weekly MACD uses completed weeks only', async () => {
+  const { segmentRanges, weekKey, weeklyState } = await import('../scripts/backtest/rulebook/strategy-sw')
+  assert.deepEqual(segmentRanges([0, 1, 2, 70, 71], 60), [[0, 2], [3, 4]])
+  assert.deepEqual(segmentRanges([0, 1, 61], 60), [[0, 2]]) // gap of exactly 60 is not split
+  assert.equal(weekKey('2026-10-16'), '2026-10-12') // Friday -> Monday
+  assert.equal(weekKey('2026-10-12'), '2026-10-12')
+  // 60 weeks of rising Fridays-only closes, then mid-week: bull known, no look-ahead into a partial week
+  const days = [], closes = []
+  for (let w = 0; w < 60; w += 1) for (let d = 0; d < 5; d += 1) { days.push(new Date(Date.UTC(2020, 0, 6) + (w * 7 + d) * 86_400_000).toISOString().slice(0, 10)); closes.push(100 + w + d * 0.1) }
+  const st = weeklyState(days, closes)
+  assert.equal(st.bull[0], -1) // nothing completed yet
+  const last = days.length - 1
+  assert.equal(st.bull[last], st.bull[last - 1] === -1 ? st.bull[last] : st.bull[last]) // defined
+  // a crash in the last week changes the state only at the week's last day, not mid-week
+  const closes2 = closes.slice(); for (let d = 0; d < 5; d += 1) closes2[last - 4 + d] = 50
+  const st2 = weeklyState(days, closes2)
+  assert.equal(st2.bull[last - 1], st.bull[last - 1]) // Thursday still sees last week's completed state
+  assert.equal(st2.bull[last], 0); assert.equal(st2.bearCross[last], 1)
+})
+
+test('Strategy SW: initial stop (lower of swing-0.5ATR and fill-2ATR, 1.5-3 ATR band) and R-trail', async () => {
+  const { initialStop, trailStop } = await import('../scripts/backtest/rulebook/strategy-sw')
+  let s = initialStop(100, 98, 1) // min(97.5, 98) = 97.5 -> 2.5 ATR
+  assert.equal(s.stop, 97.5); assert.equal(s.ok, true)
+  s = initialStop(100, 95, 1) // 94.5 -> 5.5 ATR: too wide
+  assert.equal(s.ok, false); assert.equal(s.reason, 'stop wider than 3 ATR')
+  assert.equal(initialStop(100, 105, 1).stop, 98) // swing low above entry: entry - 2 ATR wins
+  assert.equal(trailStop(97.5, 97.5, 100, 2.5, 102.4), 97.5) // under +1R: unchanged
+  assert.equal(trailStop(97.5, 97.5, 100, 2.5, 102.5), 100) // +1R -> breakeven
+  assert.equal(trailStop(100, 97.5, 100, 2.5, 105.1), 102.5) // +2R -> +1R
+  assert.equal(trailStop(102.5, 97.5, 100, 2.5, 101), 102.5) // never lowered
+})
+
+test('Strategy SW: earnings block (fill day + 4) and exit at the close before a report', async () => {
+  const { earningsBlocked, earningsExitToday } = await import('../scripts/backtest/rulebook/strategy-sw')
+  const days = ['2026-03-02', '2026-03-03', '2026-03-04', '2026-03-05', '2026-03-06', '2026-03-09', '2026-03-10']
+  assert.equal(earningsBlocked([{ date: '2026-03-06', time: 'amc' }], days, 0), true) // 5th day
+  assert.equal(earningsBlocked([{ date: '2026-03-09', time: 'bmo' }], days, 0), false) // 6th day
+  assert.equal(earningsExitToday([{ date: '2026-03-05', time: 'amc' }], '2026-03-05', '2026-03-06'), true)
+  assert.equal(earningsExitToday([{ date: '2026-03-06', time: 'bmo' }], '2026-03-05', '2026-03-06'), true)
+  assert.equal(earningsExitToday([{ date: '2026-03-06', time: 'intraday' }], '2026-03-05', '2026-03-06'), true)
+  assert.equal(earningsExitToday([{ date: '2026-03-06', time: 'amc' }], '2026-03-05', '2026-03-06'), false) // exit on the 6th instead
+})
+
+test('Strategy SW: foreign filer check (D11) and annual form families', async () => {
+  const { annualFamily, isForeignFiler } = await import('../scripts/backtest/rulebook/edgar-earnings')
+  assert.equal(annualFamily('10-K'), '10-K'); assert.equal(annualFamily('10-K/A'), '10-K'); assert.equal(annualFamily('10-KT'), '10-K')
+  assert.equal(annualFamily('20-F'), '20-F'); assert.equal(annualFamily('40-F/A'), '40-F'); assert.equal(annualFamily('8-K'), null)
+  const switcher = [{ form: '20-F', date: '2018-04-01' }, { form: '10-K', date: '2021-03-01' }]
+  assert.equal(isForeignFiler(switcher, '2019-06-01'), true)
+  assert.equal(isForeignFiler(switcher, '2022-06-01'), false)
+  assert.equal(isForeignFiler([{ form: '20-F', date: '2020-04-01' }], '2019-01-01'), true) // before its first report: the first decides
+  assert.equal(isForeignFiler([], '2020-01-01'), false)
+})
+
+function swStock(rows, overrides = {}) {
+  return import('../scripts/backtest/rulebook/strategy-sw').then(({ buildStock }) => {
+    const s = buildStock('TEST', 'TEST', rows)
+    const n = rows.length
+    const fill = (v) => Float64Array.from({ length: n }, () => v)
+    Object.assign(s, { ema20: fill(100), sma50: fill(99), sma100: fill(98), sma200: fill(97), atr: fill(2) }, overrides)
+    return s
+  })
+}
+const swDays = (n) => Array.from({ length: n }, (_, i) => new Date(Date.UTC(2021, 0, 4) + i * 86_400_000).toISOString().slice(0, 10))
+
+test('Strategy SW: SW-A counts tests only after a higher high and signals on the 3rd test with a candle', async () => {
+  const { swaPatterns } = await import('../scripts/backtest/rulebook/strategy-sw')
+  const d = swDays(7)
+  const bar = (i, o, h, l, c) => ({ day: d[i], o, h, l, c, v: 1e6 })
+  const rows = [
+    bar(0, 104, 106, 103, 105),
+    bar(1, 102, 103, 100.3, 101.5), // test 1 of the 20 EMA (100 + 0.5)
+    bar(2, 102, 103, 100.4, 101.8), // touches again without a higher high: not counted
+    bar(3, 104, 107, 103, 106), // higher high -> armed
+    bar(4, 102, 103, 100.3, 101.5), // test 2
+    bar(5, 104, 108, 103, 107), // higher high -> armed
+    bar(6, 101.0, 101.25, 100.3, 101.2), // test 3 + hammer -> signal
+  ]
+  const s = await swStock(rows)
+  const p = swaPatterns(s)
+  assert.equal(p.length, 1); assert.equal(p[0].i, 6); assert.equal(p[0].ma, '20 EMA'); assert.equal(p[0].swingLow, 100.3)
+  const noCandle = await swStock(rows.map((r, i) => (i === 6 ? { ...r, o: 102, h: 103, c: 101.5 } : r)))
+  assert.equal(swaPatterns(noCandle).length, 0)
+})
+
+test('Strategy SW: portfolio sim - 1% risk sizing, entry at the next open + slippage, stop exit with fees', async () => {
+  const { simulate } = await import('../scripts/backtest/rulebook/strategy-sw')
+  const d = swDays(6)
+  const rows = d.map((day, i) => ({ day, o: 100, h: 101, l: i === 2 ? 97 : 99.5, c: 100, v: 1e6 }))
+  const s = await swStock(rows, { sma50: Float64Array.from({ length: 6 }, () => 90) })
+  const sig = { id: 'TEST', base: 'TEST', setup: 'A', signalDay: d[0], fillDay: d[1], swingLow: 98, atr: 1, rank: 1, dv: 1, note: '' }
+  const r = simulate('t', [sig], new Map([['TEST', s]]), () => 'Tech', () => [], d, d[0], d[5])
+  assert.equal(r.trades.length, 1)
+  const t = r.trades[0]
+  assert.ok(Math.abs(t.entry - 100.05) < 1e-9)
+  assert.equal(t.stop0, 97.5) // min(98 - 0.5, 100.05 - 2)
+  assert.equal(t.shares, Math.floor(20 / (100.05 - 97.5)))
+  assert.equal(t.reason, 'stop'); assert.equal(t.exitDay, d[2])
+  assert.ok(Math.abs(t.exit - 97.5 * 0.9995) < 1e-9)
+  assert.ok(t.r < -1 && t.r > -1.1)
+  assert.ok(t.fees > 0)
+})
+
+test('Strategy SW: Sharpe, max drawdown and CAGR helpers', async () => {
+  const { sharpe, maxDrawdownPct, cagr } = await import('../scripts/backtest/rulebook/strategy-sw')
+  assert.equal(maxDrawdownPct([100, 120, 90, 130]), 0.25)
+  assert.ok(Math.abs(cagr(100, 121, '2020-01-01', '2022-01-01') - 0.1) < 0.002)
+  assert.ok(sharpe([100, 101, 102, 101, 103]) > 0)
+  assert.ok(Number.isNaN(sharpe([100])))
+})
