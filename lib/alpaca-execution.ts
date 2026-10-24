@@ -161,10 +161,22 @@ export type EntryPreflightState = {
   openCount: number
   maxOpenPositions: number
   dailyLossStopped: boolean
+  /** Fail closed: the day's starting equity is missing, so the daily loss limit cannot be checked. */
+  dailyLossUnavailable?: boolean
   cooldownSymbols: Set<string>
 }
 
+export const DAILY_LOSS_UNAVAILABLE = 'daily loss guardrail unavailable: session starting equity missing; entries blocked'
+
+/** Positions toward the max-positions limit: ledger positions plus entry orders still pending at Alpaca (Oct 24, 2026). */
+export function openPositionCount(ledgerSymbols: Iterable<string>, pendingEntrySymbols: Iterable<string>) {
+  const ledger = [...ledgerSymbols]
+  const held = new Set(ledger)
+  return ledger.length + new Set([...pendingEntrySymbols].filter((symbol) => !held.has(symbol))).size
+}
+
 export function entryBlockReason(state: EntryPreflightState, symbol: string): string | null {
+  if (state.dailyLossUnavailable) return DAILY_LOSS_UNAVAILABLE
   if (state.dailyLossStopped) return 'daily loss guardrail reached'
   if (state.openSymbols.has(symbol)) return 'position already open for symbol'
   if (state.openCount >= state.maxOpenPositions) return 'maximum open positions reached'
@@ -197,14 +209,16 @@ export async function loadEntryPreflightState(input: { sessionId: string; now: D
   ])
   if (!sessionResponse.ok || !stopsResponse.ok || !refusedResponse.ok) throw new Error(`Entry pre-flight read failed (${sessionResponse.status}/${stopsResponse.status}/${refusedResponse.status})`)
   const [session] = await sessionResponse.json() as Array<{ starting_equity: number | string | null }>
-  const startEquity = Number(session?.starting_equity)
+  const startEquity = session?.starting_equity == null ? Number.NaN : Number(session.starting_equity)
+  const dailyLossUnavailable = !(Number.isFinite(startEquity) && startEquity > 0)
   const stops = await stopsResponse.json() as Array<{ symbol: string }>
   const refused = await refusedResponse.json() as Array<{ symbol: string }>
   return {
     openSymbols: new Set(input.openSymbols),
     openCount: input.openCount,
     maxOpenPositions: input.maxOpenPositions,
-    dailyLossStopped: Number.isFinite(startEquity) && startEquity > 0 && input.equity - startEquity <= -(startEquity * input.maxDailyLossFraction),
+    dailyLossStopped: !dailyLossUnavailable && input.equity - startEquity <= -(startEquity * input.maxDailyLossFraction),
+    dailyLossUnavailable,
     cooldownSymbols: new Set([...stops, ...refused].map((row) => row.symbol)),
   }
 }

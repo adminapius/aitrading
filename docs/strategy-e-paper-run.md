@@ -17,6 +17,12 @@
 - E had 0 counted trades (Oct 20-23: no E entries), so the locked test restarts from zero: counted trades are
   closed E round trips on Alpaca paper entered on or after the first session after this fix is deployed
   (expected Monday, Oct 26, 2026; merged only inside the merge window). Everything else below is unchanged.
+- Safety fixes (Oct 24, 2026, Jose's go; guardrails only, not strategy changes, so the count is NOT restarted again
+  and still starts Monday, Oct 26):
+  - Daily loss limit fails closed: if the day's starting equity is missing (or cannot be loaded), live entries are
+    blocked and an ENTRY_BLOCKED event is logged. Before, a missing starting equity silently allowed trading.
+  - Max 3 positions counts E entry orders still pending at Alpaca, so a late fill cannot make a 4th position.
+  - E's entry rules, sizing, stop, target and the 15:30 flatten are unchanged.
 
 
 Set by Jose on Oct 19, 2026 at about 17:40 ET. Nothing here changes during the test.
