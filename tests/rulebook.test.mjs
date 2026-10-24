@@ -858,3 +858,17 @@ test('Strategy SW probe: seeded sample is deterministic and without duplicates',
   assert.notDeepEqual(a, seededSample(items, 10, 8))
   assert.equal(seededSample(items, 99, 7).length, 50)
 })
+
+test('EDGAR earnings: Item 2.02 8-K filter and UTC acceptance -> Eastern before-open / after-close / intraday', async () => {
+  const { isEarnings8K, classifyAcceptance } = await import('../scripts/backtest/rulebook/edgar-earnings')
+  assert.equal(isEarnings8K('8-K', '2.02,9.01'), true)
+  assert.equal(isEarnings8K('8-K', '5.02'), false)
+  assert.equal(isEarnings8K('8-K/A', '2.02'), false)
+  assert.deepEqual(classifyAcceptance('2024-05-01T20:05:12.000Z'), { date: '2024-05-01', time: 'amc', acceptedEt: '2024-05-01 16:05' }) // EDT
+  assert.equal(classifyAcceptance('2024-01-25T11:30:00.000Z').time, 'bmo') // 06:30 EST
+  assert.equal(classifyAcceptance('2024-01-25T16:00:00.000Z').time, 'intraday') // 11:00 EST
+  assert.equal(classifyAcceptance('2024-01-26T02:10:00.000Z').date, '2024-01-25') // 21:10 EST the day before
+  const { matchRate } = await import('../scripts/backtest/rulebook/strategy-sw-edgar-probe')
+  assert.equal(matchRate(['2024-05-01', '2024-08-01'], ['2024-05-02']), 0.5)
+  assert.equal(matchRate([], ['2024-05-02']), null)
+})
