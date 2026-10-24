@@ -28,8 +28,11 @@ are open decisions (section 10) with a proposed default. No SW code beyond the d
 - Stock trend (L5): 20 EMA > 50 SMA > 100 SMA > 200 SMA, and close above the 50 SMA.
 - Weekly trend (L2, L6): weekly MACD (12, 26, 9) line above its signal line, using the last completed week
   only (no look-ahead into the current week). **[D8]**
-- Earnings (L11): no entry when an FMP earnings date falls within the 5 trading days starting on the fill day.
-  FMP dates tagged [approximate]; unknown report time treated as before the open. **[D5]**
+- Earnings (L11): no entry when an earnings date falls within the 5 trading days starting on the fill day.
+  Source **[D5, decided by Jose Oct 23]**: SEC EDGAR 8-K filings with Item 2.02, 2016 onward; FMP calendar as a
+  cross-check from 2022 (the FMP plan returns HTTP 402 before 2022). Tagged [approximate]: these are ACTUAL report
+  dates, not the dates announced in advance. Timing from the EDGAR acceptance time (UTC -> Eastern): before 9:30 =
+  before the open, after 16:00 = after the close, in between = during the session (treated like before the open).
 
 ## 4. Setup SW-A: MA bounce (L8, candles from L3)
 - A test = a day whose low touches or comes within 0.25 ATR(20) of the 20 EMA or the 50 SMA while the close stays
@@ -93,7 +96,9 @@ Sharpe). The flat-$20 line is reported next to the combined run.
   indicators; no dividend adjustment.**
 - **D4 Sector:** FMP has only the current / last-known sector, not point in time. **Use it; a stock with no sector
   counts as its own group (not limited).**
-- **D5 Earnings:** **FMP weekly calendar; a week with no data blocks nothing; unknown time = before the open.**
+- **D5 Earnings: DECIDED (Jose, Oct 23):** SEC EDGAR 8-K Item 2.02 from 2016, FMP cross-check from 2022,
+  tagged [approximate] (actual report dates). Coverage by year measured by `strategy-sw-edgar-probe.ts`
+  before the lock. A stock with no earnings 8-K in a year gets no block that year.
 - **D6 SW-A "tested twice and bounced":** **as in section 4** (tests inside the current uptrend run, each new test
   only after a higher high, the 3rd test with a confirmation candle signals).
 - **D7 SW-M "cross still holds":** it can only be known at a close, so **confirm at D+1's close and enter at
