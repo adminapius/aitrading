@@ -1,4 +1,16 @@
-# Strategy E paper run: pass rule (LOCKED, Oct 19, 2026, before any further E results)
+# Strategy E paper run: pass rule (LOCKED, Oct 19, 2026; RESTARTED Oct 24, 2026 with the 15:30 flatten)
+
+## Restart (Oct 24, 2026, decided by Jose)
+- Found Oct 24: live E flattened at 15:55 ET (`lib/strategy.ts` schedule window; GRML on Oct 14 closed at 15:55:48),
+  not at 15:30 as Jose's standing rule and this document said. The Alpaca-clock 15:30 flatten in
+  `lib/alpaca-execution.ts` did not fire on Oct 14; the cause was not found in the stored logs.
+- Fix: the app's own schedule flatten window now starts at 15:30 ET (`flattenBeforeEt: '15:30'`), so every worker
+  pass from 15:30 closes what is open, at Alpaca and in the ledger, without relying on Alpaca's clock. Nothing else
+  in E changed. Shadow A uses the same flatten, so it also closes at 15:30 from the same day.
+- E had 0 counted trades (Oct 20-23: no E entries), so the locked test restarts from zero: counted trades are
+  closed E round trips on Alpaca paper entered on or after the first session after this fix is deployed
+  (expected Monday, Oct 26, 2026; merged only inside the merge window). Everything else below is unchanged.
+
 
 Set by Jose on Oct 19, 2026 at about 17:40 ET. Nothing here changes during the test.
 The three details (SP model for the gap, flat -0.4R for unmodelable trades, verdict at exactly the 30th counted
@@ -7,11 +19,12 @@ trade) were approved by Jose at 17:47 ET. Rule fully locked; no changes until th
 ## What is tested
 - Strategy E exactly as live on Alpaca paper on Oct 19, 2026 (`lib/strategies/clean-momentum.ts`: day gain 20-30%,
   price >= $3, spread <= 0.5%, opening-momentum / news-reaction regimes, max 2 entries per symbol per day; entries
-  07:00-11:00 ET; flat by 15:30 ET; fresh SIP quote check from PR #83). **No filter or rule changes during the test.**
+  07:00-11:00 ET; flat by 15:30 ET (from the Oct 24 fix; it was 15:55 before); fresh SIP quote check from PR #83).
+  **No filter or rule changes during the test.**
   A change to E ends the test; a new test would start from zero.
-- Counted trades: every closed Strategy E round trip on Alpaca paper whose entry is on or after Oct 20, 2026 (the
-  first session after this lock; all have the fresh-quote check). Each entry counts, re-entries included.
-  The 12 earlier trades (Oct 9-14) are reported for information only.
+- Counted trades: every closed Strategy E round trip on Alpaca paper whose entry is on or after the first session
+  after the 15:30 fix is deployed (see Restart). Each entry counts, re-entries included.
+  The 12 earlier trades (Oct 9-14) are reported for information only; Oct 20-23 had no E entries.
 
 ## Adjustment (fill-audit gap)
 - Per trade, from the fill audit (`scripts/backtest/rulebook/audit.ts`, instant mode, SP slippage model):

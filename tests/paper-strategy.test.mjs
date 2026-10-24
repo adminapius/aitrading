@@ -69,3 +69,15 @@ test('reported scan cadence changes from 15 to 30 seconds at 11 ET', () => {
   assert.equal(expectedScanIntervalSeconds(new Date('2026-10-08T14:59:00.000Z')), 15)
   assert.equal(expectedScanIntervalSeconds(new Date('2026-10-08T15:00:00.000Z')), 30)
 })
+
+test("flatten window starts at 15:30 ET (Jose's standing rule), weekdays only", async () => {
+  const { isFlattenWindow, easternSchedule, strategyGuardrails: g } = await import('../lib/strategy')
+  const at = (iso) => new Date(iso) // EDT on 2026-10-26 (Mon) = UTC-4
+  assert.equal(isFlattenWindow(at('2026-10-26T19:29:00Z')), false) // 15:29
+  assert.equal(isFlattenWindow(at('2026-10-26T19:30:00Z')), true) // 15:30
+  assert.equal(isFlattenWindow(at('2026-10-26T19:55:00Z')), true) // 15:55
+  assert.equal(isFlattenWindow(at('2026-10-26T20:00:00Z')), false) // 16:00
+  assert.equal(isFlattenWindow(at('2026-10-24T19:45:00Z')), false) // Saturday
+  assert.equal(easternSchedule(at('2026-10-26T19:45:00Z')).flattenWindow, true)
+  assert.equal(g.flattenBeforeEt, '15:30')
+})

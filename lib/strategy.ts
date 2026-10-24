@@ -125,7 +125,7 @@ export function simulatedMarginBuyingPower(equity: number, cash: number, current
 
 export const strategyGuardrails = {
   mode: 'paper' as const,
-  flattenBeforeEt: '15:55',
+  flattenBeforeEt: '15:30', // Jose's standing rule: everything flat by 15:30 ET (was 15:55 until Oct 24, 2026)
   maxPositionFraction: MAX_POSITION_FRACTION,
   maxAggregateExposureFraction: MAX_AGGREGATE_EXPOSURE_FRACTION,
   maxDailyLossFraction: MAX_DAILY_LOSS_FRACTION,
@@ -172,7 +172,9 @@ export function easternSchedule(now = new Date()) {
     minuteOfDay,
     isWeekday,
     scanWindow: isWeekday && minuteOfDay >= 7 * 60 && minuteOfDay < 15 * 60 + 55,
-    flattenWindow: isWeekday && minuteOfDay >= 15 * 60 + 55 && minuteOfDay < 16 * 60,
+    // Flatten passes from 15:30 (Jose's rule). The scheduler keeps calling until 15:55, so every pass from 15:30 closes
+    // whatever is still open, at Alpaca and in the app ledger, without relying on Alpaca's clock.
+    flattenWindow: isWeekday && minuteOfDay >= 15 * 60 + 30 && minuteOfDay < 16 * 60,
   }
 }
 
