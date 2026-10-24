@@ -23,6 +23,12 @@
     blocked and an ENTRY_BLOCKED event is logged. Before, a missing starting equity silently allowed trading.
   - Max 3 positions counts E entry orders still pending at Alpaca, so a late fill cannot make a 4th position.
   - E's entry rules, sizing, stop, target and the 15:30 flatten are unchanged.
+- Survivorship note (Oct 24, 2026, information only; E's paper rules unchanged): **every earlier E replay was
+  survivorship-biased on float.** The replay lets a stock be entered only when it has a float value, and all its
+  float sources list only companies that trade today: delisted stocks could never be entered, and live stocks used
+  today's float rather than the float on the trade date (point-in-time history only from about late 2023). This
+  applies to the backtests behind E's filters and to both E-J runs. The out-of-sample read on E with point-in-time
+  EDGAR float (delisted included) is D12 in docs/strategy-ej-310-spec.md, reported next to this rule.
 
 
 Set by Jose on Oct 19, 2026 at about 17:40 ET. Nothing here changes during the test.
