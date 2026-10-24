@@ -10,7 +10,7 @@ const SEC_DELAY_MS = 120 // under the SEC's 10 requests/second
 let lastSec = 0
 export const edgarStats = { secRequests: 0, fmpRequests: 0 }
 
-async function sec(url: string) {
+export async function sec(url: string) {
   const agent = process.env.SEC_USER_AGENT?.trim()
   if (!agent) throw new Error('Set SEC_USER_AGENT (your name and contact email; the SEC requires it), e.g. $env:SEC_USER_AGENT="Your Name you@example.com"')
   for (let attempt = 0; attempt < 6; attempt += 1) {

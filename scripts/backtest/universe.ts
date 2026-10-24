@@ -18,6 +18,8 @@ export type Universe = {
   shareHistory?: Map<string, Array<{ date: string; shares: number }>>
   dailyShares?: Map<string, Array<{ date: string; shares: number }>>
   freeFloatPct?: Record<string, number>
+  /** When set, the ONLY float source (no fallback): undefined = no float on that day, so not enterable. */
+  floatOverride?: (symbol: string, day: string) => number | undefined
 }
 
 export type FloatMode = 'current' | 'quarterly' | 'daily'
@@ -49,6 +51,7 @@ function dailyFloatOn(universe: Universe, symbol: string, day: string) {
 }
 
 export function floatOn(universe: Universe, symbol: string, day: string): number | undefined {
+  if (universe.floatOverride) return universe.floatOverride(symbol, day)
   if (universe.dailyShares) {
     const daily = dailyFloatOn(universe, symbol, day)
     if (daily != null) {

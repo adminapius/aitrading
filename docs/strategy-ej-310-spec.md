@@ -1,8 +1,11 @@
-# Strategy E-J $3-10 (DRAFT, Oct 24, 2026; not locked)
+# Strategy E-J $3-10 (LOCKED Oct 24, 2026; window pending the D2 probe)
 
-BACKTEST ONLY. Rules as Jose wrote them (Oct 24, 2026). Items marked **[D#]** are open decisions (section 9), each
-with a proposed default. No code, no download and no results until Jose approves and the spec is locked. Live
-Strategy E and its paper test (counting from Mon Oct 26, 2026) are not touched.
+BACKTEST ONLY. Rules as Jose wrote them (Oct 24, 2026). Items marked **[D#]** are Jose's decisions (section 9:
+D1-D11 approved Oct 24, 2026 with his additions, plus D12). Locked before any result. The only open item is the D2
+coverage check: the probe runs first, its table is recorded in section 0.3, and if any year is under 90% the work
+stops for Jose's decision before anything runs. Live Strategy E and its paper test (counting from Mon Oct 26, 2026)
+are not touched. Code: `scripts/backtest/edgar-float.ts`, `scripts/backtest/strategy-ej-310.ts` (probe now; run
+modes after the probe), tests in `tests/edgar-float.test.mjs`.
 
 ## 0. Read before approving
 ### 0.1 Data coverage for Oct 14, 2021 - Oct 11, 2024 (asked: confirm before writing the spec)
@@ -28,7 +31,7 @@ For a 2021-2024 window this matters much more than for 2024-2026: many 2021-2022
 names) have since delisted, and the survivors' floats changed a lot through dilution and reverse splits. So as the
 code stands, the window would test mostly survivors, with floats from the wrong years. **[D1]** proposes a fix.
 
-**Earliest fully covered window:** none, as the code stands: the delisted-float gap exists for every window, and
+**Earliest fully covered window:** none, as the code stood: the delisted-float gap exists for every window, and
 point-in-time float exists only from about late 2023 (too short: E-current took 36 $3-10 trades in 21 months of
 tuning, so one year would give about 20, under the 30 required). With D1's fix the data reaches back to 2021, and
 the probe checks the coverage by year before anything is locked **[D2]**.
@@ -46,6 +49,9 @@ The range was picked from the **holdout** (13 trades), not from tuning. In tunin
 pass rule: it lost money, and E-current beat it in R and dollars. Both E-J windows are now used, so the 2021-2024
 window is the only fresh test, as Jose set. This is why the info-only run on the Aug-Oct 2026 holdout is not judged.
 
+### 0.3 D2 probe result
+_Pending: the probe's coverage table goes here before any run._
+
 ## 1. Rules (as Jose wrote them)
 - **Base: E-J without adds.** Everything else exactly as E-J (docs/strategy-ej-spec.md, sections 1-4 and 10): E's
   entries and sizing, the scan schedule (every 15 min 7:00-7:45, every 5 min from 8:00), sell 1/3 at fill + $0.50 and
@@ -61,6 +67,9 @@ window is the only fresh test, as Jose set. This is why the info-only run on the
   filter, flat at **[D5]**.
 - Same entries for both **[D4]**.
 - Information lines (not judged): E-current $3-10 flat at the other time in D5.
+- **D12, information only, not judged:** E-current with **no price filter** on the same fresh window, with the D1
+  float, reported next to E's paper rule (expectancy > +0.1R, PF > 1.3). This is the out-of-sample read on E itself;
+  E's paper rules stay unchanged whatever it shows.
 
 ## 3. Windows
 - **Fresh window: Oct 14, 2021 - Oct 11, 2024, run once, its own lock file** (`backtests/strategy-ej-310/fresh/`),
@@ -105,7 +114,7 @@ Reuse `scripts/backtest/ej-engine.ts` (mode 'EJ-noadd', and 'E') unchanged. New 
 `scripts/backtest/strategy-ej-310.ts` (its own windows, filter, lock files and report); `strategy-ej.ts` is not
 changed (its runs are locked and recorded). The D1 float source is a new data module, with tests.
 
-## 9. Open decisions (proposed defaults in bold)
+## 9. Decisions (approved by Jose, Oct 24, 2026; his additions noted)
 - **D1 Float on the trade date, delisted included:** **use SEC EDGAR's shares outstanding as the float for every
   symbol, live or delisted: the cover-page value (`dei:EntityCommonStockSharesOutstanding`) of the latest 10-Q /
   10-K / 20-F filed before the trade date, adjusted for splits between that date and the trade date. Tagged
@@ -115,9 +124,26 @@ changed (its runs are locked and recorded). The D1 float source is a new data mo
   float and is not entered, as now, and is counted in the report. Alternatives: (b) FMP daily market cap / close x
   today's free-float % (point in time for live companies only; delisted stay out); (c) keep the current replay
   float (today's float; delisted stay out), and state the bias.
+  **Approved, with Jose's additions:** the value is the latest one **filed** before the trade date (by filing date,
+  not period end; no look-ahead). Foreign filers (20-F / 6-K) have no quarterly cover-page value: they use the
+  annual 20-F / 40-F cover value (6-K carries no XBRL share count), their coverage is reported separately, and a
+  foreign stock with no usable value is excluded and counted. Every stock with no value is excluded and counted.
+  Implementation (locked with D1): sources in order dei:EntityCommonStockSharesOutstanding, then
+  us-gaap:CommonStockSharesOutstanding, then ifrs-full:NumberOfSharesOutstanding; several values in one filing
+  (share classes) are summed; a value older than 400 days by filing date counts as missing (`stale`; this lets an
+  annual 20-F through, not one a year late); split-adjusted from the count's as-of date to the trade day with
+  Alpaca raw vs split-adjusted daily closes; ticker-reuse guard: the Alpaca asset name and the EDGAR company name
+  must share a distinctive word, otherwise `name-mismatch` (excluded, counted). Filer type: foreign when the latest
+  annual report filed before the day is a 20-F or 40-F.
 - **D2 Window and coverage check:** **Oct 14, 2021 - Oct 11, 2024 as Jose set, if the probe shows at least 90% of
   each year's entry candidates (gain > 2%, price >= $3) with a D1 float value, live and delisted counted separately.
   If a year falls short, the window starts at the first year that meets it, and the spec records it before lock.**
+  **Approved, with Jose's addition:** a by-year coverage table split domestic / foreign (plus unknown filer type,
+  and live vs delisted); **if any year is under 90%, stop and tell Jose** before anything runs.
+  Implementation note (flagged to Jose): coverage is measured on the stock-days E could actually enter: day high at
+  least +20% over the prior close (E's gain floor), high at least $3, scanner volume minimum, instead of every
+  stock up 2%. A stock-day under +20% can never pass E's 20-30% gain filter, so its float does not matter; this
+  keeps the EDGAR download to the companies that matter. The float itself is applied the same way on every day.
 - **D3 Price filter:** live E cannot know the fill price before it sends the order. **Filter on the ask at the
   scan (the price E sizes and sends from): $3.00 <= ask <= $10.00. Fills that land outside $3-10 after slippage are
   kept and counted in the report.** Alternative: filter on the fill itself (backtest-only; not something live can do).
@@ -133,8 +159,12 @@ changed (its runs are locked and recorded). The D1 float source is a new data mo
 - **D9 Year split:** **report each year (Oct-Oct) separately as information; no pass condition per year.**
   2021 includes the SPAC and meme-stock peak.
 - **D10 Probe first:** **the probe runs and its coverage is recorded in this spec before lock.**
+- **D3, D4, D5, D6-D10:** approved as proposed.
 - **D11 Paper test if it passes (decided now, so the rule is locked before results):** E-J $3-10 takes the same
   entries as E, so it cannot share E's Alpaca paper account (the second buy of the same stock is blocked, and the
   two would manage the same shares). **A second Alpaca paper account (its own keys and ledger), with its own fresh
   30-trade locked test, pass rule and fill audit set before it starts.** Alternative: run it as a shadow on E's
-  entries (no fills; weaker evidence).
+  entries (no fills; weaker evidence). **Approved only if it passes: no second paper account is set up before then.**
+- **D12 (added by Jose, information only, not judged):** E-current with no price filter on the same fresh window and
+  the D1 float, reported next to E's paper rule (exp > +0.1R, PF > 1.3). Every earlier E replay was survivorship-
+  biased on float (section 0.1; recorded in docs/strategy-e-paper-run.md). E's paper rules stay unchanged.
