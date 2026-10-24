@@ -1,12 +1,15 @@
-# Strategy E-J: Strategy E entries + Jose's scale-out and add engine (DRAFT, Oct 24, 2026; not locked)
+# Strategy E-J: Strategy E entries + Jose's scale-out and add engine (LOCKED Oct 24, 2026)
 
 BACKTEST ONLY. Live Strategy E stays unchanged during this test (its locked paper run continues). Rules as Jose
-wrote them; items marked **[D#]** are open decisions (section 9) with a proposed default. No code until approved.
+wrote them; items marked **[D#]** are Jose's approved decisions (section 9: D1, D3-D14, D17 approved as proposed,
+Oct 24, 2026). Locked before any result. Code: `scripts/backtest/strategy-ej.ts`, `scripts/backtest/ej-engine.ts`,
+tests in `tests/strategy-ej.test.mjs`. Each window runs once (lock file); nothing changes after a run.
 
 ## 0. Found while writing this spec
 - **Live E flattens at 15:55 ET, not 15:30.** `lib/strategy.ts` has `flattenBeforeEt: '15:55'`, and the Oct 14
-  GRML trade was closed at 15:55:48 ET. Jose's standing rule is flat by 15:30. Live E is not changed here; the
-  baseline question is **[D1]**.
+  GRML trade was closed at 15:55:48 ET. Jose's standing rule is flat by 15:30. Live E is fixed separately
+  (PR #100, `docs/strategy-e-paper-run.md`); this backtest keeps E-current at 15:55 as the baseline per **[D1]**,
+  with a 15:30 information line.
 
 ## 1. Entries: exactly Strategy E's current rules
 - Reuse the existing replay engine (`scripts/backtest/simulate.ts` + `market.ts`), which imports the live
@@ -76,7 +79,7 @@ at least 30 trades, positive dollars. A pass -> E-J replaces E on Alpaca paper a
 The replay was built for Apr-Oct 2026; this test extends it to Oct 2024 - Oct 2026 (minute bars for each day's
 gainer pool, Alpaca news, historical NBBO quotes at decisions, point-in-time float). **[D17]**
 
-## 9. Open decisions (proposed defaults in bold)
+## 9. Decisions (approved by Jose as proposed, Oct 24, 2026)
 - **D1 Flatten time for the baseline:** **E-current flattens at 15:55 as live does**, plus an information line
   with E-current flattened at 15:30, so the effect of the time alone is visible.
 - **D3 Slots:** **a slot frees only when the whole trade (runner and adds included) is flat.**
@@ -101,4 +104,26 @@ gainer pool, Alpaca news, historical NBBO quotes at decisions, point-in-time flo
 - **D13 Risk cap:** open risk = sum over open lots of shares x (lot fill - lot stop), floored at 0. **An add is
   cut to the size that keeps open risk at or below the original 1R (skipped if under 1 share).**
 - **D14 Add stop:** **fixed at the add: the higher of (add price - $0.50) and VWAP at that moment.**
-- **D17 Data:** **probe the download size first (a probe that simulates no trades), then lock.**
+- **D17 Data:** **probe the download size first (a probe that simulates no trades), then lock.** Jose said on
+  Oct 24 to lock and build together; the probe (`--probe`) is run before the tuning window and changes nothing.
+
+## 10. Implementation notes (locked with the spec)
+- The E-current portfolio run uses the replay's entry path: live `decideEntry` before the quote and again at the
+  ask, the historical NBBO quote at the scan time (stale or off-price -> no entry), the scanner spread / dollar
+  volume check at the quote, `cleanMomentumBlockReason` with D4's touch rule, the re-entry cooldown, 3 slots, 4%
+  daily loss limit, exposure headroom and simulated 2x margin; equity compounds from $2,000 day to day.
+- Fill = the open of the first 1-minute bar starting at or after the scan time + slippage; size = E's shares cut
+  to cash headroom and 1% of the day's volume so far; skipped if over 10% of the fill bar's volume.
+- Initial stop = fill - daily ATR(14) (measured from the fill, as E's bracket). E's target is touched only on
+  bars after the fill bar and needs a 1-tick trade-through; it fills at max(target, bar open).
+- Order inside a bar: the 15:30 / 15:55 flat at the bar's open; a pending runner exit at the open; a pending add
+  bought at the open; stops (gap -> open - slippage, touch -> stop - slippage); then scale-outs / the add's +$0.50
+  half (trade-through, at max(level, open)); at the close the runner check (5-minute clock grid) and, if it did
+  not fire, the add trigger. The add's own stop is checked on its fill bar.
+- When the runner exits (VWAP or 15:30), any open add shares exit with it at the same price.
+- Adds are also capped by the volume rules. A trade that is still open on the last bar of the day exits at that
+  bar's close (data gap guard).
+- E-current at 15:30, E-J and E-J without adds use the entry list of the E-current run (D5); E-J with its own
+  slot timing is a separate portfolio run, information only.
+- Output per window: `trades.csv` (every run, every fill), `summary.json`, `RUN-LOCK.json`; the holdout needs
+  the tuning lock.
