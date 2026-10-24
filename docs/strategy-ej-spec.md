@@ -1,4 +1,4 @@
-# Strategy E-J: Strategy E entries + Jose's scale-out and add engine (LOCKED Oct 24, 2026)
+# Strategy E-J: Strategy E entries + Jose's scale-out and add engine (LOCKED Oct 24, 2026; holdout FAIL; PARKED)
 
 BACKTEST ONLY. Live Strategy E stays unchanged during this test (its locked paper run continues). Rules as Jose
 wrote them; items marked **[D#]** are Jose's approved decisions (section 9: D1, D3-D14, D17 approved as proposed,
@@ -127,3 +127,59 @@ gainer pool, Alpaca news, historical NBBO quotes at decisions, point-in-time flo
   slot timing is a separate portfolio run, information only.
 - Output per window: `trades.csv` (every run, every fill), `summary.json`, `RUN-LOCK.json`; the holdout needs
   the tuning lock.
+
+## 11. Results (recorded Oct 24, 2026; nothing rerun)
+
+**Verdict: FAIL. E-J is parked.** The holdout ran once (Oct 24, 2026, 14:43 PT; `backtests/strategy-ej/holdout/`,
+locked). It fails one condition of the section 7 pass rule: **13 trades vs at least 30 required**. Every other
+condition passed. E-J does not replace E; E's locked paper test continues unchanged.
+
+### Holdout Aug 1 - Oct 16, 2026 (54 trading days), same 13 entries (fixed by E-current, D5)
+
+| Run | Trades | Win | Avg win / loss | Expectancy | PF | Max DD | Largest loss | Total |
+|---|---|---|---|---|---|---|---|---|
+| E-current (flat 15:55) | 13 | 38% | 1.71R / -0.74R | 0.20R | 1.45 | 3.5R / $43 | -1.11R | 2.7R / $43.48 |
+| E-current flat 15:30 (info) | 13 | 38% | 1.73R / -0.60R | 0.29R | 1.79 | 3.5R / $43 | -1.11R | 3.8R / $70.11 |
+| **E-J** | 13 | 54% | 1.91R / -0.71R | **0.70R** | **3.16** | 3.2R / $40 | -1.11R | **9.2R / $196.73** |
+| E-J without adds | 13 | 54% | 1.81R / -0.71R | 0.65R | 2.98 | 3.2R / $40 | -1.11R | 8.4R / $176.92 |
+| E-J own slots (info) | 13 | 54% | 1.89R / -0.71R | 0.69R | 3.12 | 3.2R / $45 | -1.11R | 9.0R / $197.83 |
+
+Pass rule (holdout): E-J total R 9.2 > E-current 2.7 ok; E-J $196.73 > E-current $43.48 ok; expectancy 0.70R >
++0.10R ok; PF 3.16 > 1.3 ok; **trades 13 >= 30 FAIL**; dollars $196.73 > 0 ok -> **FAIL**.
+
+Price bands:
+
+| Band | E-current | E-J | E-J without adds |
+|---|---|---|---|
+| $3-5 | 3 trades, 0.3R / $16.63, exp 0.10R, PF 1.26 | 3 trades, 4.9R / $106.77, exp 1.63R, PF 5.16 | 3 trades, 4.5R / $98.69, exp 1.49R, PF 4.81 |
+| $5-10 | 6 trades, 1.2R / $38.78, exp 0.20R, PF 1.41 | 6 trades, 4.6R / $103.76, exp 0.77R, PF 3.30 | 6 trades, 3.9R / $88.63, exp 0.66R, PF 2.96 |
+| $10+ | 4 trades, 1.1R / -$11.93, exp 0.29R, PF 1.64 | 4 trades, -0.4R / -$13.80, exp -0.09R, PF 0.66 | 4 trades, -0.0R / -$10.41, exp -0.00R, PF 1.00 |
+
+- Hit rates (all runs, same entries): +$0.50 reached 46% (E-J) / 38% (E-current); +$1.00 31%; E target (+1.5 ATR) 23%.
+- E-J: scale-out 1 filled 6, scale-out 2 filled 4; adds fired on 4 trades (7 adds), add P&L $19.81 (about 10% of
+  E-J's dollars; E-J without adds keeps most of the gain).
+- Final exits. E-current: flatten 15:55 7 (-1.1R), target 3 (7.0R), stop 3 (-3.2R). E-J: flat 15:30 5 (5.5R), stop 3
+  (-3.2R), breakeven stop 2 (0.1R), runner 5-min close below VWAP 2 (6.7R), scale-out 1 1 (0.1R).
+- By month ($). E-current: Aug 4 trades 0.3R / -$14, Sep 5 / 5.8R / $100, Oct 4 / -3.5R / -$43 (1 of 3 positive).
+  E-J: Aug 4 / 0.6R / $10, Sep 5 / 11.7R / $227, Oct 4 / -3.2R / -$40 (2 of 3 positive).
+- Entry blocks (E-current run): gain_range 1271, spread / dollar volume at the quote 440, min_price 81, no
+  executable quote 44, regime 22, cooldown 20, spread 15, reentry_without_target 8, fill below stop 1.
+- Overlap reminder (section 5): the holdout is not fresh for E's entries, only for the exit comparison.
+
+### 08:00 ET finding (checked before the verdict was read; no code bug)
+- In tuning, 4 news-regime trades exit at exactly 08:00: WOLF 2024-10-15, TNON 2024-10-31, DGNX 2025-10-09,
+  BIAF 2026-03-25 (E-current: DGNX and BIAF stops; E-J: all four, WOLF and TNON at breakeven after scale-outs).
+- The 08:00 bars are real: 8-60x the 07:59 volume, 666-18,411 trades in the minute, 12-388 trades at or below the
+  level, normal sizes. The trades print on exchange D (FINRA TRF, off-exchange), conditions T (extended hours) and
+  I (odd lot): the retail orders queued for the 08:00 premarket open, filled at once. Price swings both ways for
+  about 12 seconds after 08:00:00 and recovers (e.g. WOLF low 12.20, 08:00 close 15.10; DGNX low 34.20, close 39.40).
+- The exit prices follow the rules exactly: stop touch -> stop - 1% (DGNX, BIAF); open through breakeven ->
+  open - 1% (WOLF, TNON; the opens 13.45 / 4.09 were real prints).
+- Stops were checked on every 1-minute bar from the fill; none of the four reached its level before 08:00. Fill
+  timing confirmed: a scan at minute X sees only bars closed by X (start <= X-1); the fill is bar X's open.
+- The backtest assumes the worst case: a stop fires on any touch of the bar's low. Live E checks the bid every
+  15 seconds before the open and sends an extended-hours limit at bid - 0.5%, so live it can sell near the low or
+  miss the 12-second flush. No rule changes from this; E's 08:00 exits are tagged in the weekly paper report.
+
+### Status
+- **E-J is parked.** Live Strategy E is unchanged. Any follow-up is a new, separately locked spec.
