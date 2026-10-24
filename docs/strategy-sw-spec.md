@@ -1,13 +1,18 @@
-# Strategy SW: swing trading by the course (DRAFT, Oct 23, 2026; not locked until Jose approves)
+# Strategy SW: swing trading by the course (LOCKED, Oct 24, 2026)
 
 BACKTEST ONLY. Strategy E and A stay unchanged. Rules as Jose wrote them (lesson tags kept). Items marked **[D#]**
-are open decisions (section 10) with a proposed default. No SW code beyond the data probe
-(`scripts/backtest/rulebook/strategy-sw-probe.ts`) until this spec is locked.
+were decided by Jose (section 10): D5 on Oct 23, D11 on Oct 24, D1-D4 and D6-D10 accepted as proposed on Oct 24.
+Locked on Oct 24, 2026 after the data probes and the coverage report (section 11), before any SW strategy code or
+result. Each window runs once, in order (tuning, validation, holdout). Nothing changes after a run.
 
 ## 1. Universe (point in time, decided each day)
 - US common stocks, prior raw close above $10, 50-day average volume above 1M shares, top 500 by 50-day average
   dollar volume (raw close x volume). No ETFs, warrants or ADRs (rulebook common-stock filter, which drops names
-  with "depositary"). SPY only as the market filter. Long only.
+  with "depositary"), and no foreign filers **[D11]**: a stock is excluded if FMP marks it as an ADR, or if its
+  company's latest annual report filed before the day is a 20-F or 40-F (10-K filers stay, e.g. Irish- or
+  UK-domiciled US filers). If no annual report was filed yet, the company's first annual report decides. Stocks
+  with no SEC ID and no FMP profile stay in, with no earnings block. Foreign filers are removed before the top-500
+  ranking. SPY only as the market filter. Long only.
 - Delisted stocks: the universe comes from Alpaca's active AND inactive asset lists, with each symbol's own daily
   history, so a stock that later delisted is tradeable while it traded. Limits **[D2]**: Alpaca's history begins
   in 2016 and its inactive list may miss some early delistings; a reused ticker can mix two companies (the probe
@@ -105,5 +110,30 @@ Sharpe). The flat-$20 line is reported next to the combined run.
   D+2's open.** (The alternative is to enter at D+1's open with no confirmation.)
 - **D8 Weekly bars:** **last completed week only.**
 - **D9 Trail and time stop:** **both use daily closes** (the alternative is the daily high).
-- **D10 SPY:** "SW must beat it on a risk-adjusted basis". **Proposed: an extra pass condition in the holdout:
-  SW combined Sharpe (daily equity returns, $2,000 line) above SPY buy-and-hold Sharpe.** Or report only.
+- **D10 SPY:** an extra pass condition in the holdout: SW combined Sharpe (daily equity returns of the $2,000
+  line, annualized, no risk-free rate) above SPY buy-and-hold Sharpe over the same window. Neither side includes
+  dividends (split-adjusted bars only).
+- **D11 Foreign filers (Jose, Oct 24):** Option A as in section 1.
+
+## 11. Coverage before the lock (prefetch, Oct 24, 2026; universe before the D11 filter)
+- Universe: 1,393 stocks qualify on at least one day. Alpaca history: SPY from 2016-01-04; 20 of 20 known delisted
+  large caps (TWTR, ATVI, XLNX, CELG, PXD, HES, ...) have full history to their last day.
+- EDGAR earnings 8-Ks: universe stock-years with a normal count (>= 3; >= 2 for partial 2026): 2016 82%, 2017 81%,
+  2018 82%, 2019 86%, 2020 85%, 2021 86%, 2022 89%, 2023 90%, 2024 91%, 2025 90%, 2026 92% (87% overall). Most of
+  the gap is foreign filers (no 8-Ks), which D11 removes; the backtest prints the coverage again after D11.
+- Timing of 44,969 earnings 8-Ks: after the close 52%, before the open 14%, during the session 33%. A filing during
+  the session usually follows a release that morning or the evening before; treating it as before the open (exit at
+  the prior close) is right in both cases.
+- FMP cross-check 2022+ (1,147 stocks): 93% of EDGAR dates and 94% of FMP dates have a match within 3 days.
+- Sector (FMP, current / last known): 1,304 of 1,393.
+
+## 12. Implementation notes (fixed with the lock)
+- Indicators and all trade prices use the split-adjusted bars. With split-only adjustment, every ratio (MAs, ATR,
+  R) and every dollar P&L is the same as on day-scaled prices; only the share count is expressed in today's shares.
+  Raw bars are used only for the $10 / volume / dollar-volume universe tests.
+- D2: a symbol's history is split at any gap of more than 60 trading days; the later part is a separate stock.
+- Weekly bars: Monday-Friday weeks; a week counts as completed at its last trading day's close.
+- Each window starts at $2,000 with no open positions; indicators use all prior history. Positions still open on
+  the window's last day are closed at that day's close ('end of window').
+- The flat-$20 line re-prices exactly the trades the $2,000 combined run took, at shares = floor(20 / (fill - stop)).
+
