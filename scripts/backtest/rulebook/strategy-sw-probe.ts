@@ -20,6 +20,11 @@ import { loadEarnings } from './swing-v2'
 
 export const SW_PROBE = { start: '2016-01-01', end: '2026-10-16', sample: 150, sectorSample: 40, seed: 20261023 } as const
 
+// Large caps that were acquired or delisted during 2016-2025: the stocks a top-500 universe would have held.
+// If Alpaca has no history for them, the backtest has survivorship bias no matter what the asset list says.
+export const KNOWN_DELISTED = ['CELG', 'RTN', 'AGN', 'TIF', 'MXIM', 'XLNX', 'CERN', 'CTXS', 'TWTR', 'NLSN', 'KSU', 'ATVI',
+  'VMW', 'SGEN', 'SPLK', 'PXD', 'DFS', 'HES', 'ANSS', 'JNPR'] as const
+
 // Small deterministic PRNG so the sample is the same on every run.
 export function seededSample<T>(items: T[], n: number, seed: number) {
   let s = seed >>> 0
@@ -67,6 +72,16 @@ async function main() {
   console.log(`\n[sw-probe] sample: ${sample.length} symbols (${inactiveSample.length} delisted), ${withData.length} with any daily bars (${inactiveWithData.length} of the delisted)`)
   console.log(`[sw-probe] raw daily: ${rawBars} bars, ${rawReq} requests (0 if cached), ${rawSec.toFixed(0)}s; split-adjusted: ${adjBars} bars, ${adjReq} requests, ${adjSec.toFixed(0)}s`)
 
+  // Known delisted large caps
+  const known = await getDailyBars([...KNOWN_DELISTED], SW_PROBE.start, SW_PROBE.end)
+  const knownRows = KNOWN_DELISTED.map((s) => {
+    const list = (known[s] ?? []) as RawBar[]
+    return list.length ? `${s} ${list.length} bars ${toEasternDay(list[0].t)}..${toEasternDay(list[list.length - 1].t)}` : `${s} NONE`
+  })
+  const knownWith = KNOWN_DELISTED.filter((s) => ((known[s] ?? []) as RawBar[]).length > 0).length
+  console.log(`[sw-probe] known delisted large caps with Alpaca history: ${knownWith} of ${KNOWN_DELISTED.length}`)
+  for (const row of knownRows) console.log(`      ${row}`)
+
   // Coverage by year
   const years = Array.from({ length: 11 }, (_, i) => 2016 + i)
   const perYear = years.map((y) => sample.filter((s) => (raw[s] ?? []).some((b) => toEasternDay(b.t).startsWith(String(y)))).length)
@@ -92,11 +107,16 @@ async function main() {
 
   // Earnings depth
   console.log('\n[sw-probe] FMP earnings calendar, one week per year:')
-  for (const week of ['2016-03-07', '2019-03-04', '2022-03-07', '2025-03-03']) {
+  for (let y = 2016; y <= 2025; y += 1) {
+    const week = new Date(Date.UTC(y, 2, 1 + ((8 - new Date(Date.UTC(y, 2, 1)).getUTCDay()) % 7))).toISOString().slice(0, 10) // first Monday of March
     let rows = 0
     let timed = 0
-    await loadEarnings(week, week, (r, t) => { rows += r; timed += t })
-    console.log(`      week of ${week}: ${rows} rows, report time known ${rows ? ((timed / rows) * 100).toFixed(0) : 'n/a'}%`)
+    try {
+      await loadEarnings(week, week, (r, t) => { rows += r; timed += t })
+      console.log(`      week of ${week}: ${rows} rows, report time known ${rows ? ((timed / rows) * 100).toFixed(0) : 'n/a'}%`)
+    } catch (error) {
+      console.log(`      week of ${week}: FAILED (${error instanceof Error ? error.message : String(error)})`)
+    }
   }
   const weeks = Math.ceil((Date.parse(SW_PROBE.end) - Date.parse(SW_PROBE.start)) / (7 * 86_400_000))
   console.log(`      full range ${SW_PROBE.start} to ${SW_PROBE.end}: about ${weeks} weekly requests (cached after the first run)`)
