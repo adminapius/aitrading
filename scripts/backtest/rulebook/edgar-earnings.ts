@@ -106,3 +106,77 @@ export async function earningsFilings(cik: string): Promise<EarningsFiling[]> {
   writeCache(key, out)
   return out
 }
+
+// ---------------- v3: earnings dates + annual-report forms (foreign-filer check, D11) + full FMP profile ----------------
+
+export type AnnualForm = { form: '10-K' | '20-F' | '40-F'; date: string }
+export type SecCompany = { earnings: EarningsFiling[]; annual: AnnualForm[] }
+
+/** Annual-report form family of an EDGAR form type, or null (amendments included). Pure. */
+export function annualFamily(form: string): AnnualForm['form'] | null {
+  const f = form.toUpperCase()
+  if (/^10-K(405|T)?(\/A)?$/.test(f)) return '10-K'
+  if (/^20-F(\/A)?$/.test(f)) return '20-F'
+  if (/^40-F(\/A)?$/.test(f)) return '40-F'
+  return null
+}
+
+/** Foreign filer on `day`: the latest annual report filed before the day is a 20-F or 40-F; if none yet, the first one decides. Pure. */
+export function isForeignFiler(annual: AnnualForm[], day: string) {
+  if (!annual.length) return false
+  let pick: AnnualForm | null = null
+  for (const a of annual) if (a.date < day) pick = a
+  return (pick ?? annual[0]).form !== '10-K'
+}
+
+/** Earnings 8-Ks and annual-report forms for a company, oldest first. Cached per CIK. */
+export async function secCompany(cik: string): Promise<SecCompany> {
+  const key = `sec/v3/company/${cik}`
+  const hit = readCache<SecCompany>(key)
+  if (hit) return hit
+  const text = await sec(`https://data.sec.gov/submissions/CIK${cik}.json`)
+  if (!text) { const empty = { earnings: [], annual: [] }; writeCache(key, empty); return empty }
+  const json = JSON.parse(text) as { filings: { recent: Record<string, string[]>; files?: Array<{ name: string }> } }
+  const blocks: Array<Record<string, string[]>> = [json.filings.recent]
+  for (const file of json.filings.files ?? []) {
+    const more = await sec(`https://data.sec.gov/submissions/${file.name}`)
+    if (more) blocks.push(JSON.parse(more) as Record<string, string[]>)
+  }
+  const earnings: EarningsFiling[] = []
+  const annual: AnnualForm[] = []
+  for (const b of blocks) for (let i = 0; i < (b.form?.length ?? 0); i += 1) {
+    const fam = annualFamily(b.form[i])
+    if (fam) annual.push({ form: fam, date: b.filingDate[i] })
+    if (!isEarnings8K(b.form[i], b.items?.[i])) continue
+    earnings.push({ ...classifyAcceptance(b.acceptanceDateTime[i]), accession: b.accessionNumber[i] })
+  }
+  earnings.sort((x, y) => x.acceptedEt.localeCompare(y.acceptedEt))
+  annual.sort((x, y) => x.date.localeCompare(y.date))
+  const out = { earnings, annual }
+  writeCache(key, out)
+  return out
+}
+
+export type FmpProfile3 = { cik: string | null; sector: string | null; isAdr: boolean; country: string | null }
+
+/** FMP company profile with the ADR flag and country, cached per symbol. */
+export async function fmpProfile3(symbol: string): Promise<FmpProfile3 | null> {
+  const key = `fmp/profile/v3/${symbol}`
+  const hit = readCache<FmpProfile3 | null>(key)
+  if (hit !== undefined) return hit
+  const apiKey = process.env.FMP_API_KEY?.trim()
+  if (!apiKey) throw new Error('FMP_API_KEY is required for FMP company profiles')
+  edgarStats.fmpRequests += 1
+  const response = await fetch(`https://financialmodelingprep.com/stable/profile?symbol=${encodeURIComponent(symbol)}&apikey=${apiKey}`, { signal: AbortSignal.timeout(60_000) })
+  const rows = response.ok ? ((await response.json()) as Array<{ cik?: string | null; sector?: string | null; isAdr?: boolean | null; country?: string | null }>) : []
+  const r = rows?.[0]
+  const row: FmpProfile3 | null = r ? { cik: r.cik ? String(r.cik).replace(/\D/g, '').padStart(10, '0') : null, sector: r.sector?.trim() || null, isAdr: r.isAdr === true, country: r.country?.trim() || null } : null
+  if (response.ok) writeCache(key, row)
+  return row
+}
+
+/** CIK: SEC's current ticker list first, then the FMP profile. */
+export async function cikFor3(symbol: string, profile: FmpProfile3 | null): Promise<string | null> {
+  const map = await tickerMap()
+  return map[symbol] ?? profile?.cik ?? null
+}
