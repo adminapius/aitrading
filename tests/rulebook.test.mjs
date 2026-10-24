@@ -848,3 +848,13 @@ test('H v2 earnings: block entries within 5 trading days from the fill; exit at 
   assert.equal(earningsExitToday([{ date: '2026-03-06', time: 'amc' }], '2026-03-05', '2026-03-06'), false) // exit tomorrow at the close instead
   assert.equal(earningsExitToday([{ date: '2026-03-09', time: 'bmo' }], '2026-03-06', '2026-03-09'), true) // Monday report, exit Friday
 })
+
+test('Strategy SW probe: seeded sample is deterministic and without duplicates', async () => {
+  const { seededSample } = await import('../scripts/backtest/rulebook/strategy-sw-probe')
+  const items = Array.from({ length: 50 }, (_, i) => `S${i}`)
+  const a = seededSample(items, 10, 7)
+  assert.deepEqual(a, seededSample(items, 10, 7))
+  assert.equal(new Set(a).size, 10)
+  assert.notDeepEqual(a, seededSample(items, 10, 8))
+  assert.equal(seededSample(items, 99, 7).length, 50)
+})
