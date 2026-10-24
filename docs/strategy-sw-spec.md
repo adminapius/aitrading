@@ -137,3 +137,22 @@ Sharpe). The flat-$20 line is reported next to the combined run.
   the window's last day are closed at that day's close ('end of window').
 - The flat-$20 line re-prices exactly the trades the $2,000 combined run took, at shares = floor(20 / (fill - stop)).
 
+
+## 13. Result (Oct 24, 2026): FAIL in the holdout. Parked; no forward paper test.
+Combined run ($2,000 cash line), each window run once in order:
+
+| Window | Trades | Win | Exp | PF | Max DD | Largest loss | Total R | Total $ | Sharpe | SPY Sharpe | SPY CAGR |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Tuning 2016-2022 | 439 | 41% | +0.06R | 1.18 | 19.7R | -1.38R | +27.6R | +$382 | 0.41 | 0.59 | 9.6% |
+| Validation 2023-2024 | 164 | 45% | +0.13R | 1.35 | 17.2R | -1.22R | +20.5R | +$352 | 0.77 | 1.75 | 24.1% |
+| Holdout 2025-Oct 16, 2026 | 126 | 31% | -0.10R | 0.77 | 14.6R | -1.19R | -12.6R | -$242 | -0.95 | 0.97 | 16.1% |
+
+- Validation condition (positive in R and $): MET. Holdout pass rule: trades 126 >= 60 ok; expectancy -0.10R FAIL;
+  PF 0.77 FAIL; max DD 14.6R ok; largest loss -1.19R ok; dollars -$242 FAIL; Sharpe -0.95 vs SPY 0.97 FAIL.
+- Single setups: SW-A tuning +0.12R (146 trades, PF 1.31), validation +0.21R (45, PF 1.59), holdout -0.09R (38,
+  PF 0.81). SW-M tuning +0.07R (435, PF 1.19), validation +0.12R (166, PF 1.34), holdout -0.01R (136, PF 0.97).
+- SW's Sharpe was below SPY buy-and-hold in every window, including the two in-sample ones.
+- Holdout exits (combined): trend 31 (-12.7R), stop 36 (-1.3R, many after the trail moved to breakeven or better),
+  gap-stop 11 (-11.0R), time stop 26 (+3.7R), earnings 17 (+9.4R), weekly MACD 4 (-1.2R).
+- D11 removed 151 foreign filers / ADRs; earnings coverage after D11: 87% (2016) rising to 99% (2026), 94% overall.
+- Flat-$20 line (holdout): -0.10R per trade, PF 0.77, -12.6R / -$193.
