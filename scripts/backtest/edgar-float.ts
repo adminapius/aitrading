@@ -1,8 +1,8 @@
 // Point-in-time shares outstanding from SEC EDGAR, used as the float for E-J $3-10 and the D12 E-current read.
 // BACKTEST ONLY. Spec: docs/strategy-ej-310-spec.md (D1, D2). Tagged [approximate]: shares outstanding >= float.
 //
-// - Value on a trade day = the latest cover-page share count FILED strictly before that day (by filing date, not
-//   period end: no look-ahead), at most MAX_AGE_DAYS old by filing date, adjusted for splits between the count's
+// - Value on a trade day = the most current cover-page share count among those FILED strictly before that day (by
+//   filing date: no look-ahead; an amendment re-reporting an older count does not override a newer one), at most MAX_AGE_DAYS old by filing date, adjusted for splits between the count's
 //   as-of date and the trade day (from Alpaca raw vs split-adjusted daily closes).
 // - Sources in order: dei:EntityCommonStockSharesOutstanding (10-K/10-Q/20-F/40-F cover pages), then
 //   us-gaap:CommonStockSharesOutstanding, then ifrs-full:NumberOfSharesOutstanding (balance-sheet counts).
@@ -38,12 +38,16 @@ export function sharePoints(units: Array<{ end?: string; val?: number; accn?: st
     .sort((a, b) => a.filed.localeCompare(b.filed) || a.accn.localeCompare(b.accn))
 }
 
-/** Latest point filed strictly before `day`. Pure. */
+/**
+ * The most current share count available on `day`: among points FILED strictly before the day (no look-ahead),
+ * the one with the latest as-of date; ties go to the later filing. An amendment filed later that re-reports an
+ * older as-of count (e.g. a 10-Q/A for last year's quarter) does not override a newer count. Pure.
+ */
 export function pointBefore(points: SharePoint[], day: string): SharePoint | null {
   let pick: SharePoint | null = null
   for (const p of points) {
     if (p.filed >= day) break
-    pick = p
+    if (!pick || p.end > pick.end || (p.end === pick.end && p.filed >= pick.filed)) pick = p
   }
   return pick
 }
