@@ -136,7 +136,9 @@ changed (its runs are locked and recorded). The D1 float source is a new data mo
   us-gaap:CommonStockSharesOutstanding, then ifrs-full:NumberOfSharesOutstanding; several values in one filing
   (share classes) are summed; a value older than 400 days by filing date counts as missing (`stale`; this lets an
   annual 20-F through, not one a year late); split-adjusted from the count's as-of date to the trade day with
-  Alpaca raw vs split-adjusted daily closes; ticker-reuse guard: the Alpaca asset name and the EDGAR company name
+  Alpaca raw vs split-adjusted daily closes, using only the splits between those two dates (splits after the trade
+  day cancel out; tested); a count dated before the first available daily bar is `no-split-data` (excluded,
+  counted), and daily bars are loaded from 560 days before the window so this stays rare; ticker-reuse guard: the Alpaca asset name and the EDGAR company name
   must share a distinctive word, otherwise `name-mismatch` (excluded, counted). Filer type: foreign when the latest
   annual report filed before the day is a 20-F or 40-F.
 - **D2 Window and coverage check:** **Oct 14, 2021 - Oct 11, 2024 as Jose set, if the probe shows at least 90% of

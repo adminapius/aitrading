@@ -21,7 +21,7 @@ export const EDGAR_FLOAT = {
 export type SharePoint = { filed: string; end: string; shares: number; form: string; accn: string }
 export type SharesRecord = { cik: string; entityName: string | null; source: string | null; points: SharePoint[] }
 export type FilerType = 'domestic' | 'foreign' | 'unknown'
-export type FloatMiss = 'no-cik' | 'name-mismatch' | 'no-value' | 'none-filed-before' | 'stale'
+export type FloatMiss = 'no-cik' | 'name-mismatch' | 'no-value' | 'none-filed-before' | 'stale' | 'no-split-data'
 export type FloatResult = { shares: number; filed: string; ageDays: number; source: string; filer: FilerType } | { miss: FloatMiss; filer: FilerType }
 
 /** Facts from one companyconcept response -> one point per filing (classes summed, duplicates dropped). Pure. */
@@ -63,13 +63,18 @@ export function namesMatch(assetName: string | undefined, entityName: string | n
   return b.some((t) => a.has(t) || [...a].some((x) => x.length >= 5 && t.length >= 5 && (x.startsWith(t) || t.startsWith(x))))
 }
 
-/** rawClose / splitAdjustedClose on the last trading day on or before `day`. Pure. */
-export function splitRatio(raw: Map<string, number>, adjusted: Map<string, number>, days: string[], day: string) {
+/**
+ * rawClose / splitAdjustedClose on the last trading day on or before `day`, or null when there is no bar on or
+ * before it. Split-adjusted closes are adjusted for EVERY split up to the download date, so this ratio is the
+ * product of all split factors after `day`. Dividing two of them (count date vs trade day) leaves only the splits
+ * between the two dates: splits after the trade day appear in both and cancel. Pure.
+ */
+export function splitRatio(raw: Map<string, number>, adjusted: Map<string, number>, days: string[], day: string): number | null {
   let lo = 0, hi = days.length - 1, at = -1
   while (lo <= hi) { const mid = (lo + hi) >> 1; if (days[mid] <= day) { at = mid; lo = mid + 1 } else hi = mid - 1 }
-  if (at < 0) return 1
+  if (at < 0) return null
   const r = raw.get(days[at]), a = adjusted.get(days[at])
-  return r && a ? r / a : 1
+  return r && a ? r / a : null
 }
 /** Shares at the count's as-of date -> shares on the trade day, across splits in between. Pure. */
 export function splitAdjustShares(shares: number, ratioAtCount: number, ratioOnDay: number) {
@@ -128,7 +133,15 @@ export function edgarFloatOn(data: SymbolFloat | undefined, day: string, ratios?
   if (!p) return { miss: 'none-filed-before', filer }
   const ageDays = Math.round((Date.parse(`${day}T00:00:00Z`) - Date.parse(`${p.filed}T00:00:00Z`)) / 86_400_000)
   if (ageDays > EDGAR_FLOAT.maxAgeDays) return { miss: 'stale', filer }
-  const shares = ratios ? splitAdjustShares(p.shares, splitRatio(ratios.raw, ratios.adjusted, ratios.days, p.end), splitRatio(ratios.raw, ratios.adjusted, ratios.days, day)) : p.shares
+  let shares = p.shares
+  if (ratios) {
+    // Both ratios must come from real bars; a count dated before the first bar would otherwise be scaled by the
+    // splits after the trade day only (e.g. a later 2-for-1 halving a 2022 count), so it counts as missing instead.
+    const atCount = splitRatio(ratios.raw, ratios.adjusted, ratios.days, p.end)
+    const onDay = splitRatio(ratios.raw, ratios.adjusted, ratios.days, day)
+    if (atCount == null || onDay == null) return { miss: 'no-split-data', filer }
+    shares = splitAdjustShares(p.shares, atCount, onDay)
+  }
   return { shares, filed: p.filed, ageDays, source: data.record.source ?? '', filer }
 }
 
