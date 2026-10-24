@@ -60,21 +60,26 @@ async function tickerMap(): Promise<Record<string, string>> {
 }
 
 /** CIK for a ticker: SEC's current ticker list first, then FMP's company profile (covers most delisted tickers). */
+/** FMP company profile (CIK and current / last-known sector), cached per symbol. */
+export async function fmpProfile(symbol: string): Promise<{ cik: string | null; sector: string | null } | null> {
+  const key = `fmp/profile/v2/${symbol}`
+  const hit = readCache<{ cik: string | null; sector: string | null } | null>(key)
+  if (hit !== undefined) return hit
+  const apiKey = process.env.FMP_API_KEY?.trim()
+  if (!apiKey) throw new Error('FMP_API_KEY is required for FMP company profiles')
+  edgarStats.fmpRequests += 1
+  const response = await fetch(`https://financialmodelingprep.com/stable/profile?symbol=${encodeURIComponent(symbol)}&apikey=${apiKey}`, { signal: AbortSignal.timeout(60_000) })
+  const rows = response.ok ? ((await response.json()) as Array<{ cik?: string | null; sector?: string | null }>) : []
+  const row = rows?.[0] ? { cik: rows[0].cik ? String(rows[0].cik).replace(/\D/g, '').padStart(10, '0') : null, sector: rows[0].sector?.trim() || null } : null
+  if (response.ok) writeCache(key, row) // a failed request is retried next run, not cached as "no profile"
+  return row
+}
+
+/** CIK for a ticker: SEC's current ticker list first, then FMP's company profile (covers most delisted tickers). */
 export async function cikFor(symbol: string): Promise<{ cik: string | null; source: 'sec' | 'fmp' | 'none' }> {
   const map = await tickerMap()
   if (map[symbol]) return { cik: map[symbol], source: 'sec' }
-  const key = `fmp/profile/v1/${symbol}`
-  let row = readCache<{ cik?: string | null } | null>(key)
-  if (row === undefined) {
-    const apiKey = process.env.FMP_API_KEY?.trim()
-    if (!apiKey) throw new Error('FMP_API_KEY is required to find the CIK of delisted tickers')
-    edgarStats.fmpRequests += 1
-    const response = await fetch(`https://financialmodelingprep.com/stable/profile?symbol=${encodeURIComponent(symbol)}&apikey=${apiKey}`, { signal: AbortSignal.timeout(60_000) })
-    const rows = response.ok ? ((await response.json()) as Array<{ cik?: string | null }>) : []
-    row = rows?.[0] ? { cik: rows[0].cik ?? null } : null
-    writeCache(key, row)
-  }
-  const cik = row?.cik ? String(row.cik).replace(/\D/g, '').padStart(10, '0') : null
+  const cik = (await fmpProfile(symbol))?.cik ?? null
   return { cik, source: cik ? 'fmp' : 'none' }
 }
 

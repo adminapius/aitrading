@@ -872,3 +872,19 @@ test('EDGAR earnings: Item 2.02 8-K filter and UTC acceptance -> Eastern before-
   assert.equal(matchRate(['2024-05-01', '2024-08-01'], ['2024-05-02']), 0.5)
   assert.equal(matchRate([], ['2024-05-02']), null)
 })
+
+test('Strategy SW prefetch: point-in-time universe uses prior 50 days only, $10 and 1M-volume floors, top N', async () => {
+  const { universeMembers } = await import('../scripts/backtest/rulebook/strategy-sw-prefetch')
+  const days = Array.from({ length: 60 }, (_, i) => new Date(Date.UTC(2020, 0, 1) + i * 86_400_000).toISOString().slice(0, 10))
+  const rows = (c, v, spike = v) => days.map((day, i) => ({ day, c, v: i === 55 ? spike : v }))
+  const daily = new Map([
+    ['BIG', rows(50, 3_000_000)],
+    ['MID', rows(20, 2_000_000, 1e12)], // today's huge volume must not count
+    ['THIN', rows(50, 500_000)], // avg volume under 1M
+    ['CHEAP', rows(5, 1e9)], // under $10
+  ])
+  const opts = { minPrice: 10, minAvgVolume: 1_000_000, top: 1, avgDays: 50 }
+  assert.deepEqual(universeMembers(daily, days, opts).get(days[55]), ['BIG'])
+  assert.deepEqual(universeMembers(daily, days, { ...opts, top: 5 }).get(days[55]), ['BIG', 'MID'])
+  assert.deepEqual(universeMembers(daily, days, opts).get(days[40]), []) // under 50 prior days
+})
