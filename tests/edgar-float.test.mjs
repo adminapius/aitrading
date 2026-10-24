@@ -75,3 +75,32 @@ test('enterableDays: day high >= +20% over the prior close, high >= $3, enough v
   assert.deepEqual([...out], [['AAA', ['2022-01-04']]])
   assert.equal(enterableDays({ daily: new Map([['AAA', rows]]) }, '2022-01-05', '2022-12-31').size, 0)
 })
+
+// Real SEC companyconcept rows (CIK 1321834, dei:EntityCommonStockSharesOutstanding), scraped Oct 24, 2026.
+const real = [
+  { end: '2017-11-10', val: 9920552, accn: '0001493152-17-013253', form: '10-Q', filed: '2017-11-14' },
+  { end: '2018-03-15', val: 81973964, accn: '0001493152-18-004626', form: '10-K', filed: '2018-04-03' },
+  { end: '2017-08-14', val: 8901245, accn: '0001493152-18-009974', form: '10-Q/A', filed: '2018-07-13' },
+  { end: '2017-11-10', val: 9920552, accn: '0001493152-18-009976', form: '10-Q/A', filed: '2018-07-13' },
+  { end: '2018-03-15', val: 81973964, accn: '0001493152-18-009979', form: '10-K/A', filed: '2018-07-13' },
+  { end: '2018-07-13', val: 94106292, accn: '0001493152-18-009983', form: '10-Q', filed: '2018-07-13' },
+  { end: '2023-11-10', val: 50900715, accn: '0001493152-23-041328', form: '10-Q', filed: '2023-11-14' },
+  { end: '2024-03-29', val: 2157632, accn: '0001493152-24-012533', form: '10-K', filed: '2024-04-01' },
+]
+
+test('pointBefore on real SEC rows: a later amendment with an older count does not override the newer count', () => {
+  const p = sharePoints(real)
+  assert.equal(pointBefore(p, '2018-04-04').shares, 81973964)
+  // On Jul 13, 2018 three amendments re-filed 2017 counts; on Jul 13 itself nothing from that day is usable yet.
+  assert.equal(pointBefore(p, '2018-07-13').shares, 81973964)
+  // Jul 14: the same-day 10-Q (as of Jul 13) is the most current count; the 10-Q/As (2017 as-of dates) are ignored.
+  assert.equal(pointBefore(p, '2018-07-14').shares, 94106292)
+  // A count is available only after its filing date, even after a 1-for-~24 reverse split.
+  assert.equal(pointBefore(p, '2024-04-01').shares, 50900715)
+  assert.equal(pointBefore(p, '2024-04-02').shares, 2157632)
+})
+
+test('pointBefore: amendment-only case would have picked a stale 2017 count under "latest filed"', () => {
+  const p = sharePoints(real.filter((r) => r.accn !== '0001493152-18-009983'))
+  assert.equal(pointBefore(p, '2018-07-14').shares, 81973964) // not the 10-Q/A's 8.9M from Aug 2017
+})

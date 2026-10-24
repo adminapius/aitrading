@@ -128,7 +128,11 @@ changed (its runs are locked and recorded). The D1 float source is a new data mo
   not period end; no look-ahead). Foreign filers (20-F / 6-K) have no quarterly cover-page value: they use the
   annual 20-F / 40-F cover value (6-K carries no XBRL share count), their coverage is reported separately, and a
   foreign stock with no usable value is excluded and counted. Every stock with no value is excluded and counted.
-  Implementation (locked with D1): sources in order dei:EntityCommonStockSharesOutstanding, then
+  Implementation (locked with D1): availability is by filing date (filed strictly before the trade day); among the
+  available counts the code uses the most current one (latest as-of date, ties to the later filing), so an
+  amendment filed later that re-reports an older count (e.g. a 10-Q/A for a past quarter) cannot override a newer
+  count (found on real SEC data, Oct 24, 2026; tested). Format verified against the SEC API documentation
+  (sec.gov/search-filings/edgar-application-programming-interfaces) and a live companyconcept response. Sources in order dei:EntityCommonStockSharesOutstanding, then
   us-gaap:CommonStockSharesOutstanding, then ifrs-full:NumberOfSharesOutstanding; several values in one filing
   (share classes) are summed; a value older than 400 days by filing date counts as missing (`stale`; this lets an
   annual 20-F through, not one a year late); split-adjusted from the count's as-of date to the trade day with
