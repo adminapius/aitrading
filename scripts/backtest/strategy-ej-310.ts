@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { scanConfig } from '../../lib/scan-config'
 import { CLEAN_MOMENTUM_MIN_PRICE } from '../../lib/strategies/clean-momentum'
-import { apiStats, CACHE_ROOT, getDailyBarsSplitAdjusted, hashKey } from './data'
+import { apiStats, CACHE_ROOT, getDailyBars, getDailyBarsSplitAdjusted, hashKey } from './data'
 import { daySymbolSets, loadDay, prefetchDay, setFifteenMinuteWindow } from './market'
 import { buildUniverse, toEasternDay, type Universe } from './universe'
 import { edgarStats } from './rulebook/edgar-earnings'
@@ -65,9 +65,12 @@ async function probe(out: string) {
   const symbols = [...enterable.keys()].sort()
   console.log(`[ej310] ${symbols.length} symbols / ${[...enterable.values()].reduce((s, d) => s + d.length, 0)} stock-days with a day high >= +20% and >= $3; loading EDGAR share counts (SEC, cached per company) ...`)
   const edgar = await loadEdgarFloat(symbols, universe.names, (done) => console.log(`[ej310]   EDGAR ${done}/${symbols.length} (${mins()}, SEC requests ${edgarStats.secRequests})`))
-  const adjusted = await getDailyBarsSplitAdjusted(symbols, historyStart, end)
+  // Raw and split-adjusted daily closes from early enough to cover every count's as-of date (filed up to 400 days
+  // before the trade day; balance-sheet as-of dates can be a few months before filing).
+  const splitStart = new Date(Date.parse(`${start}T00:00:00Z`) - (EDGAR_FLOAT.maxAgeDays + 160) * 86_400_000).toISOString().slice(0, 10)
+  const [rawDaily, adjusted] = [await getDailyBars(symbols, splitStart, end), await getDailyBarsSplitAdjusted(symbols, splitStart, end)]
   const ratios = new Map(symbols.map((s) => {
-    const raw = new Map((universe.daily.get(s) ?? []).map((r) => [r.day, r.c]))
+    const raw = new Map((rawDaily[s] ?? []).map((b) => [toEasternDay(b.t), b.c]))
     const adj = new Map((adjusted[s] ?? []).map((b) => [toEasternDay(b.t), b.c]))
     return [s, { raw, adjusted: adj, days: [...raw.keys()].filter((d) => adj.has(d)).sort() }]
   }))
