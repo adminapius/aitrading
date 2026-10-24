@@ -2,10 +2,17 @@
 
 ## Restart (Oct 24, 2026, decided by Jose)
 - Found Oct 24: live E flattened at 15:55 ET (`lib/strategy.ts` schedule window; GRML on Oct 14 closed at 15:55:48),
-  not at 15:30 as Jose's standing rule and this document said. The Alpaca-clock 15:30 flatten in
-  `lib/alpaca-execution.ts` did not fire on Oct 14; the cause was not found in the stored logs.
-- Fix: the app's own schedule flatten window now starts at 15:30 ET (`flattenBeforeEt: '15:30'`), so every worker
-  pass from 15:30 closes what is open, at Alpaca and in the ledger, without relying on Alpaca's clock. Nothing else
+  not at 15:30 as Jose's standing rule and this document said.
+- Root cause (corrected Oct 24 after a log and git check; the earlier "cause not found" was wrong): on Oct 14 the
+  15:30 Alpaca-clock rule did not exist yet. The deployed code flattened 5 minutes before Alpaca's close
+  (`FLATTEN_MINUTES_BEFORE_CLOSE = 5`, i.e. 15:55). The worker ran every 30 s from 15:30 to 15:55 with no gate
+  errors and correctly did nothing. At 15:55:04 the close was refused (403, the OCO stop/target still held the
+  shares) and the retry also failed; the next pass at 15:55:47 closed GRML (11 @ $6.45, -$8.36). The 30-minute rule
+  and the cancel-orders-first fix were written that afternoon and merged at 16:22 ET on Oct 14 (PR #70). Since then
+  no E position has been open at 15:30, so that path has not yet run live.
+- Fix (PR #100): the app's own schedule flatten window now also starts at 15:30 ET (`flattenBeforeEt: '15:30'`), so every worker
+  pass from 15:30 closes what is open, at Alpaca and in the ledger, without relying on Alpaca's clock (a second trigger next to PR #70's Alpaca-clock rule, so a failed Alpaca
+  account check no longer delays the flatten to 15:55). Nothing else
   in E changed. Shadow A uses the same flatten, so it also closes at 15:30 from the same day.
 - E had 0 counted trades (Oct 20-23: no E entries), so the locked test restarts from zero: counted trades are
   closed E round trips on Alpaca paper entered on or after the first session after this fix is deployed
