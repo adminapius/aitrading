@@ -215,6 +215,18 @@ export async function getDailyBars(symbols: string[], start: string, end: string
   return Object.assign({}, ...results) as Record<string, RawBar[]>
 }
 
+export const ALPACA_DATA_URL = DATA_URL
+export const ALPACA_TRADING_URL = TRADING_URL
+
+/** Daily bars with a chosen Alpaca adjustment ('dividend', 'all', ...); cached per adjustment. */
+export async function getDailyBarsAdjusted(symbols: string[], start: string, end: string, adjustment: 'split' | 'dividend' | 'all') {
+  const batches: string[][] = []
+  for (let index = 0; index < symbols.length; index += 200) batches.push(symbols.slice(index, index + 200))
+  const results = await Promise.all(batches.map((batch) =>
+    cached(`daily-${adjustment}/${start}_${end}_${hashKey(batch)}`, 'alpaca', () => pagedMultiSymbolBars(batch, { timeframe: '1Day', start, end, adjustment }, `daily-bars-${adjustment}`))))
+  return Object.assign({}, ...results) as Record<string, RawBar[]>
+}
+
 // Split-adjusted daily bars (for strategies that hold overnight across splits). Raw bars stay the default everywhere else.
 export async function getDailyBarsSplitAdjusted(symbols: string[], start: string, end: string) {
   const batches: string[][] = []

@@ -1,8 +1,10 @@
-# Strategy C: rest-of-day momentum on SPY (DRAFT, Oct 24, 2026; not locked)
+# Strategy C: rest-of-day momentum on SPY (LOCKED Oct 24, 2026)
 
 BACKTEST ONLY. Rules as Jose wrote them (Oct 24, 2026). It replaces the RSI(2) idea, which never got a spec. Items
-marked **[D#]** are open decisions (section 9), each with a proposed default. No code, no download and no results
-until Jose approves and the spec is locked. E's paper test (counting from Mon Oct 26, 2026) is not touched.
+marked **[D#]** are Jose's decisions (section 9: D1-D15 approved as proposed, Oct 24, 2026, with his notes).
+Locked before any result. Code: `scripts/backtest/strategy-c.ts` (probe now: coverage only, no returns; the run is
+added after the probe's coverage is recorded here, D15), tests in `tests/strategy-c.test.mjs`. E's paper test
+(counting from Mon Oct 26, 2026) is not touched.
 
 Source: Baltussen, Da, Lammers & Martens (2021), "Hedging demand and market intraday momentum", Journal of
 Financial Economics 142 (PDF: academicweb.nd.edu/~zda/intramom.pdf, checked Oct 24, 2026).
@@ -68,7 +70,7 @@ Fail on any condition = fail. No reruns with changed rules, windows or tickers.
   The report explains why (section 6).
 
 ## 5. Report (each line, each window)
-Trades; win %; average win and loss in bp and $; PF; CAGR; Sharpe; max drawdown; time in the market; results by
+Trades; win %; average win and loss in bp and $; the idle-cash share on trade days (D4); PF; CAGR; Sharpe; max drawdown; time in the market; results by
 year; by VIX level (below 20 vs 20 or above) **[D8]**; the largest loss; the longest losing streak; days skipped,
 by reason; the pass-rule check with each condition's value.
 
@@ -99,21 +101,34 @@ and DIA; Alpaca's market calendar for half days; closing-auction prints from SIP
 from FMP **[D8]**. No stock universe, so the survivorship issues in docs/backtest-known-issues.md do not apply.
 A probe first checks coverage only and computes no returns **[D15]**.
 
-## 9. Open decisions (proposed defaults in bold)
+## 8b. Live flow, if C ever goes to paper (a note, not a test rule; Jose, Oct 24, 2026)
+- C runs on **its own Alpaca paper account**. E's 15:30 flatten (schedule window and Alpaca-clock rule) must never
+  touch C's account, because C buys at exactly 15:30.
+- Order flow: buy at 15:30; send the market-on-close sell right after the buy fills, well before the 15:50 cutoff;
+  **alert if the MOC sell is not acknowledged by 15:45.**
+- No gamma or other filter is added (that would be tuning).
+
+## 9. Decisions (approved by Jose as proposed, Oct 24, 2026; his notes added)
 - **D1 Dividends:** **adjust the prior close for that day's dividend (prior close x the one-day dividend factor
   from Alpaca's dividend-adjusted daily closes), so an ex-dividend day is not read as a down day.** The literal
   rule (raw prior close) is an information line. This changes the signal on about 4 days a year (DIA about 12).
+  **Approved.**
 - **D2 Official close:** **the closing-auction print on the ETF's primary exchange from SIP trades just after
   16:00:00 (SPY, IWM, DIA: NYSE Arca; QQQ: Nasdaq); if none is found, the daily bar's close, counted.** The probe
   measures how often the daily bar close differs from the auction print; if they match on nearly every day, the
   daily close is used instead and the spec says so before lock. The same price is the prior day's close.
+  **Approved:** the official closing-auction print; the probe checks the daily bar's close against it.
 - **D3 Entry fill:** **as Jose wrote it: the 15:30 bar's open + $0.01.** Information line: the 15:31 bar's open +
   $0.01, for a live order that goes out up to a minute late.
 - **D4 Shares:** Alpaca cannot sell fractional shares market-on-close (section 7). **Judged line: whole shares
   (floor of equity / fill price), the remainder held as cash, because that is what live C can do. Fractional
   shares: an information line.** Alternative: keep fractional as judged, as written.
+  **Approved:** whole shares judged (with about $2,000 and SPY above $600 that is 2-3 shares, the rest idle cash);
+  **the report shows the idle-cash share** (average and range of cash / equity on trade days). Fractional is an
+  information line.
 - **D5 Sharpe:** **daily returns of the whole account on every session in the window (0 on flat and skipped days),
-  annualized x sqrt(252), risk-free rate 0 for both C and buy-and-hold.**
+  annualized x sqrt(252), risk-free rate 0 for both C and buy-and-hold.** **Approved:** cash earns no interest on
+  flat days (conservative).
 - **D6 Buy-and-hold:** **SPY total return (dividend-adjusted daily closes), invested at the window's first close,
   same Sharpe method.**
 - **D7 Skips:** **half days from Alpaca's calendar (close before 16:00); a missing 15:29 or 15:30 bar, closing
@@ -133,4 +148,8 @@ A probe first checks coverage only and computes no returns **[D15]**.
 - **D14 One run:** **both windows and every line in a single run with one lock, since rule 5 uses the 2016-2020
   window.**
 - **D15 Probe first:** **a probe that reports data coverage only (sessions, half days, missing bars, closing-print
-  matches, VIX days) and computes no returns, then lock.**
+  matches, VIX days) and computes no returns, then lock.** **Approved.** The probe also caches all the run's data.
+- D3, D6-D14: approved as proposed.
+
+## 10. Probe result
+_Pending: the probe's coverage table goes here before the run is built._
