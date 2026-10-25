@@ -166,6 +166,19 @@ Price bands:
   executable quote 44, regime 22, cooldown 20, spread 15, reentry_without_target 8, fill below stop 1.
 - Overlap reminder (section 5): the holdout is not fresh for E's entries, only for the exit comparison.
 
+### Time-of-day split (information only, read Oct 25, 2026 from the locked trades.csv files; nothing rerun)
+By entry fill time (ET). Tuning has no fills after 11:00.
+
+| Window | Run | before 09:45 | 09:45-11:00 | after 11:00 |
+|---|---|---|---|---|
+| tuning | E-current | 18 tr, -7.7R, -$110.97, win 28%, PF 0.44 | 35 tr, +3.9R, +$75.42, win 43%, PF 1.25 | 0 |
+| tuning | E-J | 18 tr, -10.4R, -$141.43, win 39%, PF 0.11 | 35 tr, +5.1R, +$99.67, win 60%, PF 1.40 | 0 |
+| holdout | E-current | 6 tr, +2.0R, +$29.32, win 50%, PF 1.84 | 6 tr, -3.3R, -$65.23, win 17%, PF 0.05 | 1 tr (ARTL, fill 11:14), +4.0R, +$79.38 |
+| holdout | E-J | 6 tr, +4.6R, +$105.64, win 67%, PF 3.18 | 6 tr, -1.6R, -$31.05, win 33%, PF 0.26 | 1 tr, +6.1R, +$122.13 |
+
+The tuning split was found after the results; the holdout goes the other way on 6 trades a side. It is judged on
+unseen paper trades (docs/strategy-e-paper-run.md, secondary verdict), not here.
+
 ### 08:00 ET finding (checked before the verdict was read; no code bug)
 - In tuning, 4 news-regime trades exit at exactly 08:00: WOLF 2024-10-15, TNON 2024-10-31, DGNX 2025-10-09,
   BIAF 2026-03-25 (E-current: DGNX and BIAF stops; E-J: all four, WOLF and TNON at breakeven after scale-outs).
