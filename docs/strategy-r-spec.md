@@ -1,9 +1,9 @@
 # Strategy R ("Ross-type"): H1, H2, H3 - DRAFT (Oct 25, 2026)
 
-**Status: DRAFT. Nothing is locked, built or run. R is not locked until U1 (PR #114) is merged and its results
-are recorded in docs/backtest-known-issues.md (Jose, Oct 25, 2026).** Open decisions are listed with a default (section 10); Jose
-approves or changes them, then the spec is locked before any result is seen. Source: the Ross audit
-(`docs/ross-audit.md`), hypotheses H1 (who) and H2 (when), plus H3 (Jose, Oct 25).
+**Status: DRAFT; R1-R14 approved by Jose as proposed (Oct 25, 2026), with the three additions in section 10. Not
+locked, built or run. R is locked only after U1 (PR #114) is merged and its results are recorded in
+docs/backtest-known-issues.md (Jose, Oct 25, 2026).** Source: the Ross audit (`docs/ross-audit.md`), hypotheses H1
+(who) and H2 (when), plus H3 (Jose, Oct 25).
 
 Live Strategy E and its paper test are not touched.
 
@@ -81,7 +81,8 @@ Two candidates from the audit:
 - **Target sell:** the target, on a trade-through by $0.01; no slippage (limit).
 - **Flatten 15:30:** the 15:30 bar's open - half spread - $0.01.
 - Volume caps as in E: shares <= 1% of the volume so far and <= 10% of the fill bar's volume.
-- Fees: SEC $20.60 per $1M sold, FINRA TAF $0.000195 per share sold (max $9.79), commission $0.
+- Fees: E's constants (`RULEBOOK.costs`): SEC $20.60 per $1M sold, FINRA TAF $0.000195 per share sold (max
+  $9.79), commission $0, on top of the fill prices above (Jose, Oct 25).
 
 ## 8. Account, windows, pass rule
 - $2,000 start, compounding; risk 1% of equity per trade; at most 25% of equity per position; at most 3 open
@@ -100,13 +101,35 @@ Two candidates from the audit:
     decided by Jose before the run, default H1 (most trades). **[R13]**
   - A pass leads only to a locked paper test with its own fill audit, never straight to live money.
 
-## 9. Probe first (counts only, no returns)
-Before the lock: per window and line, trading days; U1 entities in the candidate set; candidate stock-days passing
-section 3; triggers found; halts inferred; quote coverage and median pre-market spread; EDGAR float coverage
-(found / foreign / no value / stale) by calendar year, against the 75% floor (section 2); expected trade count. If the holdout cannot reach 30 trades on a line, that
-is decided before any result **[R14]**.
+## 9. Probe first (counts only: no exits, no returns)
+`npx tsx scripts/backtest/strategy-r.ts --probe` (built Oct 25, 2026; needs the U1 code, so it runs from a branch
+that includes it). It also caches the data the run needs. It reports, per window:
+- trading days; pre-screened stock-days (daily high >= +20%, $2-20 touched, >= 500k shares); **candidate stock-days**
+  (section 3 except float holds at some bar close 07:00-11:00), and how many of them are U1 delisted entities;
+  inferred halts on candidate days.
+- **Float coverage by calendar year** for the candidate stock-days against the 75% floor (section 2), with the
+  **foreign filers excluded by R2 counted by year** (Jose's R2 addition), misses by reason, the share <= 5M, and U1
+  coverage.
+- Per line (H1, H2, H3): breaks found; why a break was not a setup (window, price, gain, volume, news, foreign, no
+  float, float over 5M); setups; skipped setups by reason; **setups skipped for a spread over 3%, by hour**, with a
+  **flag if more than half of H2's setups are skipped** (Jose's R11 addition; the rule does not change); median
+  quoted spread pre-market and in regular hours; quote coverage.
+- **Estimated trades per line** (Jose's R12/R14 addition): setups that would fill, as a range: upper = every fill
+  (no position cap), lower = at most 3 a day (the position cap). Sizing at $2,000 with no P&L (the probe computes
+  none), so the 4% daily loss limit and compounding are not in the estimate. A holdout line whose upper count is
+  under 30 is flagged for R14 before the lock; one whose range straddles 30 is flagged too, and its count in the
+  run decides.
+- The trigger and filters run exactly as in sections 3-7; the probe stops at the entry (no stop, target or exit is
+  simulated). Files: `backtests/strategy-r/probe/report.txt`, `probe.json`, `setups.csv` (one row per setup: the
+  decision, never an outcome).
 
 ## 10. Open decisions (defaults proposed)
+Approved by Jose as proposed (Oct 25, 2026), with three additions: **R2** also reports the candidate stock-days
+excluded as foreign filers, by year (Ross trades many Cayman and Chinese names; this shows what the exclusion
+costs). **R11** reports setups skipped for a spread over 3%, by line and by hour; if more than half of H2's setups
+are skipped, the report flags it; the rule does not change. **R12/R14** the probe estimates holdout trade counts per
+line before the lock; fees are E's constants on top of R11's fill price.
+
 - **R1** U1 universe required. Default: yes; the U1 probe and the Ross Q1/Q2 rerun come first. (Locked by Jose,
   Oct 25: U1 merged and its results in before R is locked.)
 - **R2** Foreign filers (20-F / 40-F; ADR share counts are not comparable, known issue 3). Default: excluded, counted.
@@ -128,6 +151,12 @@ is decided before any result **[R14]**.
   H1 preferred.
 - **R14** If the probe says the holdout cannot reach 30 trades on a line. Default: that line is reported as
   information only for the backtest and goes straight to a locked paper test only by Jose's decision.
+
+**Open (proposed Oct 25, needs Jose's call before the lock):**
+- **R15 Coverage base.** The locked 75% floor needs a denominator. Default: covered / (candidate stock-days - foreign
+  filers), because R2 excludes foreign filers by rule, not for missing data; the share including foreign filers is
+  reported next to it. Alternative: count foreign filers as not covered (stricter; with many Cayman and Chinese
+  names it may push a year under 75%).
 
 ## 11. Caveats
 - Ross's edge may be his execution (direct-access routing, hotkeys, level 2 and tape reading, 10-second charts) and
