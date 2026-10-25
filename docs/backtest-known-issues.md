@@ -11,7 +11,13 @@ strategies). Not built; fix before any future backtest that needs a clean univer
 - FMP's delisted list (listed exchanges, window Oct 14, 2021 - Oct 11, 2024): 3,302 symbols; 280 in the universe
   under the same symbol; 3,022 missing (515 / 1,407 / 1,100 by year). The FMP list includes preferreds, units,
   warrants and some funds, so the common-stock gap is smaller, but after Oct 2022 almost no delisting is present.
-- **Fix U1 (proposed, not built):** add FMP's delisted common stocks (drop preferreds `-P*`, units, warrants,
+- **Fix U1 - built Oct 25, 2026 (opt-in; `scripts/backtest/u1-delisted.ts`, tests `tests/u1-delisted.test.mjs`).** No existing
+  script turns it on, so the locked runs and their caches are unchanged. Probe: `npx tsx scripts/backtest/u1-delisted.ts --probe`
+  (counts: FMP delisted commons, Alpaca bars under the old ticker with `asof`, EDGAR CIK by old name; writes
+  `backtests/u1/entities.csv`, `renames.csv`, `probe.json`). Also added: FMP symbol changes, so an old ticker used
+  before a rename resolves to the new symbol (Alpaca keeps the history under the new one). First user: the Ross audit
+  (`ross-audit.ts --u1 --only=q1q2`). Results: pending the probe.
+- Original proposal: add FMP's delisted common stocks (drop preferreds `-P*`, units, warrants,
   rights, funds) to the universe as delisted; load their daily and minute bars from Alpaca under the old ticker
   and count those with no Alpaca data; map each to its EDGAR company by the old company name (SEC's
   cik-lookup-data / former names), not today's ticker map, so reused tickers resolve to the right company. A probe
