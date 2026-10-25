@@ -21,13 +21,21 @@ export const EDGAR_FLOAT = {
 export type SharePoint = { filed: string; end: string; shares: number; form: string; accn: string }
 export type SharesRecord = { cik: string; entityName: string | null; source: string | null; points: SharePoint[] }
 export type FilerType = 'domestic' | 'foreign' | 'unknown'
-export type FloatMiss = 'no-cik' | 'name-mismatch' | 'no-value' | 'none-filed-before' | 'stale' | 'no-split-data'
+export type FloatMiss = 'sec-error' | 'no-cik' | 'name-mismatch' | 'no-value' | 'none-filed-before' | 'stale' | 'no-split-data'
 export type FloatResult = { shares: number; filed: string; ageDays: number; source: string; filer: FilerType } | { miss: FloatMiss; filer: FilerType }
 
-/** Facts from one companyconcept response -> one point per filing (classes summed, duplicates dropped). Pure. */
-export function sharePoints(units: Array<{ end?: string; val?: number; accn?: string; form?: string; filed?: string }>): SharePoint[] {
+/** One company's SEC data could not be read (bad response, parse failure, request failure): not cached, retried next run. */
+export class SecDataError extends Error {}
+export const edgarIssues = { noSharesShape: 0, errors: 0 }
+const LOG_FIRST = 5
+
+/** Facts from one companyconcept response -> one point per filing (classes summed, duplicates dropped). A missing or
+ *  non-array value is no data. Pure. */
+export function sharePoints(units: unknown): SharePoint[] {
+  if (!Array.isArray(units)) return []
   const byFiling = new Map<string, { filed: string; end: string; form: string; values: Map<string, number> }>()
-  for (const u of units) {
+  for (const u of units as Array<{ end?: string; val?: number; accn?: string; form?: string; filed?: string } | null>) {
+    if (!u || typeof u !== 'object') continue
     if (!u.accn || !u.filed || !u.end || !(Number(u.val) > 0)) continue
     const row = byFiling.get(u.accn) ?? { filed: u.filed, end: u.end, form: u.form ?? '', values: new Map<string, number>() }
     if (u.end > row.end) { row.end = u.end; row.values.clear() } // keep the latest as-of date in that filing
@@ -87,29 +95,52 @@ export async function sharesRecord(cik: string): Promise<SharesRecord> {
   if (hit) return hit
   let out: SharesRecord = { cik, entityName: null, source: null, points: [] }
   for (const [taxonomy, tag] of EDGAR_FLOAT.tags) {
+    // sec() returns null on 404 (SEC's answer when the company never reported this concept): try the next tag.
+    // Request failures (retries used up, 403) throw and are counted as sec-error by the caller; nothing is cached.
     const text = await sec(`https://data.sec.gov/api/xbrl/companyconcept/CIK${cik}/${taxonomy}/${tag}.json`)
     if (!text) continue
-    const json = JSON.parse(text) as { entityName?: string; units?: Record<string, Array<{ end?: string; val?: number; accn?: string; form?: string; filed?: string }>> }
-    const points = sharePoints(json.units?.shares ?? [])
-    out = { cik, entityName: json.entityName ?? out.entityName, source: `${taxonomy}:${tag}`, points }
+    let json: unknown
+    try { json = JSON.parse(text) } catch { throw new SecDataError(`CIK ${cik} ${taxonomy}:${tag}: response is not JSON (${text.slice(0, 60).replace(/\s+/g, ' ')})`) }
+    if (!json || typeof json !== 'object' || Array.isArray(json)) throw new SecDataError(`CIK ${cik} ${taxonomy}:${tag}: response is not a JSON object`)
+    const obj = json as Record<string, unknown>
+    const units = obj.units
+    const shares = units && typeof units === 'object' && !Array.isArray(units) ? (units as Record<string, unknown>).shares : undefined
+    if (!Array.isArray(shares)) {
+      edgarIssues.noSharesShape += 1
+      if (edgarIssues.noSharesShape <= LOG_FIRST) {
+        const unitKeys = units && typeof units === 'object' && !Array.isArray(units) ? Object.keys(units as object).join(',') : typeof units
+        console.log(`[edgar-float] CIK ${cik} ${taxonomy}:${tag}: no units.shares array -> no data (top-level keys: ${Object.keys(obj).join(',')}; units: ${unitKeys})`)
+      }
+    }
+    const points = sharePoints(shares)
+    out = { cik, entityName: typeof obj.entityName === 'string' ? obj.entityName : out.entityName, source: `${taxonomy}:${tag}`, points }
     if (points.length) break
   }
   writeCache(key, out)
   return out
 }
 
-type SymbolFloat = { cik: string | null; record: SharesRecord | null; nameOk: boolean; annual: Awaited<ReturnType<typeof secCompany>>['annual'] }
+export type SymbolFloat = { cik: string | null; record: SharesRecord | null; nameOk: boolean; annual: Awaited<ReturnType<typeof secCompany>>['annual']; error?: string }
 
 /** Builds the per-symbol EDGAR data for `symbols` (SEC at under 10 requests/s; cached per CIK). */
 export async function loadEdgarFloat(symbols: string[], names: Map<string, string>, onProgress?: (done: number) => void) {
   const out = new Map<string, SymbolFloat>()
   let done = 0
   for (const symbol of symbols) {
-    const { cik } = await cikFor(symbol)
-    if (!cik) out.set(symbol, { cik: null, record: null, nameOk: false, annual: [] })
-    else {
-      const [record, company] = [await sharesRecord(cik), await secCompany(cik)]
-      out.set(symbol, { cik, record, nameOk: namesMatch(names.get(symbol), record.entityName), annual: company.annual })
+    let cik: string | null = null
+    try {
+      cik = (await cikFor(symbol)).cik
+      if (!cik) out.set(symbol, { cik: null, record: null, nameOk: false, annual: [] })
+      else {
+        const [record, company] = [await sharesRecord(cik), await secCompany(cik)]
+        out.set(symbol, { cik, record, nameOk: namesMatch(names.get(symbol), record.entityName), annual: company.annual })
+      }
+    } catch (error) {
+      // One company's failure never stops the run: counted as sec-error, not cached, retried on the next run.
+      const message = error instanceof Error ? error.message : String(error)
+      edgarIssues.errors += 1
+      if (edgarIssues.errors <= LOG_FIRST) console.log(`[edgar-float] ${symbol}${cik ? ` (CIK ${cik})` : ''}: SEC data error, counted as sec-error: ${message.slice(0, 200)}`)
+      out.set(symbol, { cik, record: null, nameOk: false, annual: [], error: message })
     }
     done += 1
     if (onProgress && done % 250 === 0) onProgress(done)
@@ -126,6 +157,7 @@ export function filerType(data: SymbolFloat | undefined, day: string): FilerType
 /** Float (EDGAR shares outstanding) on `day`, or the reason there is none. Pure given the loaded data. */
 export function edgarFloatOn(data: SymbolFloat | undefined, day: string, ratios?: { raw: Map<string, number>; adjusted: Map<string, number>; days: string[] }): FloatResult {
   const filer = filerType(data, day)
+  if (data?.error) return { miss: 'sec-error', filer }
   if (!data?.cik) return { miss: 'no-cik', filer }
   if (!data.nameOk) return { miss: 'name-mismatch', filer }
   if (!data.record?.points.length) return { miss: 'no-value', filer }

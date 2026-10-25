@@ -10,11 +10,11 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { scanConfig } from '../../lib/scan-config'
 import { CLEAN_MOMENTUM_MIN_PRICE } from '../../lib/strategies/clean-momentum'
-import { apiStats, CACHE_ROOT, getDailyBars, getDailyBarsSplitAdjusted, hashKey } from './data'
+import { apiStats, CACHE_ROOT, fetchJson, getDailyBars, getDailyBarsSplitAdjusted, hashKey, readCache, writeCache } from './data'
 import { daySymbolSets, loadDay, prefetchDay, setFifteenMinuteWindow } from './market'
 import { buildUniverse, toEasternDay, type Universe } from './universe'
 import { edgarStats } from './rulebook/edgar-earnings'
-import { EDGAR_FLOAT, edgarFloatOn, loadEdgarFloat, type FilerType, type FloatMiss } from './edgar-float'
+import { EDGAR_FLOAT, edgarFloatOn, edgarIssues, loadEdgarFloat, type FilerType, type FloatMiss } from './edgar-float'
 
 export const EJ310 = {
   fresh: ['2021-10-14', '2024-10-11'] as [string, string],
@@ -50,6 +50,63 @@ const median = (xs: number[]) => { if (!xs.length) return null; const s = [...xs
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i
 const seg = (s: string) => { const c = s.replace(/[:*?"<>|]/g, '-'); return WINDOWS_RESERVED.test(c.split('.')[0]) ? `_${c}` : c }
 
+type FmpDelisted = { symbol?: string; companyName?: string; exchange?: string; delistedDate?: string }
+const LISTED_EXCHANGES = /^(NASDAQ|NYSE|AMEX|NYSE ?AMERICAN|NYSEAMERICAN|NYSE ?ARCA|BATS|CBOE)$/i
+
+/** FMP's list of delisted companies (paged; cached). null if the plan or the request does not allow it. */
+async function fmpDelistedCompanies(): Promise<FmpDelisted[] | null> {
+  const key = 'fmp/delisted-companies-all-v1'
+  const hit = readCache<FmpDelisted[]>(key)
+  if (hit) return hit
+  const apiKey = process.env.FMP_API_KEY?.trim()
+  const rows: FmpDelisted[] = []
+  try {
+    for (let page = 0; page < 500; page += 1) {
+      const batch = await fetchJson<FmpDelisted[]>(`https://financialmodelingprep.com/stable/delisted-companies?page=${page}&limit=100&apikey=${apiKey}`, 'fmp-delisted', 'fmp')
+      if (!Array.isArray(batch) || !batch.length) break
+      rows.push(...batch)
+    }
+  } catch (error) {
+    console.log(`[ej310] FMP delisted-companies list unavailable (${error instanceof Error ? error.message.slice(0, 120) : error}); the outside check is skipped`)
+    return null
+  }
+  writeCache(key, rows)
+  return rows
+}
+
+/** Q4 (Oct 24): do the 2021-24 delistings appear in the universe (Alpaca's asset list, active + inactive)? Read-only. */
+async function universeCheck(universe: Universe, start: string, end: string) {
+  console.log(`\n[ej310] ===== UNIVERSE CHECK: delistings ${start}..${end} =====`)
+  console.log('[ej310] The universe is Alpaca\'s asset list as it is today (active + inactive), the same for every window.')
+  const buckets = new Map<string, number>()
+  const bump = (k: string) => buckets.set(k, (buckets.get(k) ?? 0) + 1)
+  for (const symbol of universe.delisted) {
+    const rows = universe.daily.get(symbol) ?? []
+    const last = rows.at(-1)?.day
+    if (!last) bump('no daily bars in the loaded history (Aug 2021 - Oct 2024): delisted before it, or no data')
+    else if (last < start) bump(`last bar before ${start}`)
+    else if (last >= end || rows.some((r) => r.day >= end)) bump(`still trading at ${end} (delisted later)`)
+    else {
+      const y = EJ310.years.findIndex(([a, b]) => last >= a && last <= b)
+      bump(`last bar in ${y >= 0 ? `${EJ310.years[y][0]}..${EJ310.years[y][1]}` : last.slice(0, 4)} (delisted inside the window)`)
+    }
+  }
+  console.log(`[ej310] Alpaca-inactive symbols in the universe: ${universe.delisted.size}, by their last daily bar:`)
+  for (const [k, v] of [...buckets].sort()) console.log(`[ej310]   ${String(v).padStart(5)}  ${k}`)
+  const fmp = await fmpDelistedCompanies()
+  if (!fmp) return
+  const inWindow = fmp.filter((r) => r.symbol && r.delistedDate && r.delistedDate >= start && r.delistedDate <= end && LISTED_EXCHANGES.test((r.exchange ?? '').trim()))
+  const bySymbol = new Map(inWindow.map((r) => [r.symbol!.toUpperCase(), r]))
+  const present = [...bySymbol.keys()].filter((s) => universe.names.has(s))
+  const withBars = present.filter((s) => (universe.daily.get(s) ?? []).some((r) => r.day >= start && r.day <= end))
+  const missing = [...bySymbol.keys()].filter((s) => !universe.names.has(s)).sort()
+  const byYear = (list: string[]) => EJ310.years.map(([a, b]) => list.filter((s) => { const d = bySymbol.get(s)!.delistedDate!; return d >= a && d <= b }).length).join(' / ')
+  console.log(`[ej310] Outside check (FMP delisted companies, NASDAQ/NYSE/AMEX/ARCA/BATS, delisted ${start}..${end}): ${bySymbol.size} symbols (${byYear([...bySymbol.keys()])} by year)`)
+  console.log(`[ej310]   in the universe under the same symbol: ${present.length} (${byYear(present)}); with daily bars in the window: ${withBars.length}`)
+  console.log(`[ej310]   MISSING from the universe: ${missing.length} (${byYear(missing)}); first 25: ${missing.slice(0, 25).join(', ')}`)
+  console.log('[ej310]   (same-symbol match only: a ticker later reused by another company counts as present; the EDGAR name check handles those)')
+}
+
 async function probe(out: string) {
   const t0 = Date.now()
   const mins = () => `${((Date.now() - t0) / 60_000).toFixed(1)} min`
@@ -59,6 +116,9 @@ async function probe(out: string) {
   const universe = await buildUniverse({ historyStart, end, periodStart: start, simFrom: start, simTo: end })
   const days = universe.tradingDays.filter((d) => d >= start && d <= end)
   console.log(`[ej310] PROBE ${start} to ${end}: ${days.length} days, ${universe.symbols.length} symbols (${universe.delisted.size} delisted) (${mins()})`)
+
+  // 0. Universe check: are the 2021-24 delistings in the universe? (spec 0.1)
+  await universeCheck(universe, start, end)
 
   // 1. EDGAR float for every symbol with a day E could enter on
   const enterable = enterableDays(universe, start, end)
@@ -74,7 +134,7 @@ async function probe(out: string) {
     const adj = new Map((adjusted[s] ?? []).map((b) => [toEasternDay(b.t), b.c]))
     return [s, { raw, adjusted: adj, days: [...raw.keys()].filter((d) => adj.has(d)).sort() }]
   }))
-  console.log(`[ej310] EDGAR loaded (${mins()}; SEC ${edgarStats.secRequests}, FMP ${edgarStats.fmpRequests})`)
+  console.log(`[ej310] EDGAR loaded (${mins()}; SEC ${edgarStats.secRequests}, FMP ${edgarStats.fmpRequests}; companies with a SEC data error: ${edgarIssues.errors} (not cached, retried on a rerun); responses with no units.shares: ${edgarIssues.noSharesShape})`)
 
   // 2. coverage by year x filer type x live/delisted
   const table = new Map<string, Cell>()

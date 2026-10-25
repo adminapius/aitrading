@@ -51,6 +51,10 @@ window is the only fresh test, as Jose set. This is why the info-only run on the
 
 ### 0.3 D2 probe result
 _Pending: the probe's coverage table goes here before any run._
+The probe also prints a universe check (Jose, Oct 24): the universe is Alpaca's asset list as it is today
+(active + inactive), the same for every window, so the probe counts the inactive symbols by their last daily bar
+and compares FMP's list of companies delisted in the window with the universe. Its result is recorded here before
+lock of the window; symbols missing from the universe would need adding (see the probe output) before any run.
 
 ## 1. Rules (as Jose wrote them)
 - **Base: E-J without adds.** Everything else exactly as E-J (docs/strategy-ej-spec.md, sections 1-4 and 10): E's
@@ -138,7 +142,10 @@ changed (its runs are locked and recorded). The D1 float source is a new data mo
   annual 20-F through, not one a year late); split-adjusted from the count's as-of date to the trade day with
   Alpaca raw vs split-adjusted daily closes, using only the splits between those two dates (splits after the trade
   day cancel out; tested); a count dated before the first available daily bar is `no-split-data` (excluded,
-  counted), and daily bars are loaded from 560 days before the window so this stays rare; ticker-reuse guard: the Alpaca asset name and the EDGAR company name
+  counted), and daily bars are loaded from 560 days before the window so this stays rare;
+  a company whose SEC data cannot be read (request failure after retries, a response that is not JSON or not an
+  object) is `sec-error` (excluded, counted, not cached, retried on a rerun) and never stops the run; a response
+  with no `units.shares` array, or a 404 on all three concepts, is `no-value`; ticker-reuse guard: the Alpaca asset name and the EDGAR company name
   must share a distinctive word, otherwise `name-mismatch` (excluded, counted). Filer type: foreign when the latest
   annual report filed before the day is a 20-F or 40-F.
 - **D2 Window and coverage check:** **Oct 14, 2021 - Oct 11, 2024 as Jose set, if the probe shows at least 90% of
