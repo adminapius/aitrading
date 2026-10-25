@@ -125,7 +125,7 @@ that includes it). It also caches the data the run needs. It reports, per window
 
 ### 9b. Probe result (Jose's laptop, Oct 25, 2026; counts only; 35.9 min, SEC 2,382 and Alpaca 5,763 requests)
 Universe 14,140 symbols + 1,117 U1 delisted entities (U1 merged Oct 25, PR #114). Daily pre-screen: 3,128 symbols,
-16,332 stock-days (536 of the candidate stock-days are U1 entities).
+16,332 stock-days (536 of the symbols are U1 entities).
 
 | Window | Trading days | Pre-screened stock-days | Candidate stock-days | of them U1 | Inferred halts on candidate days |
 |---|---|---|---|---|---|
