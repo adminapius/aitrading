@@ -1,6 +1,6 @@
 # Ross audit ("Strategy R" research) - read-only
 
-Status: **Step 1 done (trades collected). Step 2 script ready, waiting for Jose's run. Step 3 (findings, at most 2 hypotheses) after that run.**
+Status: **Done (Oct 25, 2026).** Step 1 trades collected, Step 2 run by Jose (cache only, `backtests/ross-audit/report.txt`), Step 3 findings and 2 hypotheses below. Nothing was built from them.
 
 Nothing here changes Strategy E, runs a locked window, or touches the worker, Supabase or any live setting.
 The E paper test (counting from Mon Oct 26, verdict at trade 30) is not affected.
@@ -87,7 +87,7 @@ Result, in `backtests/ross-audit/trades.csv` (one row per ticker per day; `row_t
 | 540 | 2024-11-12 | SAI?, LEDS, FOXO | n/a (small green) | cold |
 | 555 | 2024-10-28 | EVOK, AMIX, SPGC | 47,646 | hot |
 
-## Step 2 - audit against the E replay's cache (pending Jose's run)
+## Step 2 - audit against the E replay's cache (run Oct 25, 2026)
 
 Script: `scripts/backtest/ross-audit.ts` (tests: `tests/ross-audit.test.mjs`). Cache only by default; it reads the
 E replay's universe, minute bars, RVOL baselines, news and quotes from `.cache/backtest`, and E-current trades from
@@ -121,6 +121,71 @@ How each question is answered:
   count). Bucketed against E-current's daily P&L (all days) and Ross's stated day P&L and hot/cold word (sampled
   days only), with simple correlations.
 
-## Step 3 - findings and hypotheses
+## Step 3 - findings
 
-Pending the Step 2 output. At most 2 hypotheses for a future locked test will be written here; none will be built.
+From `backtests/ross-audit/report.txt` (per-row detail in `q1q2.csv`, `q3.csv`, `q4.csv`, `q5-daily.csv` on Jose's
+laptop). E here is **E-current from the locked E-J replay**: 66 trades in 504 days, $2,000 compounding.
+
+**1. A third of what Ross traded does not exist in our replay data (data issue, not a strategy finding).**
+34 of 110 ticker-days are "not in the universe". The universe is Alpaca's asset list as it is today
+(known issue U1 in `docs/backtest-known-issues.md`): tickers that were since renamed, delisted or reverse-split
+into a new symbol are missing. Ross's names are exactly that kind of stock. Every E backtest so far is blind to
+them, and any test of a Ross-like rule would be biased (the names that later died are the ones missing).
+
+**2. Of the 76 that are in the data, E's scanner and filters see few, and E traded none.**
+- First blocking reason at the scan at or before his entry: not in E's top-25 gainers 15; **RVOL baseline unreliable
+  12**; no trades yet at that scan 10; E filter `gain_range` (day gain outside 20-30%) 6; entry time unknown 6;
+  not in E's day set for daily reasons 13; scanner minimum 4; float > 10M or unknown 3; price not above VWAP 3;
+  RVOL too low 2; no minute bars 1; ticker not named 2.
+- 46 of 110 were scanner- and float-eligible at some E scan 07:00-11:00; **E traded 0 of Ross's tickers** on his days.
+- "RVOL baseline unreliable" means the stock averaged under 10,000 shares by that time of day over the prior 10
+  sessions. Ross's best names are dormant until the news hits (SNSE traded 9,000 shares the day before), so E's
+  rule that the RVOL baseline must be "reliable" removes them by design.
+- **Q2 limitation:** Q2 ignores portfolio state (3 slots, loss limit), so "E would enter" is optimistic; no row
+  reached that point anyway.
+
+**3. Q3: on Ross's 38 days E made 5 trades, none in his tickers, together -$48.33.** None of the 5 were names
+he said he passed on; they were simply not on his radar.
+
+**4. Q4: Ross's trades are a different kind of trade from E's** (Ross main account n=53; E n=5, too few to compare
+carefully):
+
+| at entry (median) | Ross | E |
+|---|---|---|
+| float | 1.56M | 5.36M |
+| day gain | +58.6% | +25.4% (E's filter is 20-30%) |
+| price | $4.61 | $21.28 |
+| time | 07:46 ET | 09:45 ET |
+| RVOL (E baseline, where available) | 10.1 (n 13) | 7.2 |
+| news age (Alpaca feed) | 78 min (n 30) | 93 min |
+| first-5-minute volume 09:30-09:35 | 1.51M | 0.42M |
+| premarket entry above all earlier premarket highs | 36% of 39 | 0% of 1 |
+| halt-like gaps before entry | 0 | 0 |
+
+He buys earlier (pre-market, around 07:00-08:30), in smaller floats, cheaper stocks, already up much more, on
+stocks with far more volume at the open. E's 20-30% gain band and its RVOL-reliability gate exclude most of that.
+
+**5. Q5: the count of "big movers" does not explain either P&L.** Stocks up >= 50% on >= 10M shares by 10:00 ET
+were almost always present (0 on only 3 of 504 days; 373 days had 3 or more). Correlation of that count with
+Ross's day P&L: 0.03 (34 days); with E's day P&L: 0.07 (504 days). E made money mainly on 5+ days ($1.02 a day;
+noise at this size). Ross's own word tracks his own P&L (median day: "hot" $28,875, "neutral" $11,698, "cold"
+$2,993) more than this count (median count 4, 5, 3). His "hot/cold" is partly a description of his own results,
+so it cannot be used as an independent market signal.
+
+Caveats again: his numbers are self-reported; his entry minutes are stated or inferred from his stated price;
+his size and execution (Lightspeed, hotkeys, tape reading) are not E's; only 1 of 38 sampled days was red.
+
+## Hypotheses for a future locked test (not built)
+
+Both require fix U1 (delisted and renamed tickers in the universe) **first**; otherwise a third of the relevant
+stocks are missing and the test is biased toward survivors.
+
+- **H1 - who:** E's scanner admits Ross-type stocks: float <= 5M, price $2-20, breaking news within 2 hours, day
+  gain >= 20% with no upper cap, and an absolute volume floor (for example >= 500,000 shares so far) in place of the
+  RVOL-reliability gate. Same stops, targets, sizing and costs as E. The question: is expectancy positive at E's
+  fill model, or is Ross's edge his execution and size?
+- **H2 - when:** the same entries, but only at scans from 07:00 to 09:30 ET (Ross's median entry is 07:46; E's is
+  09:45), compared with the same rules 09:30-11:00.
+
+Each would need its own locked spec (windows, pass rule, costs) before any result is seen. Neither changes E's
+paper test.

@@ -1,0 +1,50 @@
+[ross] read-only audit; cache only
+[ross] 110 sampled Ross ticker-days (8 mentioned-only rows ignored), 85 passes; 66 E-current trades
+[ross] Q5: counting stocks up >= 50% on >= 10M shares by 10:00 ET on 504 days...
+
+[ross] ===== Q1/Q2: Ross's 110 sampled ticker-days on 38 days in the E window =====
+        34  not in day set: not in the universe
+        15  not in top-25 gainers at that scan
+        12  gate: RVOL baseline unreliable
+        10  no trades yet at that scan
+         6  E filter: gain_range
+         6  Ross entry time unknown
+         5  not in day set: day gain -N% < N% and float NM
+         4  scanner minimum
+         3  not in day set: day gain N% < N% and float NM
+         3  float > 10M or unknown
+         3  gate: price not above VWAP
+         2  gate: RVOL N < N
+         2  not in day set: daily volume N < N
+         2  ticker not named
+         2  not in day set: day gain -N% < N% and float unknown
+         1  not in day set: in the day set but no minute bars
+      ever scanner+float eligible at an E scan 07:00-11:00: 46 of 110; E traded the same ticker that day: 0
+
+[ross] ===== Q3: E-current trades on Ross's days =====
+      5 E trades; 0 in tickers Ross traded, 5 not (0 of those he named and passed on)
+      E P&L on Ross's tickers $0.00, on others $-48.33
+
+[ross] ===== Q4: medians at entry (Ross main account n=53, E n=5) =====
+      float (M shares)                       Ross       1.56 (n 51)   E       5.36 (n 5)
+      % gain at entry                        Ross       58.6 (n 45)   E       25.4 (n 5)
+      RVOL (E scan baseline)                 Ross       10.1 (n 13)   E        7.2 (n 5)
+      price                                  Ross       4.61 (n 45)   E      21.28 (n 5)
+      entry time (min after midnight ET)     Ross        466 (n 53)   E        585 (n 5)   = Ross 07:46, E 09:45
+      news age (min, Alpaca news only)       Ross         78 (n 30)   E         93 (n 5)
+      halt-like gaps before entry            Ross          0 (n 53)   E          0 (n 5)
+      first-5-minute volume (09:30-09:35)    Ross    1505046 (n 53)   E     419036 (n 5)
+      premarket-high break at entry (premarket entries only): Ross 36% of 39, E 0% of 1
+
+[ross] ===== Q5: stocks up >= 50% on >= 10M shares by 10:00 ET (504 days) =====
+      count 0       3 days | E: 1 trades, $29 total, $9.67/day | Ross sampled days 0: median day $, hot 0 / cold 0
+      count 1      60 days | E: 14 trades, $-80 total, $-1.33/day | Ross sampled days 2: median day $11786, hot 0 / cold 1
+      count 2      68 days | E: 10 trades, $24 total, $0.35/day | Ross sampled days 3: median day $13263, hot 0 / cold 3
+      count 3-4   236 days | E: 21 trades, $-104 total, $-0.44/day | Ross sampled days 17: median day $11735, hot 7 / cold 7
+      count 5+    137 days | E: 20 trades, $139 total, $1.02/day | Ross sampled days 12: median day $16309, hot 5 / cold 2
+      correlation count vs Ross day P&L (n 34): 0.03; count vs E day P&L (n 504): 0.07
+      Ross said hot    : 12 days, median count 4.0, median Ross day $28875
+      Ross said neutral: 9 days, median count 5.0, median Ross day $11698
+      Ross said cold   : 13 days, median count 3.0, median Ross day $2993
+
+[ross] wrote D:\Stocks Trading Apps\aitrading\backtests\ross-audit: q1q2.csv, q3.csv, q4.csv, q5-daily.csv, report.txt
