@@ -175,6 +175,21 @@ so it cannot be used as an independent market signal.
 Caveats again: his numbers are self-reported; his entry minutes are stated or inferred from his stated price;
 his size and execution (Lightspeed, hotkeys, tape reading) are not E's; only 1 of 38 sampled days was red.
 
+## U1 rerun (Q1/Q2 only, cache only; Jose's laptop, Oct 25, 2026)
+`npx tsx scripts/backtest/ross-audit.ts --u1 --only=q1q2 --out=backtests/ross-audit/u1` (universe 15,342 symbols on
+the first U1 probe; 1,202 entities added; none of the later filter changes touches a Ross ticker).
+- "Not in the universe" fell from 34 rows to 8: **26 found as delisted entities** (EVOK, SPGC, ALBT, VRME, APM, NLSP,
+  SYTA x2, MULN, POAI, DATS, VERO, FMTO, STSS, SGMA, WTO, ATNF x2, ADN, AGRI, QLGN, ATON, THAR, SNSE, VTAK, UBXG),
+  **0 through a rename, 8 still missing** (SAI?, FOXO, TN?, JELS?, BSLK, NVVE, ONCS, JTI; "?" = low-confidence
+  caption ticker).
+- E traded the same ticker on the same day: still 0 of 110. First blockers for the 26 newly found: not in E's top 25
+  gainers at the scan 5, RVOL baseline unreliable 4, no trades yet at the scan 3, float over 10M or unknown 3, Ross
+  entry time unknown 3, not in E's day set 5, scanner minimum 2, quote not cached 1.
+- All 110: not in the top 25 at that scan 20, RVOL baseline unreliable 16, no trades yet 13, Ross entry time unknown
+  9, not in the universe 8, others 44. Ever scanner- and float-eligible at an E scan 07:00-11:00: 57 of 110.
+- Reading: U1 closes most of the survivorship gap for Ross-type names; it does not change the audit's finding that
+  E's filters (top-25 rank, RVOL baseline, 20-30% gain, $3 floor) exclude them.
+
 ## Hypotheses for a future locked test (not built)
 
 Both require fix U1 (delisted and renamed tickers in the universe) **first**; otherwise a third of the relevant

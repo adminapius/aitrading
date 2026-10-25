@@ -29,7 +29,7 @@ const LISTED = /^(NASDAQ|NYSE|AMEX|NYSE ?AMERICAN|NYSEAMERICAN|NYSE ?ARCA|BATS|C
 
 // ---------------- pure helpers (tested) ----------------
 
-const NOT_COMMON_NAME = /\b(preferred|pref\.?|depositary shares? representing|units?|warrants?|rights?|notes?|debentures?|bonds?|fund|etf|etn|exchange[- ]traded|index|ishares|proshares|direxion|invesco|spdr|trust units|certificates?|% (senior|subordinated))\b|\d+(\.\d+)?\s?%/i
+const NOT_COMMON_NAME = /\b(preferred|pref\.?|depositary shares? representing|units?|warrants?|rights?|notes?|debentures?|bonds?|funds?|municipal|tax-free|etf|etn|exchange[- ]traded|index|ishares|proshares|direxion|invesco|spdr|trust units|certificates?|% (senior|subordinated))\b|\d+(\.\d+)?\s?%/i
 const NOT_COMMON_SYMBOL = /(?:[-.^](?:P|PR)[A-Z]?$|[-.]?(?:WS|WT|W|U|UN|R|RT)$|\+|\^|=)/
 /** Common stock (not a preferred, unit, warrant, right, note or fund) by FMP symbol and name. Pure. */
 export function isCommonStock(row: Pick<FmpDelisted, 'symbol' | 'companyName'>) {
