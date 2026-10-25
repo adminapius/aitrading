@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { asofFor, isCommonStock, normalizeCompanyName, parseCikLine, resolveTicker } from '../scripts/backtest/u1-delisted'
+import { alpacaTicker, asofFor, isCommonStock, normalizeCompanyName, parseCikLine, resolveTicker } from '../scripts/backtest/u1-delisted'
 
 test('isCommonStock: drops preferreds, units, warrants, rights, notes and funds', () => {
   assert.equal(isCommonStock({ symbol: 'ABCD', companyName: 'Abcd Therapeutics, Inc.' }), true)
@@ -14,6 +14,16 @@ test('isCommonStock: drops preferreds, units, warrants, rights, notes and funds'
   assert.equal(isCommonStock({ symbol: 'FUNX', companyName: 'Some Income Fund' }), false)
   assert.equal(isCommonStock({ symbol: 'NOTE', companyName: 'XYZ 5.25% Senior Notes due 2028' }), false)
   assert.equal(isCommonStock({ symbol: '', companyName: 'x' }), false)
+  // Oct 25 probe leaks: mutual funds (X), Nasdaq preferreds (P/O/N/M), convertibles
+  for (const s of ['CAEAX', 'JIGZX', 'TSAGX', 'MTBCO', 'OCESP', 'AUBAP', 'MPLXP', 'ABCDN', 'ABCDM', 'ABCDG']) assert.equal(isCommonStock({ symbol: s, companyName: 'Xyz' }), false, s)
+  for (const s of ['BHLLD', 'ABCDA', 'ABCDF', 'ABCDY', 'CWEN-A']) assert.equal(isCommonStock({ symbol: s, companyName: 'Xyz Inc' }), true, s)
+})
+
+test('alpacaTicker: FMP class shares use a dot at Alpaca', () => {
+  assert.equal(alpacaTicker('cwen-a'), 'CWEN.A')
+  assert.equal(alpacaTicker('BRK.B'), 'BRK.B')
+  assert.equal(alpacaTicker('XYZ-PA'), 'XYZ-PA')
+  assert.equal(alpacaTicker('ABCD'), 'ABCD')
 })
 
 test('asofFor: the calendar day before the delisting date', () => {

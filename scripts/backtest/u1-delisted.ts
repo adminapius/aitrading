@@ -35,11 +35,16 @@ const NOT_COMMON_SYMBOL = /(?:[-.^](?:P|PR)[A-Z]?$|[-.]?(?:WS|WT|W|U|UN|R|RT)$|\
 export function isCommonStock(row: Pick<FmpDelisted, 'symbol' | 'companyName'>) {
   const symbol = (row.symbol ?? '').toUpperCase().trim()
   if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol)) return false
-  // a 5-letter Nasdaq symbol ending in W/U/R is a warrant/unit/right; shorter symbols ending in those letters are normal
-  if (/^[A-Z]{4}[WUR]$/.test(symbol)) return false
+  // Nasdaq 5th-letter codes that are not common stock: W warrant, U unit, R right, X mutual fund, M/N/O/P preferred,
+  // G/H/I convertible, T with warrants, V when-issued, Z misc. Shorter symbols ending in those letters are normal.
+  // (A/B class, D new issue after a reverse split, E delinquent, F foreign, Q bankruptcy, Y ADR stay: those are commons.)
+  if (/^[A-Z]{4}[WURXMNOPGHITVZ]$/.test(symbol)) return false
   if (NOT_COMMON_SYMBOL.test(symbol) && /[-.]/.test(symbol)) return false
   return !NOT_COMMON_NAME.test(row.companyName ?? '')
 }
+
+/** FMP's class-share spelling ("CWEN-A") -> Alpaca's ("CWEN.A"); other symbols unchanged. Pure. */
+export const alpacaTicker = (symbol: string) => symbol.toUpperCase().trim().replace(/^([A-Z]{1,5})-([A-Z])$/, '$1.$2')
 
 /** The asof date for a delisted ticker: the calendar day before FMP's delisting date. Pure. */
 export function asofFor(delistedDate: string) {
@@ -178,7 +183,8 @@ export async function extendUniverse(universe: Universe, input: { historyStart: 
   const seen = new Set<string>()
   const todo: Array<{ ticker: string; asof: string; name: string; exchange: string; delistedDate: string }> = []
   for (const r of rows) {
-    const ticker = r.symbol!.toUpperCase().trim(), d = r.delistedDate!.slice(0, 10)
+    // FMP writes share classes as "CWEN-A"; Alpaca uses "CWEN.A"
+    const ticker = alpacaTicker(r.symbol!), d = r.delistedDate!.slice(0, 10)
     if (!isCommonStock(r)) { bump('dropped: preferred / unit / warrant / right / note / fund'); continue }
     const id = `${ticker}@${d}`
     if (seen.has(id)) { bump('dropped: duplicate row'); continue }
