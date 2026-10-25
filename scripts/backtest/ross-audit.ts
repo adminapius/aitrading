@@ -1,6 +1,10 @@
 // Ross audit ("Strategy R" research) - READ ONLY. No strategy changes, no locked runs, no live code.
 //
 //   npx tsx scripts/backtest/ross-audit.ts --csv=backtests/ross-audit/trades.csv --ej=backtests/strategy-ej --out=backtests/ross-audit
+//   U1 rerun of Q1/Q2 only (delisted + renamed tickers added): first --prefetch (downloads, writes nothing else), then
+//   the same command without it (cache only):
+//   npx tsx scripts/backtest/ross-audit.ts --u1 --only=q1q2 --prefetch --out=backtests/ross-audit/u1
+//   npx tsx scripts/backtest/ross-audit.ts --u1 --only=q1q2 --out=backtests/ross-audit/u1
 //
 // Reads (cache only by default; --fetch allows read-only Alpaca GETs for missing quotes/bars, outside 06:45-16:05 ET):
 //   - Ross Cameron's own stated trades (backtests/ross-audit/trades.csv, collected from his YouTube recaps)
@@ -21,7 +25,11 @@ import { pathToFileURL } from 'node:url'
 import { scanConfig } from '../../lib/scan-config'
 import { normalizeFloatShares, scoreCandidate, strategyRegime, type ScanCandidate } from '../../lib/strategy'
 import { cleanMomentumBlockReason } from '../../lib/strategies/clean-momentum'
-import { getLatestQuote, getMinuteBarsForDay, setCacheOnly, type RawBar } from './data'
+import { getDailyBarsAsof, getLatestQuote, getMinuteBarsForDay, setCacheOnly, type RawBar } from './data'
+import { closeMaps, edgarFloatOn, sharesRecord } from './edgar-float'
+import { secCompany } from './rulebook/edgar-earnings'
+import { extendUniverse, resolveTicker, type U1Result } from './u1-delisted'
+import { toEasternDay } from './universe'
 import { daySymbolSets, easternMidnight, loadDay, MINUTE, setFifteenMinuteWindow, type DayMarket, type MinuteBar } from './market'
 import { buildUniverse, dailyIndex, floatOn, type Universe } from './universe'
 import { EJW, SCAN_MINUTES } from './strategy-ej'
@@ -215,7 +223,10 @@ async function main() {
   const csvPath = join(process.cwd(), args.get('csv') ?? 'backtests/ross-audit/trades.csv')
   const ejDir = join(process.cwd(), args.get('ej') ?? 'backtests/strategy-ej')
   const out = join(process.cwd(), args.get('out') ?? 'backtests/ross-audit')
-  const fetch = args.get('fetch') === 'true'
+  const prefetch = args.get('prefetch') === 'true'
+  const fetch = args.get('fetch') === 'true' || prefetch
+  const useU1 = args.get('u1') === 'true'
+  const onlyQ1 = args.get('only') === 'q1q2'
   setCacheOnly(!fetch)
   const log: string[] = []
   const say = (s: string) => { console.log(s); log.push(s) }
@@ -231,6 +242,35 @@ async function main() {
   const historyStart = new Date(Date.parse(`${EJW.start}T00:00:00Z`) - EJW.historyLookbackDays * 86_400_000).toISOString().slice(0, 10)
   setFifteenMinuteWindow(historyStart, EJW.end)
   const universe = await buildUniverse({ historyStart, end: EJW.end, periodStart: EJW.start, simFrom: EJW.start, simTo: EJW.end })
+  const baseSymbols = new Set(universe.daily.keys())
+  let u1: U1Result | null = null
+  const resolved = new Map<string, { key: string | null; how: string }>()
+  if (useU1) {
+    u1 = await extendUniverse(universe, { historyStart, end: EJW.end }, { edgar: true })
+    say(`[ross] U1: ${u1.entities.filter((e) => e.bars > 0).length} delisted entities added, ${u1.renames.length} renames; universe now ${universe.symbols.length} symbols`)
+    const daysOf = new Map<string, Set<string>>()
+    const hasBar = (key: string, day: string) => { let set = daysOf.get(key); if (!set) { set = new Set((universe.daily.get(key) ?? []).map((r) => r.day)); daysOf.set(key, set) } return set.has(day) }
+    const added = u1.entities.filter((e) => e.bars > 0)
+    for (const r of sampled) {
+      const t = r.ticker.replace(/\?$/, '')
+      if (/^[A-Z]{1,5}$/.test(t)) resolved.set(`${r.trading_date}|${r.ticker}`, resolveTicker(t, r.trading_date, hasBar, added, u1.renames))
+    }
+    // EDGAR point-in-time float (shares outstanding, D1 method) for the delisted entities Ross traded
+    const keys = [...new Set([...resolved.values()].filter((x) => x.how === 'delisted' || x.key?.includes('@')).map((x) => x.key!))]
+    const floats = new Map<string, (day: string) => number | undefined>()
+    for (const key of keys) {
+      const e = added.find((x) => x.key === key)!
+      if (!e.cik) { floats.set(key, () => undefined); continue }
+      try {
+        const [record, company] = [await sharesRecord(e.cik), await secCompany(e.cik)]
+        const [rawB, splitB] = [await getDailyBarsAsof([e.ticker], historyStart, EJW.end, e.asof), await getDailyBarsAsof([e.ticker], historyStart, EJW.end, e.asof, 'split')]
+        const ratios = closeMaps(rawB[e.ticker], splitB[e.ticker], toEasternDay)
+        const data = { cik: e.cik, record, nameOk: true, annual: company.annual }
+        floats.set(key, (day) => { const f = edgarFloatOn(data, day, ratios); return 'shares' in f ? f.shares : undefined })
+      } catch (error) { say(`[ross] U1 EDGAR float for ${key} failed: ${(error as Error).message.slice(0, 120)}`); floats.set(key, () => undefined) }
+    }
+    universe.u1Float = (key, day) => floats.get(key)?.(day)
+  }
   const days = universe.tradingDays.filter((d) => d >= EJW.start && d <= EJW.end)
   const ejByDay = new Map<string, EjTrade[]>()
   for (const t of ej) ejByDay.set(t.day, [...(ejByDay.get(t.day) ?? []), t])
@@ -240,7 +280,7 @@ async function main() {
   for (const d of days) { eqBefore.set(d, eq); eq += (ejByDay.get(d) ?? []).reduce((s, t) => s + t.pnl, 0) }
 
   const rossDays = [...new Set(sampled.map((r) => r.trading_date))].filter((d) => days.includes(d)).sort()
-  const q1: string[] = ['day,ticker,small_account,ross_entry_et,entry_how,scan_et,scan_note,in_day_set,day_set_reason,e_rank,scanner_eligible,float_ok_symbol,ever_e_eligible_0700_1100,first_eligible_et,gates_failing,quote,spread_pct,clean_filter,e_decision,e_traded_it,e_pnl']
+  const q1: string[] = ['day,ticker,small_account,ross_entry_et,entry_how,scan_et,scan_note,in_day_set,day_set_reason,e_rank,scanner_eligible,float_ok_symbol,ever_e_eligible_0700_1100,first_eligible_et,gates_failing,quote,spread_pct,clean_filter,e_decision,e_traded_it,e_pnl,base_universe_has_ticker,u1_resolved_as,u1_key']
   const q4: string[] = ['who,day,ticker,entry_et,float_m,gain_pct,rvol,price,news_age_min,halt_gaps,first5_volume,pm_high_break']
   const q3: string[] = ['day,symbol,e_entry_et,e_fill,e_pnl,e_r,e_exit,ross_traded,ross_passed_reason']
   const blockCount = new Map<string, number>()
@@ -253,30 +293,32 @@ async function main() {
     try { market = await loadDay(universe, day) } catch (e) { say(`[ross] ${day}: could not load the day from cache (${(e as Error).message})`); continue }
     const midnight = market.midnight
     const eTrades = ejByDay.get(day) ?? []
-    const rossTickers = new Set(sampled.filter((r) => r.trading_date === day).map((r) => r.ticker.replace(/\?$/, '')))
+    const rossTickers = new Set(sampled.filter((r) => r.trading_date === day).map((r) => resolved.get(`${day}|${r.ticker}`)?.key ?? r.ticker.replace(/\?$/, '')))
     for (const r of sampled.filter((x) => x.trading_date === day)) {
       const ticker = r.ticker.replace(/\?$/, '')
+      const res = resolved.get(`${day}|${r.ticker}`)
+      const sym = res?.key ?? ticker
       const small = /SMALL/.test(r.notes)
       if (!/^[A-Z]{1,5}$/.test(ticker)) {
         bump('ticker not named')
-        q1.push([day, r.ticker, small, '', '', '', '', 'no', 'ticker not named / not a symbol', '', '', '', '', '', '', '', '', '', 'ticker not named', '', ''].map(q).join(','))
+        q1.push([day, r.ticker, small, '', '', '', '', 'no', 'ticker not named / not a symbol', '', '', '', '', '', '', '', '', '', 'ticker not named', '', '', '', '', ''].map(q).join(','))
         continue
       }
-      const data = market.symbols.get(ticker)
-      const reason = data ? null : dailyReason(universe, ticker, day) ?? 'in the day set but no minute bars'
+      const data = market.symbols.get(sym)
+      const reason = data ? null : dailyReason(universe, sym, day) ?? 'in the day set but no minute bars'
       const em = data ? entryMinute(data.bars, midnight, r.entry_time_et, r.entry_price) : { minute: parseMinute(r.entry_time_et), how: parseMinute(r.entry_time_et) != null ? 'stated time' : 'no bars' }
       const sm = em.minute != null ? scanMinuteFor(em.minute) : { scan: null, note: 'Ross entry time unknown' }
       let rank = '', scannerEligible = '', floatOk = '', gates = '', quote = '', spread = '', clean = '', decision = ''
       let everEligible = 'no', firstEligible = ''
       for (const s of SCAN_MINUTES) {
-        const c = market.candidatesAt(s).find((x) => x.symbol === ticker)
+        const c = market.candidatesAt(s).find((x) => x.symbol === sym)
         if (c && c.scannerEligible && c.entryEligibleSymbol) { everEligible = 'yes'; firstEligible = hhmm(s); break }
       }
       if (!data) { decision = `not in E's day set: ${reason}`; bump(`not in day set: ${reason!.split(' (')[0].replace(/[0-9.]+/g, 'N')}`) }
       else if (sm.scan == null) { decision = sm.note; bump(sm.note.split(' (')[0]) }
       else {
         const now = midnight + sm.scan * MINUTE
-        const c = market.candidatesAt(sm.scan).find((x) => x.symbol === ticker)
+        const c = market.candidatesAt(sm.scan).find((x) => x.symbol === sym)
         if (!c) {
           const bars = data.bars.filter((b) => b.t + MINUTE <= now)
           decision = bars.length ? `not in E's top ${market.candidatesAt(sm.scan).length} gainers at ${hhmm(sm.scan)}` : `no trades yet at ${hhmm(sm.scan)}`
@@ -290,7 +332,7 @@ async function main() {
           else if (g.length) { decision = `E gates: ${g[0]}`; bump(`gate: ${g[0].replace(/[0-9.]+/g, 'N')}`) }
           else {
             let mark: { bp: number; ap: number } | null = null
-            try { mark = await getLatestQuote(day, ticker, new Date(now), scanConfig.maxQuoteAgeSeconds) } catch { quote = 'not cached'; decision = 'quote not in cache (E never asked for one here)'; bump('quote not cached') }
+            try { mark = await getLatestQuote(day, sym, new Date(now), scanConfig.maxQuoteAgeSeconds) } catch { quote = 'not cached'; decision = 'quote not in cache (E never asked for one here)'; bump('quote not cached') }
             if (mark) {
               const mid = (mark.bp + mark.ap) / 2
               const sp = ((mark.ap - mark.bp) / mid) * 100
@@ -303,12 +345,12 @@ async function main() {
           }
         }
       }
-      const eT = eTrades.filter((t) => t.symbol === ticker)
+      const eT = eTrades.filter((t) => t.symbol === sym)
       q1.push([day, r.ticker, small, hhmm(em.minute), em.how, hhmm(sm.scan), sm.note, data ? 'yes' : 'no', reason ?? '', rank, scannerEligible, floatOk, everEligible, firstEligible, gates, quote, spread, clean, decision,
-        eT.length ? 'yes' : 'no', eT.length ? f(eT.reduce((s, t) => s + t.pnl, 0)) : ''].map(q).join(','))
+        eT.length ? 'yes' : 'no', eT.length ? f(eT.reduce((s, t) => s + t.pnl, 0)) : '', baseSymbols.has(ticker) ? 'yes' : 'no', res?.how ?? '', res?.key ?? ''].map(q).join(','))
       if (data && em.minute != null) {
         const ft = featuresAt(data.bars, midnight, data.prevClose, em.minute)
-        const c = market.candidatesAt(Math.max(SCAN_MINUTES[0], Math.min(em.minute, 15 * 60 + 54))).find((x) => x.symbol === ticker)
+        const c = market.candidatesAt(Math.max(SCAN_MINUTES[0], Math.min(em.minute, 15 * 60 + 54))).find((x) => x.symbol === sym)
         const news = data.news.find((n) => n.at <= midnight + em.minute! * MINUTE)
         const feat = { float: data.float ?? null, gain: ft.gainPct, rvol: em.minute >= SCAN_MINUTES[0] ? c?.relativeVolume ?? null : null, price: ft.price, minute: em.minute,
           newsAge: news ? (midnight + em.minute * MINUTE - news.at) / MINUTE : null, halts: ft.haltGaps, first5: ft.first5Volume, pm: ft.pmHighBreak }
@@ -316,7 +358,7 @@ async function main() {
         q4.push(['Ross' + (small ? ' (small acct)' : ''), day, r.ticker, hhmm(em.minute), f(feat.float != null ? feat.float / 1e6 : null, 2), f(feat.gain, 1), f(feat.rvol, 1), f(feat.price), f(feat.newsAge, 0), feat.halts, feat.first5, feat.pm ?? ''].map(q).join(','))
       }
     }
-    for (const t of eTrades) {
+    for (const t of onlyQ1 ? [] : eTrades) {
       const data = market.symbols.get(t.symbol)
       if (data) {
         const ft = featuresAt(data.bars, midnight, data.prevClose, t.minute)
@@ -335,7 +377,7 @@ async function main() {
   }
 
   // ---------------- Q5 ----------------
-  say(`[ross] Q5: counting stocks up >= ${Q5.gain * 100}% on >= ${Q5.volume / 1e6}M shares by ${hhmm(Q5.byMinute)} ET on ${days.length} days...`)
+  if (!onlyQ1) say(`[ross] Q5: counting stocks up >= ${Q5.gain * 100}% on >= ${Q5.volume / 1e6}M shares by ${hhmm(Q5.byMinute)} ET on ${days.length} days...`)
   const rossDayPnl = new Map<string, { pnl: number | null; temp: string }>()
   for (const d of rossDays) {
     const list = sampled.filter((r) => r.trading_date === d && !/SMALL/.test(r.notes))
@@ -347,7 +389,7 @@ async function main() {
   const q5: string[] = ['day,count,symbols,ross_day_pnl,ross_temperature,e_trades,e_pnl']
   const daily: Array<{ day: string; n: number; ross: number | null; temp: string; eN: number; eP: number }> = []
   let missing = 0
-  for (const d of days) {
+  for (const d of onlyQ1 ? [] : days) {
     const { pool, entryCandidates } = daySymbolSets(universe, d)
     const midnight = easternMidnight(d)
     let raw: Record<string, RawBar[]>
@@ -367,16 +409,33 @@ async function main() {
   }
 
   // ---------------- report ----------------
+  if (prefetch) { say(`[ross] prefetch done: data for the ${rossDays.length} days is cached; rerun without --prefetch for the report (cache only)`); return }
   mkdirSync(out, { recursive: true })
   writeFileSync(join(out, 'q1q2.csv'), q1.join('\n') + '\n')
-  writeFileSync(join(out, 'q3.csv'), q3.join('\n') + '\n')
-  writeFileSync(join(out, 'q4.csv'), q4.join('\n') + '\n')
-  writeFileSync(join(out, 'q5-daily.csv'), q5.join('\n') + '\n')
+  if (!onlyQ1) {
+    writeFileSync(join(out, 'q3.csv'), q3.join('\n') + '\n')
+    writeFileSync(join(out, 'q4.csv'), q4.join('\n') + '\n')
+    writeFileSync(join(out, 'q5-daily.csv'), q5.join('\n') + '\n')
+  }
 
   say(`\n[ross] ===== Q1/Q2: Ross's ${sampled.length} sampled ticker-days on ${rossDays.length} days in the E window =====`)
   for (const [k, v] of [...blockCount].sort((a, b) => b[1] - a[1])) say(`      ${String(v).padStart(4)}  ${k}`)
   const q1rows = parseCsv(q1.join('\n'))
   say(`      ever scanner+float eligible at an E scan 07:00-11:00: ${q1rows.filter((r) => r.ever_e_eligible_0700_1100 === 'yes').length} of ${q1rows.length}; E traded the same ticker that day: ${q1rows.filter((r) => r.e_traded_it === 'yes').length}`)
+  if (u1) {
+    const missingBefore = q1rows.filter((r) => r.base_universe_has_ticker === 'no' && /^[A-Z]{1,5}\??$/.test(r.ticker))
+    const by = (how: string) => missingBefore.filter((r) => r.u1_resolved_as === how)
+    say(`\n[ross] ===== U1: tickers missing from today's universe (${missingBefore.length}) =====`)
+    say(`      now found as a delisted entity: ${by('delisted').length} (${by('delisted').map((r) => r.u1_key).join(', ')})`)
+    say(`      now found through a rename:     ${by('rename').length} (${by('rename').map((r) => `${r.ticker}->${r.u1_key}`).join(', ')})`)
+    say(`      still missing:                  ${by('missing').length} (${by('missing').map((r) => `${r.ticker} ${r.day}`).join(', ')})`)
+    const found = missingBefore.filter((r) => r.u1_resolved_as === 'delisted' || r.u1_resolved_as === 'rename')
+    const decisions = new Map<string, number>()
+    for (const r of found) { const k = r.e_decision.replace(/[0-9.]+/g, 'N').split(':').slice(0, 2).join(':'); decisions.set(k, (decisions.get(k) ?? 0) + 1) }
+    say(`      E decision for the newly found: ${[...decisions].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${v} ${k}`).join('; ') || 'none'}`)
+    for (const [k, v] of Object.entries(u1.stats)) say(`      U1 ${String(v).padStart(6)}  ${k}`)
+  }
+  if (onlyQ1) { say(`\n[ross] wrote ${out}: q1q2.csv, report.txt (Q1/Q2 only)`); writeFileSync(join(out, 'report.txt'), log.join('\n') + '\n'); return }
   const q3rows = parseCsv(q3.join('\n'))
   say(`\n[ross] ===== Q3: E-current trades on Ross's days =====`)
   say(`      ${q3rows.length} E trades; ${q3rows.filter((r) => r.ross_traded === 'yes').length} in tickers Ross traded, ${q3rows.filter((r) => r.ross_traded === 'no').length} not (${q3rows.filter((r) => r.ross_passed_reason).length} of those he named and passed on)`)
