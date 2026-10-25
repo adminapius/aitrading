@@ -1,6 +1,7 @@
 # Strategy R ("Ross-type"): H1, H2, H3 - DRAFT (Oct 25, 2026)
 
-**Status: DRAFT. Nothing is locked, built or run.** Open decisions are listed with a default (section 10); Jose
+**Status: DRAFT. Nothing is locked, built or run. R is not locked until U1 (PR #114) is merged and its results
+are recorded in docs/backtest-known-issues.md (Jose, Oct 25, 2026).** Open decisions are listed with a default (section 10); Jose
 approves or changes them, then the spec is locked before any result is seen. Source: the Ross audit
 (`docs/ross-audit.md`), hypotheses H1 (who) and H2 (when), plus H3 (Jose, Oct 25).
 
@@ -23,6 +24,12 @@ Live Strategy E and its paper test are not touched.
   (latest cover count filed strictly before the day, split-adjusted, at most 400 days old; delisted companies
   matched to EDGAR by their old name). No value = not enterable, counted by reason. Shares outstanding >= float,
   so this is a stricter gate [approximate]. Foreign filers: **[R2]**.
+- **Float coverage (LOCKED Oct 25, 2026 by Jose, before any result):** the run reports EDGAR float coverage by
+  calendar year for R's candidate stock-days (section 3's filters other than float, U1 included): found / no value,
+  with the reasons (foreign, new listing, stale, no CIK, other). Stocks without a float value are excluded and
+  counted. **If coverage is under 75% in any calendar year of the tuning or holdout window, the run is reported as
+  information only and cannot pass.** Coverage was under 90% before (61.6-69.9% of E's enterable stock-days by
+  year, docs/backtest-known-issues.md issue 2). The probe (section 9) reports the same numbers first.
 - 1-minute SIP bars (04:00-16:00), SIP NBBO quotes, Alpaca news, all cached; a probe (section 9) first.
 
 ## 3. Entry filters (at each minute, using only bars closed by then)
@@ -96,11 +103,12 @@ Two candidates from the audit:
 ## 9. Probe first (counts only, no returns)
 Before the lock: per window and line, trading days; U1 entities in the candidate set; candidate stock-days passing
 section 3; triggers found; halts inferred; quote coverage and median pre-market spread; EDGAR float coverage
-(found / foreign / no value / stale); expected trade count. If the holdout cannot reach 30 trades on a line, that
+(found / foreign / no value / stale) by calendar year, against the 75% floor (section 2); expected trade count. If the holdout cannot reach 30 trades on a line, that
 is decided before any result **[R14]**.
 
 ## 10. Open decisions (defaults proposed)
-- **R1** U1 universe required. Default: yes; the U1 probe and the Ross Q1/Q2 rerun come first.
+- **R1** U1 universe required. Default: yes; the U1 probe and the Ross Q1/Q2 rerun come first. (Locked by Jose,
+  Oct 25: U1 merged and its results in before R is locked.)
 - **R2** Foreign filers (20-F / 40-F; ADR share counts are not comparable, known issue 3). Default: excluded, counted.
 - **R3** News within 120 minutes from Alpaca's feed (Ross reads his own feed; coverage may differ). Default: Alpaca,
   120 minutes; the probe reports the share of candidate days with any story.

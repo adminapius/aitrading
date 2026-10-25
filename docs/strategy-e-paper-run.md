@@ -78,7 +78,7 @@ trade) were approved by Jose at 17:47 ET. Rule fully locked; no changes until th
   adjusted R = min(paper R, model R) from the fill audit (an unmodelable trade: paper R - 0.4R); PASS only if
   expectancy of adjusted R > +0.10R AND PF of adjusted R > 1.3.
 - The subset keeps counting after the main verdict at trade 30 for as long as E runs unchanged on paper; any change
-  to E ends both counts.
+  to E ends both counts. (Approved by Jose, Oct 25, 2026.)
 - Why, recorded honestly: in the E-J tuning replay (Oct 14, 2024 - Jul 31, 2026), all of E-current's losses came
   from entries filled before 09:45 (18 trades, -7.7R, -$110.97, win 28%) while entries filled 09:45-11:00 made money
   (35 trades, +3.9R, +$75.42, win 43%, PF 1.25). That split was found **after** seeing the results, so it is a
