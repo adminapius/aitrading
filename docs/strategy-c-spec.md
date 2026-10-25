@@ -151,5 +151,36 @@ A probe first checks coverage only and computes no returns **[D15]**.
   matches, VIX days) and computes no returns, then lock.** **Approved.** The probe also caches all the run's data.
 - D3, D6-D14: approved as proposed.
 
-## 10. Probe result
-_Pending: the probe's coverage table goes here before the run is built._
+## 10. Probe result (Jose's laptop, Oct 25, 2026; coverage only, no returns; 13,465 Alpaca requests, 12.0 min)
+
+| window | ETF | sessions | half days | no 15:29 | no 15:30 | no 15:31 | no prior close | auction print M / 6 / none | abs(print - daily close) <= $0.005 / <= $0.01 / > $0.01 (max) | ex-div days |
+|---|---|---|---|---|---|---|---|---|---|---|
+| consistency | SPY | 1109 | 9 | 1 | 1 | 0 | 1 | 0 / 1099 / 1 | 104 / 222 / 877 ($7.13) | 538 |
+| consistency | QQQ | 1109 | 9 | 0 | 0 | 0 | 1 | 0 / 0 / 1100 | n/a | 573 |
+| consistency | IWM | 1109 | 9 | 1 | 0 | 1 | 1 | 0 / 1098 / 2 | 321 / 432 / 666 ($1.89) | 534 |
+| consistency | DIA | 1109 | 9 | 3 | 1 | 1 | 1 | 0 / 1098 / 2 | 797 / 830 / 268 ($4.62) | 565 |
+| pass/fail | SPY | 1604 | 12 | 0 | 0 | 0 | 0 | 1300 / 292 / 0 | 1368 / 1383 / 209 ($0.58) | 798 |
+| pass/fail | QQQ | 1604 | 12 | 0 | 0 | 0 | 0 | 1295 / 23 / 274 | 1318 / 1318 / 0 ($0.00) | 802 |
+| pass/fail | IWM | 1604 | 12 | 0 | 0 | 0 | 0 | 1212 / 379 / 1 | 1392 / 1411 / 180 ($0.62) | 801 |
+| pass/fail | DIA | 1604 | 12 | 1 | 0 | 0 | 0 | 1261 / 331 / 0 | 1482 / 1489 / 103 ($0.67) | 848 |
+
+VIX (FMP prior-day close): 2,778 closes; 0 of 2,692 full sessions without a prior-day VIX.
+
+Reading:
+- **Minute bars, prior closes, half days and VIX are fine** (at most 3 missing bars per ETF per window; those
+  days are skipped and counted, D7).
+- **The "ex-div days" column is wrong as a count** (538-848 a window, where ETFs pay about 4 a year). It counts
+  every day where the one-day factor is below 1, which picks up rounding in Alpaca's adjusted closes. The run must
+  treat a day as ex-dividend only when the factor implies a real dividend (at least half a cent a share,
+  i.e. (1 - factor) x prior close >= 0.005). Fixed in `dividendFactor` (Oct 25): a factor implying under half a cent a share is treated as 1. A bug fix in the D1 code, not a rule change.
+- **D2, pass/fail window:** the daily bar's close differs from the auction print by more than $0.01 on 6-13% of
+  days (max $0.58), so **the daily close is not used in place of the auction print** (as D2 said). QQQ has no
+  primary print on 274 days; those use the daily close, counted (as D2 said).
+- **D2, consistency window (2016-2020): not usable as is.** No condition-M prints exist before 2020; the largest
+  condition-6 print on the primary exchange differs from the daily close by more than $0.01 on 79% of SPY days
+  (max $7.13), and QQQ has no primary closing print at all. One of the two prices is wrong on those days. Rule 5
+  (SPY positive in 2016-2020) and the robustness lines depend on it, so this must be settled **before the run is
+  built**. A follow-up check (`--close-check`, no returns) compares both prices with the 15:59 bar's close on every
+  mismatch day and lists which exchanges carry the closing-condition trades. Its result and Jose's decision on the
+  close source for 2016-2020 go here, then the run is built.
+

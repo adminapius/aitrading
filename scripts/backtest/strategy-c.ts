@@ -2,6 +2,7 @@
 //
 //   $env:ALPACA_API_KEY / $env:ALPACA_API_SECRET / $env:FMP_API_KEY
 //   npx tsx scripts/backtest/strategy-c.ts --probe        (data coverage only; computes NO returns)
+//   npx tsx scripts/backtest/strategy-c.ts --close-check  (D2 follow-up: which close is right on mismatch days; NO returns)
 //
 // The probe also downloads and caches everything the run needs, so the run itself is a cache read.
 // The run mode is added after the probe's coverage is recorded in the spec (D15).
@@ -50,7 +51,14 @@ export function closingPrint(trades: Trade[], primary: string): { price: number;
 export function dividendFactor(rawPrev: number, adjPrev: number, rawDay: number, adjDay: number) {
   if (!(rawPrev > 0 && adjPrev > 0 && rawDay > 0 && adjDay > 0)) return 1
   const f = (adjPrev / rawPrev) / (adjDay / rawDay)
-  return Math.abs(f - 1) < 1e-9 ? 1 : f
+  // A real dividend is at least half a cent a share; smaller ratios are rounding in the adjusted closes (probe, Oct 25).
+  return Math.abs(1 - f) * rawPrev < 0.005 ? 1 : f
+}
+
+/** Which of two closing prices is nearer a reference (the 15:59 bar close). Pure. */
+export function closerTo(ref: number, print: number, daily: number): 'print' | 'daily' | 'tie' {
+  const a = Math.abs(print - ref), b = Math.abs(daily - ref)
+  return Math.abs(a - b) < 1e-9 ? 'tie' : a < b ? 'print' : 'daily'
 }
 
 const etIso = (day: string, minute: number, second = 0) => new Date(easternMidnight(day) + minute * 60_000 + second * 1_000).toISOString()
@@ -181,11 +189,80 @@ async function probe(out: string) {
   console.log(`[c] wrote ${join(out, 'probe', 'coverage.json')} (not a locked run). Send this output to Claude. Done in ${mins()}.`)
 }
 
+/** The 15:59 bar for the four ETFs on one day (one request), cached. */
+async function lastMinute(day: string): Promise<Record<string, RawBar[]>> {
+  const key = `c/minute-1559/${day}`
+  const hit = readCache<Record<string, RawBar[]>>(key)
+  if (hit) return hit
+  const q = new URLSearchParams({ symbols: C.symbols.join(','), timeframe: '1Min', start: etIso(day, 15 * 60 + 59), end: etIso(day, 15 * 60 + 59, 59), feed: HISTORICAL_FEED, adjustment: 'raw', limit: '10000', sort: 'asc' })
+  const payload = await fetchJson<{ bars?: Record<string, RawBar[]> }>(`${ALPACA_DATA_URL}/v2/stocks/bars?${q}`, 'c-minute-1559')
+  const out = payload.bars ?? {}
+  writeCache(key, out)
+  return out
+}
+
+// D2 follow-up (Oct 25, 2026): on days where the auction print and the daily bar close differ by more than $0.01,
+// which one is right? Reference: the 15:59 bar's close (the official close is normally within cents of it).
+// Also: which exchanges carry the closing-condition trades for each ETF (QQQ found no primary print before 2020).
+async function closeCheck(out: string) {
+  const t0 = Date.now()
+  const end = C.passFail[1]
+  const cal = await calendar(C.dataStart, end)
+  const inWindow = (d: string) => (d >= C.consistency[0] && d <= C.consistency[1]) || (d >= C.passFail[0] && d <= C.passFail[1])
+  const sessions = cal.filter((d) => inWindow(d.date) && !isHalfDay(d))
+  const symbols = [...C.symbols]
+  const raw = await getDailyBars(symbols, C.dataStart, end)
+  const rawBy = Object.fromEntries(symbols.map((s) => [s, new Map((raw[s] ?? []).map((b) => [toEasternDay(b.t), b.c]))]))
+  type R = { mismatch: number; nearer: Record<string, number>; dailyVs1559: number[]; printVs1559: number[]; worst: Array<Record<string, unknown>>; exchanges: Record<string, number>; conds: Record<string, number> }
+  const res: Record<string, R> = {}
+  for (const w of ['consistency', 'passFail']) for (const s of symbols) res[`${w}|${s}`] = { mismatch: 0, nearer: { print: 0, daily: 0, tie: 0, 'no 15:59 bar': 0 }, dailyVs1559: [], printVs1559: [], worst: [], exchanges: {}, conds: {} }
+  let n = 0
+  for (const day of sessions) {
+    const w = day.date <= C.consistency[1] ? 'consistency' : 'passFail'
+    let last: Record<string, RawBar[]> | null = null
+    for (const s of symbols) {
+      const r = res[`${w}|${s}`]
+      const trades = await closingTrades(s, day.date)
+      for (const t of trades) { r.exchanges[t.x] = (r.exchanges[t.x] ?? 0) + 1; for (const c of t.c ?? []) if (c === 'M' || c === '6') r.conds[`${t.x}:${c}`] = (r.conds[`${t.x}:${c}`] ?? 0) + 1 }
+      const print = closingPrint(trades, C.primary[s])
+      const daily = rawBy[s].get(day.date)
+      if (!print || daily == null || Math.abs(print.price - daily) <= 0.01) continue
+      r.mismatch += 1
+      last ??= await lastMinute(day.date)
+      const ref = last[s]?.[0]?.c
+      if (ref == null) { r.nearer['no 15:59 bar'] += 1; continue }
+      r.nearer[closerTo(ref, print.price, daily)] += 1
+      r.dailyVs1559.push(Math.abs(daily - ref)); r.printVs1559.push(Math.abs(print.price - ref))
+      const own = trades.filter((t) => t.x === C.primary[s])
+      r.worst.push({ day: day.date, kind: print.kind, print: print.price, daily, close1559: ref, primaryClosingTrades: own.length, primaryPriceRange: own.length ? [Math.min(...own.map((t) => t.p)), Math.max(...own.map((t) => t.p))] : null, largestSize: own.length ? Math.max(...own.map((t) => t.s)) : null })
+    }
+    n += 1
+    if (n % 500 === 0) console.log(`[c]   ${n}/${sessions.length} sessions (${((Date.now() - t0) / 60_000).toFixed(1)} min, Alpaca ${apiStats.alpaca})`)
+  }
+  const med = (v: number[]) => { const a = [...v].sort((x, y) => x - y); return a.length ? a[a.length >> 1] : null }
+  console.log('\n[c] ===== D2 CLOSE CHECK (no returns computed) =====')
+  console.log('[c] window       ETF   mismatch days (>$0.01)   nearer the 15:59 close: print / daily / tie / no bar   median |x - 15:59 close|: print / daily')
+  const summary: Record<string, unknown> = {}
+  for (const [k, r] of Object.entries(res)) {
+    const [w, s] = k.split('|')
+    console.log(`[c] ${w.padEnd(12)} ${s.padEnd(4)} ${String(r.mismatch).padStart(22)}   ${`${r.nearer.print} / ${r.nearer.daily} / ${r.nearer.tie} / ${r.nearer['no 15:59 bar']}`.padStart(46)}   ${`${med(r.printVs1559)?.toFixed(3) ?? 'n/a'} / ${med(r.dailyVs1559)?.toFixed(3) ?? 'n/a'}`.padStart(30)}`)
+    console.log(`[c]      closing-condition trades by exchange:condition: ${Object.entries(r.conds).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([c, v]) => `${c} ${v}`).join(', ') || 'none'}`)
+    r.worst.sort((a, b) => Math.abs((b.print as number) - (b.daily as number)) - Math.abs((a.print as number) - (a.daily as number)))
+    for (const x of r.worst.slice(0, 3)) console.log(`[c]      e.g. ${x.day}: print ${x.kind} ${x.print}, daily ${x.daily}, 15:59 close ${x.close1559}, ${x.primaryClosingTrades} primary closing trades ${JSON.stringify(x.primaryPriceRange)}`)
+    summary[k] = { mismatch: r.mismatch, nearer: r.nearer, medianPrintVs1559: med(r.printVs1559), medianDailyVs1559: med(r.dailyVs1559), conds: r.conds, worst: r.worst.slice(0, 25) }
+  }
+  console.log(`[c] Alpaca requests ${apiStats.alpaca} (cached ${apiStats.alpacaCached})`)
+  mkdirSync(join(out, 'probe'), { recursive: true })
+  writeFileSync(join(out, 'probe', 'close-check.json'), JSON.stringify({ ranAt: new Date().toISOString(), summary }, null, 1))
+  console.log(`[c] wrote ${join(out, 'probe', 'close-check.json')} (not a locked run). Send this output to Claude. Done in ${((Date.now() - t0) / 60_000).toFixed(1)} min.`)
+}
+
 async function main() {
   const args = new Map(process.argv.slice(2).map((a) => { const [k, ...v] = a.replace(/^--/, '').split('='); return [k, v.join('=') || 'true'] as const }))
   for (const k of ['ALPACA_API_KEY', 'FMP_API_KEY']) if (!process.env[k]?.trim()) throw new Error(`Set ${k} in this window first.`)
   const out = join(process.cwd(), args.get('out') ?? 'backtests/strategy-c')
   if (args.get('probe') === 'true') return probe(out)
+  if (args.get('close-check') === 'true') return closeCheck(out)
   throw new Error('Only --probe is built so far. The run is added after the probe coverage is recorded in the spec (D15).')
 }
 
