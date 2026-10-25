@@ -273,11 +273,14 @@ Reading (facts only):
 - After the paper's sample (Jun 2020 on), the rest-of-day signal had no edge on any of the four ETFs at these
   fills; every robustness and information line in that window is negative. Inside the paper's sample (2016-2020)
   SPY was flat (+1.0%) and the long/short version, the paper's own rule, made +4.1% gross of borrow costs.
-- The only positive buckets were high-VIX days in 2016-2020 (SPY VIX >= 20: 109 trades, +6.0bp a trade); in the
-  pass/fail window high-VIX days were negative too (-0.7bp). Not a rule; recorded because the paper ties the effect
-  to dealer gamma, which is larger in stressed markets.
+- By VIX: in 2016-2020 the high-VIX days (prior close >= 20) were positive for SPY, QQQ and DIA (+6.0 / +7.9 /
+  +12.4bp a trade; IWM -3.0bp) and low-VIX days negative for all four; in the pass/fail window both buckets were
+  negative for all four (SPY -1.2bp low, -0.7bp high). Not a rule, recorded because the paper ties the effect to
+  dealer gamma, which matters more in stressed markets.
 - Data: 0 of 866 judged exits used the daily-bar fallback (D2); QQQ 2016-2020 ran entirely on daily closes, as
   flagged. Skips: half days only (12), plus a handful of missing 15:29 bars.
 - **Fallback (section 6):** SPY buy-and-hold made +173% in the pass/fail window; the 10-month average line made +95%
-  with a similar max drawdown (25.5% vs 24.5%) because the 2022 exit came late and the re-entries lagged. On these
-  two windows the filter did not reduce drawdown. Neither is a strategy under test.
+  with a similar max drawdown (25.5% vs 24.5%). It lost more than buy-and-hold in 2022 (-20.97% vs -18.18%) and
+  gave up most of 2023 (+8.77% vs +26.18%); in 2016-2020 it cut the max drawdown from 33.8% to 20.8% but returned
+  +21.7% vs +63.2%. On these windows the filter cost return and only reduced drawdown in the earlier one. Neither
+  is a strategy under test.
