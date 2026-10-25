@@ -184,3 +184,26 @@ Reading:
   mismatch day and lists which exchanges carry the closing-condition trades. Its result and Jose's decision on the
   close source for 2016-2020 go here, then the run is built.
 
+**Close check (Jose's laptop, Oct 25, 2026; 1,258 Alpaca requests, 3.8 min; no returns).** On each mismatch day
+(print vs daily close > $0.01), both prices against the 15:59 bar's close:
+
+| window | ETF | mismatch days | nearer the 15:59 close: print / daily / tie | median distance: print / daily |
+|---|---|---|---|---|
+| consistency | SPY | 877 | 339 / 480 / 58 | $0.030 / $0.029 |
+| consistency | QQQ | 0 (no primary print) | - | - |
+| consistency | IWM | 666 | 260 / 343 / 63 | $0.020 / $0.020 |
+| consistency | DIA | 268 | 121 / 122 / 25 | $0.030 / $0.030 |
+| pass/fail | SPY | 209 | 143 / 54 / 12 | $0.030 / $0.060 |
+| pass/fail | IWM | 180 | 101 / 76 / 3 | $0.030 / $0.040 |
+| pass/fail | DIA | 103 | 63 / 37 / 3 | $0.040 / $0.050 |
+
+- On a typical mismatch day both prices are a few cents from 15:59 and neither is clearly better (2016-2020), but
+  **the large errors are all on the daily-bar side**: e.g. SPY 2020-03-12 print $248.11, daily $255.24, 15:59 close
+  $248.10; DIA 2020-03-16 print $202.49, daily $207.11, 15:59 $202.43; IWM 2020-03-16 print $103.62, daily $105.51.
+  The primary print is one or two closing trades at a single price (2 prints at the same price on every example).
+- QQQ: before 2020 its closing-condition trades appear only on T (FINRA TRF) and P (Arca), never on Q (Nasdaq),
+  so there is no primary print and D2's fallback (daily close, counted) applies to all 1,100 sessions.
+- Reading (Claude, for Jose's decision): **keep D2 as written** - primary-exchange closing print, daily close only
+  when there is none, counted. QQQ's 2016-2020 robustness line then runs entirely on daily closes and is flagged as
+  such in the report. Pending Jose's go before the run is built.
+
