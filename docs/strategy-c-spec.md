@@ -2,8 +2,8 @@
 
 BACKTEST ONLY. Rules as Jose wrote them (Oct 24, 2026). It replaces the RSI(2) idea, which never got a spec. Items
 marked **[D#]** are Jose's decisions (section 9: D1-D15 approved as proposed, Oct 24, 2026, with his notes).
-Locked before any result. Code: `scripts/backtest/strategy-c.ts` (probe now: coverage only, no returns; the run is
-added after the probe's coverage is recorded here, D15), tests in `tests/strategy-c.test.mjs`. E's paper test
+Locked before any result. Code: `scripts/backtest/strategy-c.ts` (probe and close-check: coverage only, no returns; the
+locked run, `--run`, built Oct 25 after the probe's coverage was recorded here, D15; section 11), tests in `tests/strategy-c.test.mjs`. E's paper test
 (counting from Mon Oct 26, 2026) is not touched.
 
 Source: Baltussen, Da, Lammers & Martens (2021), "Hedging demand and market intraday momentum", Journal of
@@ -183,4 +183,55 @@ Reading:
   built**. A follow-up check (`--close-check`, no returns) compares both prices with the 15:59 bar's close on every
   mismatch day and lists which exchanges carry the closing-condition trades. Its result and Jose's decision on the
   close source for 2016-2020 go here, then the run is built.
+
+**Close check (Jose's laptop, Oct 25, 2026; 1,258 Alpaca requests, 3.8 min; no returns).** On each mismatch day
+(print vs daily close > $0.01), both prices against the 15:59 bar's close:
+
+| window | ETF | mismatch days | nearer the 15:59 close: print / daily / tie | median distance: print / daily |
+|---|---|---|---|---|
+| consistency | SPY | 877 | 339 / 480 / 58 | $0.030 / $0.029 |
+| consistency | QQQ | 0 (no primary print) | - | - |
+| consistency | IWM | 666 | 260 / 343 / 63 | $0.020 / $0.020 |
+| consistency | DIA | 268 | 121 / 122 / 25 | $0.030 / $0.030 |
+| pass/fail | SPY | 209 | 143 / 54 / 12 | $0.030 / $0.060 |
+| pass/fail | IWM | 180 | 101 / 76 / 3 | $0.030 / $0.040 |
+| pass/fail | DIA | 103 | 63 / 37 / 3 | $0.040 / $0.050 |
+
+- On a typical mismatch day both prices are a few cents from 15:59 and neither is clearly better (2016-2020), but
+  **the large errors are all on the daily-bar side**: e.g. SPY 2020-03-12 print $248.11, daily $255.24, 15:59 close
+  $248.10; DIA 2020-03-16 print $202.49, daily $207.11, 15:59 $202.43; IWM 2020-03-16 print $103.62, daily $105.51.
+  The primary print is one or two closing trades at a single price (2 prints at the same price on every example).
+- QQQ: before 2020 its closing-condition trades appear only on T (FINRA TRF) and P (Arca), never on Q (Nasdaq),
+  so there is no primary print and D2's fallback (daily close, counted) applies to all 1,100 sessions.
+- Reading (Claude, for Jose's decision): **keep D2 as written** - primary-exchange closing print, daily close only
+  when there is none, counted. QQQ's 2016-2020 robustness line then runs entirely on daily closes and is flagged as
+  such in the report.
+- **Decided by Jose (Oct 25, 2026): keep D2 as written** - the primary-exchange closing-auction print, the daily
+  bar's close only when there is none, counted. **QQQ 2016-2020 is flagged as running on daily closes.** The run
+  is built (section 11); not run yet.
+
+## 11. The run (built Oct 25, 2026; not run yet)
+`npx tsx scripts/backtest/strategy-c.ts --run` writes `backtests/strategy-c/run/` (report.txt, summary.json,
+trades.csv, RUN-LOCK.json). It runs once: the lock is written as soon as all the data is loaded and before any
+return is computed; a second `--run` refuses. How the code reads the locked rules where the spec leaves a detail
+open (fixed here before any result):
+- **Lines:** C base on SPY, QQQ, IWM, DIA in both windows; on SPY only, in both windows: the $0.03 stress line,
+  buy-and-hold, long/short, raw prior close (D1), 15:31 fill (D3), fractional (D4) and the 10-month average
+  (section 6).
+- **Per-trade return (rule 2, D9):** net P&L / the position's cost (shares x fill), in %. The account's daily
+  return (P&L / equity before the trade) drives Sharpe, CAGR, drawdown and the yearly returns.
+- **Official close (D2):** per trade, the report counts exits and prior closes that came from the daily bar. A
+  line where more than half the exits use the daily bar is flagged (expected: QQQ 2016-2020). A half day's close
+  (not at 16:00) always comes from the daily bar, so the session after a half day uses it as its prior close.
+- **Skips (D7):** in this order: half day, no 15:29 bar, no 15:30 bar (15:31 on the D3 line), no prior close, no
+  closing price; each is a 0-return session. A whole-share line with equity below one share would skip (counted).
+- **Long/short:** short at the 15:30 open - $0.01, cover at the close + $0.01; SEC fee and TAF on the short sale;
+  no borrow cost.
+- **Buy-and-hold (D6):** SPY dividend-adjusted closes, from the window's first close (0 that day), every session.
+- **10-month average (section 6):** SPY dividend-adjusted closes from Jan 2015 (so the filter exists from the first
+  window); month m's last close above the average of the last 10 month-ends (m included) -> hold SPY in month m+1,
+  else cash at 0; switches at the month-end close; no costs.
+- **Years (D10):** a year's net account return compounds its daily returns; a year with no trade is 0, not
+  positive. **VIX (D8):** the prior session's FMP close; a trade without one is listed as "no VIX".
+- **Time in the market:** the share of sessions with a position (each held only 15:30-16:00).
 
