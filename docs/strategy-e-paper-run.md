@@ -69,9 +69,32 @@ trade) were approved by Jose at 17:47 ET. Rule fully locked; no changes until th
 - No live money until E passes. Fail = E stays paper only; any change afterwards is a new strategy version with a
   new locked test.
 
+## Secondary verdict: E 09:45-11:00 subset (LOCKED Oct 25, 2026, before any counted trade; Jose)
+- **E's rules are unchanged.** This is a second reading of the same counted trades, evidence for a possible future
+  rule change; it does not change E, its main verdict, or what E trades.
+- Subset: the counted E trades (entered on or after Mon Oct 26, 2026; see Restart) whose **entry fill** time is
+  09:45:00-10:59:59 ET (Alpaca fill timestamp, ET).
+- Verdict at exactly the subset's 30th trade, on exactly those 30 trades, with the same rule as the main verdict:
+  adjusted R = min(paper R, model R) from the fill audit (an unmodelable trade: paper R - 0.4R); PASS only if
+  expectancy of adjusted R > +0.10R AND PF of adjusted R > 1.3.
+- The subset keeps counting after the main verdict at trade 30 for as long as E runs unchanged on paper; any change
+  to E ends both counts.
+- Why, recorded honestly: in the E-J tuning replay (Oct 14, 2024 - Jul 31, 2026), all of E-current's losses came
+  from entries filled before 09:45 (18 trades, -7.7R, -$110.97, win 28%) while entries filled 09:45-11:00 made money
+  (35 trades, +3.9R, +$75.42, win 43%, PF 1.25). That split was found **after** seeing the results, so it is a
+  hypothesis and needs unseen trades.
+- Information only, read Oct 25 from the locked E-J holdout (`backtests/strategy-ej/holdout/trades.csv`, nothing
+  rerun; split by entry fill time): E-current (flat 15:55) before 09:45: 6 trades, +2.0R, +$29.32, win 50%;
+  09:45-11:00: 6 trades, -3.3R, -$65.23, win 17%; after 11:00: 1 trade (ARTL, decided at 10:55, first bar and fill
+  11:14), +4.0R, +$79.38. E-J on the same entries: +4.6R / -1.6R / +6.1R. **The holdout points the other way**, on
+  6 trades a side; with this few trades neither window settles it, which is why the paper subset is judged on 30.
+
 ## Weekly report (each Friday after the close)
 - Jose runs the fill audit on his laptop and sends the console output and `backtests/fill-audit/audit.csv`:
   `npx tsx scripts/backtest/rulebook/audit.ts --out=backtests/fill-audit`
 - Report, side by side: E (count, win %, actual R, model R, adjusted R, expectancy, PF, $) vs shadow A from
   ait_shadow_signals (its own ledger, model fills at fresh quotes; not judged), plus the fill-audit gap per trade,
   running progress toward 30, and any entry_quote_blocked events.
+- Time-of-day split (added Oct 25, 2026): E's and shadow A's counted trades split by entry fill time into before
+  09:45, 09:45-11:00 and after 11:00 ET, with trades, R (E: actual, model and adjusted), $ and win % for each, week
+  and all time; plus the 09:45-11:00 subset's progress toward its own 30 trades (see the secondary verdict).
