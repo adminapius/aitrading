@@ -50,7 +50,34 @@ pass rule: it lost money, and E-current beat it in R and dollars. Both E-J windo
 window is the only fresh test, as Jose set. This is why the info-only run on the Aug-Oct 2026 holdout is not judged.
 
 ### 0.3 D2 probe result
-_Pending: the probe's coverage table goes here before any run._
+**Probe run Oct 24, 2026 (Jose's laptop, 41.7 min): STOP under D2. Every year is under 90%. Nothing runs until
+Jose decides.**
+
+EDGAR float coverage, on stock-days E could enter (day high >= +20%, >= $3):
+
+| Year | All | Domestic | Foreign | Unknown filer | Live | Delisted | <=10M of covered |
+|---|---|---|---|---|---|---|---|
+| Oct 2021 - Oct 2022 | 61.6% of 3,485 | 72.2% of 2,496 | 38.0% of 905 | 0% of 84 | 61.8% of 3,365 | 55.0% of 120 | 23.4% |
+| Oct 2022 - Oct 2023 | 66.1% of 3,573 | 78.3% of 2,541 | 39.6% of 935 | 0% of 97 | 66.3% of 3,549 | 25.0% of 24 | 34.1% |
+| Oct 2023 - Oct 2024 | 69.9% of 4,637 | 82.1% of 3,243 | 48.1% of 1,206 | 0% of 188 | 70.4% of 4,594 | 18.6% of 43 | 35.9% |
+| All 3 years | 66.3% of 11,695 | 78.0% of 8,280 | 42.5% of 3,046 | 0% of 369 | | | 31.9% |
+
+Missing, all 3 years: none-filed-before 1,556 (mostly new listings with no 10-Q / 20-F yet), no-value 1,110,
+stale 566, no-split-data 338, name-mismatch 256, no-cik 120, sec-error 0. Sources of covered values:
+dei 7,499, us-gaap 216, ifrs-full 34 stock-days. Median value age 49 days (domestic), 149 days (foreign).
+28 SEC responses had `units: {shares: {}}` (an empty object, e.g. Biogen; read as no data, correctly).
+
+**Universe check: the universe is missing most 2021-24 delistings.**
+- Alpaca's inactive symbols by last daily bar: 412 in Oct 2021 - Oct 2022, **10** in Oct 2022 - Oct 2023, **4** in
+  Oct 2023 - Oct 2024 (85 before the window, 31 delisted later, 1,294 with no bars Aug 2021 - Oct 2024).
+- FMP's delisted list for the window (listed exchanges): 3,302 symbols (774 / 1,422 / 1,106 by year); in the
+  universe under the same symbol: 280 (259 / 15 / 6); **missing: 3,022** (515 / 1,407 / 1,100). The FMP count
+  includes preferreds, units, warrants and some funds (e.g. AAIC-PB, ACACU, ACAHW, ABMAX), so the common-stock
+  gap is smaller than 3,022 but still large, and almost total after Oct 2022.
+- The same universe list was used for every earlier E replay, so the 2024-2026 E-J windows also lacked almost
+  every delisting after 2022.
+
+Minute data: 92,612 symbol-days, 1,268 day-batches, none cached; estimate about 848k Alpaca requests, about 8.8 h.
 The probe also prints a universe check (Jose, Oct 24): the universe is Alpaca's asset list as it is today
 (active + inactive), the same for every window, so the probe counts the inactive symbols by their last daily bar
 and compares FMP's list of companies delisted in the window with the universe. Its result is recorded here before
