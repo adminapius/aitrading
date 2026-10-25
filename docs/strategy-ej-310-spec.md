@@ -1,4 +1,9 @@
-# Strategy E-J $3-10 (LOCKED Oct 24, 2026; window pending the D2 probe)
+# Strategy E-J $3-10 (PARKED Oct 24, 2026: no clean out-of-sample data (probe STOP on D2))
+
+**PARKED by Jose, Oct 24, 2026 (option 3): no clean out-of-sample data; the D2 probe stopped (float coverage
+61.6% / 66.1% / 69.9% by year, under 90%), and the universe is missing most 2021-24 delistings (section 0.3). No
+rule changes, nothing run, no window lock written. The spec below stays as locked, for the record. Known data
+issues for any future backtest: docs/backtest-known-issues.md.**
 
 BACKTEST ONLY. Rules as Jose wrote them (Oct 24, 2026). Items marked **[D#]** are Jose's decisions (section 9:
 D1-D11 approved Oct 24, 2026 with his additions, plus D12). Locked before any result. The only open item is the D2

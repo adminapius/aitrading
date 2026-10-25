@@ -28,7 +28,17 @@
   float sources list only companies that trade today: delisted stocks could never be entered, and live stocks used
   today's float rather than the float on the trade date (point-in-time history only from about late 2023). This
   applies to the backtests behind E's filters and to both E-J runs. The out-of-sample read on E with point-in-time
-  EDGAR float (delisted included) is D12 in docs/strategy-ej-310-spec.md, reported next to this rule.
+  EDGAR float (delisted included) was planned as D12 in docs/strategy-ej-310-spec.md; that test is parked
+  (Oct 24, 2026), so there is no clean out-of-sample read on E.
+- Universe gap (Oct 24, 2026, from the E-J $3-10 probe; information only; E's paper rules unchanged): **the
+  backtest universe (Alpaca's asset list as it is today, active + inactive) is missing about 99% of delistings
+  after Oct 2022** (by FMP's delisted list, which also counts preferreds, units and warrants: 21 of 2,528 present
+  for Oct 2022 - Oct 2024; 259 of 774 for Oct 2021 - Oct 2022). Every earlier backtest built its universe from
+  that list: E's replays, E-J, SW, H v2 and F. E and E-J also carry the float bias above (SW, H v2 and F have no
+  float gate). Jose's reading, recorded as such: these biases are expected to run in the optimistic direction
+  (stocks that later delisted are left out), so the FAIL verdicts of E-J, SW, H v2 and F stand, and E-current's
+  tuning result is an upper bound. The direction is expected, not measured. Details and fixes:
+  docs/backtest-known-issues.md.
 
 
 Set by Jose on Oct 19, 2026 at about 17:40 ET. Nothing here changes during the test.
