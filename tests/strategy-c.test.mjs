@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { C, closingPrint, dividendFactor, isHalfDay } from '../scripts/backtest/strategy-c'
+import { C, closerTo, closingPrint, dividendFactor, isHalfDay } from '../scripts/backtest/strategy-c'
 
 test('closingPrint: primary-exchange official close (M) first, else the largest closing print (6); other exchanges ignored', () => {
   const trades = [
@@ -33,4 +33,15 @@ test('isHalfDay and the locked windows', () => {
   assert.equal(C.signalMinute, 929)
   assert.equal(C.entryMinute, 930)
   assert.deepEqual(C.primary, { SPY: 'P', QQQ: 'Q', IWM: 'P', DIA: 'P' })
+})
+
+test('closerTo: the price nearer the 15:59 reference wins; equal distance is a tie', () => {
+  assert.equal(closerTo(450, 450.02, 452), 'print')
+  assert.equal(closerTo(450, 457.13, 450.01), 'daily')
+  assert.equal(closerTo(450, 450.05, 449.95), 'tie')
+})
+
+test('dividendFactor: rounding noise in the adjusted closes is not a dividend', () => {
+  assert.equal(dividendFactor(450, 449.9991, 451, 451), 1, 'implied 0.09 cents: rounding')
+  assert.ok(dividendFactor(450, 448.2, 451, 451) < 1, 'implied $1.80: dividend')
 })
