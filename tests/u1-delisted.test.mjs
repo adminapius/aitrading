@@ -16,6 +16,9 @@ test('isCommonStock: drops preferreds, units, warrants, rights, notes and funds'
   assert.equal(isCommonStock({ symbol: '', companyName: 'x' }), false)
   // Oct 25 probe leaks: mutual funds (X), Nasdaq preferreds (P/O/N/M), convertibles
   for (const s of ['CAEAX', 'JIGZX', 'TSAGX', 'MTBCO', 'OCESP', 'AUBAP', 'MPLXP', 'ABCDN', 'ABCDM', 'ABCDG']) assert.equal(isCommonStock({ symbol: s, companyName: 'Xyz' }), false, s)
+  // second probe (Oct 25): closed-end and ETF trusts named without "Fund"
+  for (const n of ['Bitwise Funds Trust', 'MFS High Income Municipal Trust', 'Nuveen New York Select Tax-Free Income Portfolio']) assert.equal(isCommonStock({ symbol: 'ABC', companyName: n }), false, n)
+  for (const n of ['The Duckhorn Portfolio, Inc.', 'Medical Properties Trust, Inc.', 'Whitestone REIT']) assert.equal(isCommonStock({ symbol: 'ABC', companyName: n }), true, n)
   for (const s of ['BHLLD', 'ABCDA', 'ABCDF', 'ABCDY', 'CWEN-A']) assert.equal(isCommonStock({ symbol: s, companyName: 'Xyz Inc' }), true, s)
 })
 
