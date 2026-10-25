@@ -169,7 +169,7 @@ VIX (FMP prior-day close): 2,778 closes; 0 of 2,692 full sessions without a prio
 Reading:
 - **Minute bars, prior closes, half days and VIX are fine** (at most 3 missing bars per ETF per window; those
   days are skipped and counted, D7).
-- **The "ex-div days" column is wrong as a count** (538-848 a window, where ETFs pay about 4 a year). It counts
+- **The "ex-div days" column is wrong as a count** (538-848 a window, where these ETFs pay 4 times a year, DIA 12). It counts
   every day where the one-day factor is below 1, which picks up rounding in Alpaca's adjusted closes. The run must
   treat a day as ex-dividend only when the factor implies a real dividend (at least half a cent a share,
   i.e. (1 - factor) x prior close >= 0.005). Fixed in `dividendFactor` (Oct 25): a factor implying under half a cent a share is treated as 1. A bug fix in the D1 code, not a rule change.
