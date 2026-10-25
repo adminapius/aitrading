@@ -235,3 +235,49 @@ open (fixed here before any result):
   positive. **VIX (D8):** the prior session's FMP close; a trade without one is listed as "no VIX".
 - **Time in the market:** the share of sessions with a position (each held only 15:30-16:00).
 
+
+## 12. Result (LOCKED run, Jose's laptop, Oct 25, 2026; ran once; `backtests/strategy-c/run/`)
+**VERDICT: FAIL on all five conditions.** C does not go to paper. Per section 4, no rerun with changed rules,
+windows or tickers.
+
+| Pass rule (SPY, Jun 1, 2020 - Oct 16, 2026, base costs) | Value | |
+|---|---|---|
+| 1. Sharpe >= buy-and-hold | -0.502 vs 1.025 | FAIL |
+| 2. Mean net return per trade > 0, t >= 2 | -0.0102% per trade, t = -1.26, n = 866 | FAIL |
+| 3. Total net return > 0 at $0.03 | -13.69% | FAIL |
+| 4. >= 4 of 6 years positive (2021-2026) | 1 of 6 (2022 +2.53%; 2021 -4.86%, 2023 -0.41%, 2024 -2.98%, 2025 -0.83%, 2026 -1.30%) | FAIL |
+| 5. >= 2 of QQQ/IWM/DIA positive, and SPY 2016-2020 positive | 0 of 3 (QQQ -6.91%, IWM -17.13%, DIA -13.23%); SPY 2016-2020 +1.02% | FAIL |
+
+| Line | Window | Trades | Win % | PF | Net | Sharpe | Max DD |
+|---|---|---|---|---|---|---|---|
+| **C base SPY (judged)** | pass/fail | 866 | 47.3% | 0.87 | -7.82% | -0.50 | 10.9% |
+| C base QQQ | pass/fail | 877 | 48.3% | 0.91 | -6.91% | -0.38 | 11.3% |
+| C base IWM | pass/fail | 817 | 47.5% | 0.79 | -17.13% | -0.98 | 21.3% |
+| C base DIA | pass/fail | 852 | 45.2% | 0.77 | -13.23% | -1.01 | 16.0% |
+| SPY $0.03 stress | pass/fail | 866 | 45.2% | 0.78 | -13.69% | -0.93 | 16.2% |
+| SPY long/short (info) | pass/fail | 1,592 | 48.8% | 0.95 | -6.23% | -0.26 | 16.1% |
+| SPY 15:31 fill (info) | pass/fail | 866 | 49.3% | 0.90 | -5.81% | -0.37 | 9.1% |
+| SPY raw prior close (info) | pass/fail | 864 | 47.3% | 0.88 | -7.47% | -0.48 | 10.6% |
+| SPY fractional (info) | pass/fail | 866 | 47.3% | 0.88 | -8.69% | -0.50 | 12.0% |
+| **SPY buy-and-hold** | pass/fail | - | - | - | **+173.22%** (CAGR 17.1%) | 1.03 | 24.5% |
+| **SPY 10-month average** (info, no costs) | pass/fail | - | - | - | **+95.38%** (CAGR 11.1%) | 0.88 | 25.5% |
+| C base SPY | 2016-2020 | 609 | 48.6% | 1.02 | +1.02% | 0.08 | 8.2% |
+| C base QQQ (daily closes, flagged) | 2016-2020 | 641 | 50.2% | 1.11 | +5.08% | 0.32 | 5.3% |
+| C base IWM | 2016-2020 | 591 | 46.5% | 0.84 | -8.75% | -0.57 | 12.1% |
+| C base DIA | 2016-2020 | 616 | 46.3% | 1.13 | +5.46% | 0.34 | 10.4% |
+| SPY long/short (info) | 2016-2020 | 1,099 | 47.9% | 1.05 | +4.11% | 0.20 | 9.0% |
+| SPY buy-and-hold | 2016-2020 | - | - | - | +63.15% | 0.70 | 33.8% |
+| SPY 10-month average | 2016-2020 | - | - | - | +21.71% | 0.48 | 20.8% |
+
+Reading (facts only):
+- After the paper's sample (Jun 2020 on), the rest-of-day signal had no edge on any of the four ETFs at these
+  fills; every robustness and information line in that window is negative. Inside the paper's sample (2016-2020)
+  SPY was flat (+1.0%) and the long/short version, the paper's own rule, made +4.1% gross of borrow costs.
+- The only positive buckets were high-VIX days in 2016-2020 (SPY VIX >= 20: 109 trades, +6.0bp a trade); in the
+  pass/fail window high-VIX days were negative too (-0.7bp). Not a rule; recorded because the paper ties the effect
+  to dealer gamma, which is larger in stressed markets.
+- Data: 0 of 866 judged exits used the daily-bar fallback (D2); QQQ 2016-2020 ran entirely on daily closes, as
+  flagged. Skips: half days only (12), plus a handful of missing 15:29 bars.
+- **Fallback (section 6):** SPY buy-and-hold made +173% in the pass/fail window; the 10-month average line made +95%
+  with a similar max drawdown (25.5% vs 24.5%) because the 2022 exit came late and the re-entries lagged. On these
+  two windows the filter did not reduce drawdown. Neither is a strategy under test.
