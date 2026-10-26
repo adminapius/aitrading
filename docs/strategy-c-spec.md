@@ -284,3 +284,13 @@ Reading (facts only):
   gave up most of 2023 (+8.77% vs +26.18%); in 2016-2020 it cut the max drawdown from 33.8% to 20.8% but returned
   +21.7% vs +63.2%. On these windows the filter cost return and only reduced drawdown in the earlier one. Neither
   is a strategy under test.
+
+### 12b. Final (Jose, Oct 25, 2026)
+**C is FAIL and final.** No rerun, no variant (long/short, VIX filter, other ETFs or fills) is tested as a fix.
+**Fallback note, recorded as section 6 requires:** every short-term strategy tested so far has failed its locked
+test, and published evidence on retail day trading is poor. The evidence points to owning the index at near-zero
+cost: SPY buy-and-hold, with a 10-month moving-average filter (hold SPY while the month-end close is above its
+10-month average, otherwise cash) as drawdown control, accepting that the filter mainly helps in long bear markets
+and lags in fast recoveries. On this run's windows the filter cost return in both (pass/fail +95% vs +173%;
+2016-2020 +22% vs +63%) and cut the max drawdown only in 2016-2020 (20.8% vs 33.8%). This is a note, not a strategy
+under test; no account or order flow is set up for it.

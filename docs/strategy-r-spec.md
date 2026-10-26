@@ -1,8 +1,8 @@
-# Strategy R ("Ross-type"): H1, H2, H3 - DRAFT (Oct 25, 2026)
+# Strategy R ("Ross-type"): H1, H2, H3 - LOCKED (Oct 25, 2026)
 
-**Status: DRAFT; R1-R14 approved by Jose as proposed (Oct 25, 2026), with the three additions in section 10. Not
-locked, built or run. R is locked only after U1 (PR #114) is merged and its results are recorded in
-docs/backtest-known-issues.md (Jose, Oct 25, 2026).** Source: the Ross audit (`docs/ross-audit.md`), hypotheses H1
+**Status: LOCKED by Jose on Oct 25, 2026 (about 17:20 PT), before any result.** R1-R14 approved as proposed with
+three additions (section 10); R15 and R16 decided (section 10); U1 merged (PR #114) and its results recorded in
+docs/backtest-known-issues.md. The run is not built or run yet; nothing below changes once it has run. Source: the Ross audit (`docs/ross-audit.md`), hypotheses H1
 (who) and H2 (when), plus H3 (Jose, Oct 25).
 
 Live Strategy E and its paper test are not touched.
@@ -27,7 +27,8 @@ Live Strategy E and its paper test are not touched.
 - **Float coverage (LOCKED Oct 25, 2026 by Jose, before any result):** the run reports EDGAR float coverage by
   calendar year for R's candidate stock-days (section 3's filters other than float, U1 included): found / no value,
   with the reasons (foreign, new listing, stale, no CIK, other). Stocks without a float value are excluded and
-  counted. **If coverage is under 75% in any calendar year of the tuning or holdout window, the run is reported as
+  counted (coverage base: covered / (candidate stock-days - foreign filers), R15). **If coverage is under 75% in any
+  calendar year of the window, the run is reported as
   information only and cannot pass.** Coverage was under 90% before (61.6-69.9% of E's enterable stock-days by
   year, docs/backtest-known-issues.md issue 2). The probe (section 9) reports the same numbers first.
 - 1-minute SIP bars (04:00-16:00), SIP NBBO quotes, Alpaca news, all cached; a probe (section 9) first.
@@ -88,18 +89,34 @@ Two candidates from the audit:
 - $2,000 start, compounding; risk 1% of equity per trade; at most 25% of equity per position; at most 3 open
   positions; 4% daily loss limit; no margin; no overnight holds; flat by 15:30 ET. The PDT rule no longer applies
   at Alpaca (`docs/strategy-c-spec.md` section 7).
-- **Windows: tuning Oct 14, 2024 - Jul 31, 2026; holdout Aug 1 - Oct 16, 2026.** Each runs once with a lock, tuning
-  first. No parameter is tuned: tuning is reported, the verdict is the holdout.
-- **Pass rule: the same as E's.** On the holdout, per line: at least 30 trades, expectancy > +0.10R and profit factor
-  > 1.3 (R from the model fills above; there is no paper/model gap in a backtest). **[R12]**
+- **Window (R16, Jose, Oct 25): each line is judged on the whole window, Oct 14, 2024 - Oct 16, 2026, run once**
+  with a run-once lock. Its two parts are reported separately: the tuning part (Oct 14, 2024 - Jul 31, 2026) and the
+  holdout part (Aug 1 - Oct 16, 2026). No parameter is tuned.
+- **Pass rule (LOCKED, Jose, Oct 25), per line, on the whole window; every condition must hold:**
+  1. at least 30 trades;
+  2. expectancy > **+0.15R**;
+  3. profit factor > **1.4**;
+  4. positive dollars (total net P&L > 0, after fees);
+  5. positive expectancy in the tuning part **and** in the holdout part, each reported separately.
+  R per trade = net P&L (after fees) / initial risk in dollars (shares x (fill - stop)); PF = sum of positive R /
+  |sum of negative R|. There is no paper/model gap in a backtest.
+- **Why the bar is stricter than E's (+0.10R, PF 1.3), recorded honestly:** the rules were set from Ross's entry
+  features observed in this same window (the Ross audit sampled his days from Oct 2024 to Oct 2026), so the window is
+  not fully unseen by the rule design. The holdout part alone is too short to judge (probe: 24 / 14 / 9 trades). For
+  the same reason a pass is not evidence enough for live money: **a locked 30-trade paper test is required before
+  any live money.**
+- **Information only (not judged; Jose, Oct 25):** each line's results with and without the setups skipped for "no
+  quote within 120 s" (71 in the probe, all lines and both parts). "Without the skip" fills them at max(trigger, bar
+  open) + half the median quoted spread of the quoted setups in the same part and session phase (pre-market or
+  regular hours) + $0.01, with the same stop, size and exit rules.
 - **How the three lines are judged and compared:**
   - Each line is judged alone against the pass rule; each passes or fails on its own.
   - They are not independent (H2 and H3 are parts of H1's day), so a side-by-side table (trades, expectancy, PF,
     R, $, win %) is reported, but **no line wins by beating another**.
-  - Three tries raise the chance that one passes by luck. Default guard: a line counts as passed only if it also
-    has positive expectancy in tuning. If more than one passes, all are recorded; the one taken to a paper test is
-    decided by Jose before the run, default H1 (most trades). **[R13]**
-  - A pass leads only to a locked paper test with its own fill audit, never straight to live money.
+  - Three tries raise the chance that one passes by luck: the guard is condition 5 (positive in both parts) and the
+    stricter bar. **If more than one line passes, H1 goes to paper (R13, kept by Jose).**
+  - A pass leads only to a locked 30-trade paper test with its own fill audit and its own pass rule, set before it
+    starts; never straight to live money.
 
 ## 9. Probe first (counts only: no exits, no returns)
 `npx tsx scripts/backtest/strategy-r.ts --probe` (built Oct 25, 2026; needs the U1 code, so it runs from a branch
@@ -192,13 +209,17 @@ line before the lock; fees are E's constants on top of R11's fill price.
 - **R14** If the probe says the holdout cannot reach 30 trades on a line. Default: that line is reported as
   information only for the backtest and goes straight to a locked paper test only by Jose's decision.
 
-**Open (proposed Oct 25, needs Jose's call before the lock):**
-- **R15 Coverage base.** The locked 75% floor needs a denominator. Default: covered / (candidate stock-days - foreign
+- **R12 / R14 superseded by R16** (whole-window verdict; a line with fewer than 30 trades in the run fails condition 1).
+- **R13** kept: if more than one line passes, H1 goes to paper.
+
+**Decided by Jose (Oct 25, 2026, before any result):**
+- **R15 Coverage base - DECIDED: the default.** The coverage denominator excludes foreign filers, consistent with
+  R2. The locked 75% floor needs a denominator. Default: covered / (candidate stock-days - foreign
   filers), because R2 excludes foreign filers by rule, not for missing data; the share including foreign filers is
   reported next to it. Alternative: count foreign filers as not covered (stricter; with many Cayman and Chinese
   names it may push a year under 75%). **Probe (Oct 25): with the default every year passes (83.5-85.0%); with the
   alternative every year fails (54.8-66.0%).**
-- **R16 Holdout too short for every line (probe, Oct 25).** Holdout estimates 24 / 14 / 9 trades, all under 30.
+- **R16 Holdout too short for every line - DECIDED: option (b)**, with a stricter bar and the conditions in section 8. Holdout estimates 24 / 14 / 9 trades, all under 30.
   Options, to decide before the lock:
   - (a) Default, as approved in R14: run both windows once; every line's backtest is information only; a locked
     paper test only if Jose decides it from the results.
