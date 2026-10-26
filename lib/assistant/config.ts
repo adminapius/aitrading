@@ -6,13 +6,9 @@
 export const ASSISTANT_ENV = {
   manualKey: 'ALPACA_MANUAL_KEY',
   manualSecret: 'ALPACA_MANUAL_SECRET',
-  password: 'ASSISTANT_PASSWORD',
-  sessionSecret: 'ASSISTANT_SESSION_SECRET',
-  serviceSecret: 'ASSISTANT_SERVICE_SECRET',
-  vapidPublic: 'VAPID_PUBLIC_KEY',
-  vapidPrivate: 'VAPID_PRIVATE_KEY',
-  vapidSubject: 'VAPID_SUBJECT',
-  secUserAgent: 'SEC_USER_AGENT',
+  password: 'ASSISTANT_PASSWORD', // the only other new name (the dashboard has no login)
+  serviceSecret: 'WORKER_RUN_SECRET', // existing: the assistant service reuses it
+  secUserAgent: 'SEC_USER_AGENT', // existing (same as on the laptop)
 } as const
 
 export const ASSISTANT = {

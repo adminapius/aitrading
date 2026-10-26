@@ -7,7 +7,7 @@ import test from 'node:test'
 import { accountMode, accountProblem, keyProblem } from '../lib/assistant/config'
 
 const walk = (dir) => readdirSync(dir).flatMap((f) => { const p = join(dir, f); return statSync(p).isDirectory() ? walk(p) : [p] })
-const files = [...walk('lib/assistant'), ...walk('app/api/assistant'), ...walk('app/assistant'), 'assistant-worker/main.py', 'public/assistant-sw.js']
+const files = [...walk('lib/assistant'), ...walk('app/api/assistant'), ...walk('app/assistant'), 'assistant-worker/main.py']
 
 test('no assistant file imports the order code or names an order endpoint', () => {
   for (const f of files) {

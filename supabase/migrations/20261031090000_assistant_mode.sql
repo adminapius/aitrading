@@ -62,12 +62,6 @@ create table if not exists public.ait_assistant_alerts (
 );
 create index if not exists ait_assistant_alerts_day_symbol on public.ait_assistant_alerts (day, symbol);
 
-create table if not exists public.ait_push_subscriptions (
-  endpoint text primary key,
-  subscription jsonb not null,
-  created_at timestamptz not null default now()
-);
-
 create table if not exists public.ait_assistant_halts (
   id bigserial primary key,
   symbol text not null,
@@ -92,7 +86,6 @@ alter table public.ait_trade_plans enable row level security;
 alter table public.ait_manual_trade_notes enable row level security;
 alter table public.ait_assistant_days enable row level security;
 alter table public.ait_assistant_alerts enable row level security;
-alter table public.ait_push_subscriptions enable row level security;
 alter table public.ait_assistant_halts enable row level security;
 alter table public.ait_edgar_daily enable row level security;
 

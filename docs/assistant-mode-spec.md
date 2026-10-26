@@ -16,7 +16,7 @@ are not touched.
    the manual account with its own keys (`ALPACA_MANUAL_KEY` / `ALPACA_MANUAL_SECRET`), separate from E's.
 3. **Existing data sources only:** Alpaca (market data: snapshots, bars, quotes, news, the market-data stream;
    trading API: account and fill activities), FMP (current plan), SEC EDGAR (free, with a user agent), Supabase
-   (database and storage). Notifications use Web Push (a browser standard, no data provider).
+   (database and storage). Notifications use the app's existing Telegram / ntfy channel.
 4. **Nothing here is a signal to trade.** Columns, flags and alerts describe a stock; there is no buy/sell output.
    The dashboard's Gemini "AI SIGNAL" is proposed for removal in the AI cost audit (Job 1).
 
@@ -45,8 +45,8 @@ A table of live gainers, refreshed every 15 s (the Railway scheduler's cadence),
 - **Evaluation runs server-side**, so a phone gets alerts with the dashboard closed: a **separate Railway service**
   (same repo, its own start command) checks the scanner every 15 s from 07:00 to 11:00 ET. E's Railway scheduler and
   `/api/worker/run` are not changed.
-- **Delivery:** Web Push to the browser and to the phone (iPhone: the app added to the Home Screen, iOS 16.4 or later;
-  Android: Chrome), with VAPID keys in the environment. Alternative: email (decision A2).
+- **Delivery:** phone push through the app's existing Telegram / ntfy channel (`lib/notifications.ts`), titled
+  "[Assistant]" so it stands apart from E's alerts. No new keys (decision A2, made minimal Oct 25).
 - One alert per symbol per filter per day (re-alert option: again after a new high of day). The alert text names
   the facts (symbol, gain, float, relative volume, news age, dilution, halt) and ends "Assistant only; no order was
   sent."
@@ -97,7 +97,7 @@ A table of live gainers, refreshed every 15 s (the Railway scheduler's cadence),
 - Tables (as built): `ait_assistant_settings`, `ait_manual_fills` (raw fills, with account id and paper/live),
   `ait_trade_plans`, `ait_manual_trade_notes` (Jose's setup, notes, stop and screenshot per round trip; the round trips
   themselves are rebuilt from the fills), `ait_assistant_days` (each day's starting equity), `ait_assistant_alerts`,
-  `ait_push_subscriptions`, `ait_assistant_halts`, `ait_edgar_daily` (float and dilution per symbol per day); one private
+  `ait_assistant_halts`, `ait_edgar_daily` (float and dilution per symbol per day); one private
   storage bucket for screenshots. Row-level security as on the existing tables; the service key stays server-side.
 - Routes and the Railway service: section 10.
 
@@ -106,7 +106,7 @@ A table of live gainers, refreshed every 15 s (the Railway scheduler's cadence),
 |---|---|---|---|
 | Scanner panel | Alpaca snapshots and news every 15 s, 07:00-11:00, while open: about 1,000 requests a day (same plan); SEC: about 100-200 requests a day for float and filings (cached daily) | Alpaca and FMP (existing flat plans), SEC (free); Vercel function calls | $0 on the data side; Vercel calls within most plans |
 | Halt status | One market-data stream connection (status channel) in the assistant service | Alpaca (existing plan; the status channel must be included in it, checked in the build's first step) | $0 if included |
-| Alerts | Server-side check every 15 s, 4 hours a day | Railway (usage-based) | about $1-5 (one small always-on service) |
+| Alerts | Server-side check every 15 s, 4 hours a day; delivery via the existing Telegram / ntfy channel | Railway (usage-based) | about $1-5 (one small always-on service) |
 | Risk calculator | One account read per open | Alpaca | $0 |
 | Hard limits | From the journal's fills | none | $0 |
 | Journal | Fill import every 5 min in market hours (about 80 requests a day) | Alpaca; Supabase storage for screenshots (about 300 KB each; 300 trades about 90 MB) | $0 within Supabase's free 1 GB; otherwise a few cents |
@@ -120,7 +120,7 @@ version at $0.
    hard limits. (Needs A1's account and keys.)
 2. Scanner panel: EDGAR float port, dilution flags, headline age; halt status via the stream (probe the status
    channel first).
-3. Alerts: the assistant Railway service, settings page, Web Push.
+3. Alerts: the assistant Railway service, settings page, alerts via the existing Telegram / ntfy channel.
 
 Timing: by Jose's rule for E's test week (merges after 16:00 ET, only safety or broken fixes), the build merges after
 Friday Oct 30, 2026 unless Jose decides otherwise (decision A9).
@@ -128,7 +128,7 @@ Friday Oct 30, 2026 unless Jose decides otherwise (decision A9).
 ## 9. Decisions (Jose, Oct 25, 2026)
 - **A1 Manual trading account:** a new, separate Alpaca **paper** account, created by Jose, with its own keys. The
   assistant refuses to start with E's keys (same key, or the keys reach E's account id or account number).
-- **A2 Alerts:** push notifications (Web Push: browser and phone).
+- **A2 Alerts:** push notifications to the phone through the app's existing Telegram / ntfy channel (no new keys).
 - **A3 Limits:** max loss 3% of the day's starting equity; 4 trades a day (editable in settings).
 - **A4 Dilution lookback:** S-1/F-1/S-3/F-3/424B in 90 days; at-the-market mentions in 180 days.
 - **A5 Float display:** EDGAR shares outstanding primary; FMP's current float greyed next to it.
@@ -146,10 +146,10 @@ Friday Oct 30, 2026 unless Jose decides otherwise (decision A9).
   stats, limits, the paper yardstick), `scanner.ts` (rows, filters, halts, alert text), `edgar.ts` (live EDGAR float
   and dilution), `service.ts`, `push.ts`, `store.ts` (assistant tables only, login), `http.ts`.
 - Routes `app/api/assistant/*`: login, logout, session (runs the A1 guard), journal, import, trade, screenshot, plan,
-  settings, scanner, alerts (service only), push, halts (service only). Page `/assistant` (tabs: Scanner, Risk,
-  Journal, Settings), `public/assistant-sw.js`, `public/assistant.webmanifest` (Home Screen app for iPhone push).
+  settings, scanner, alerts (service only), push (test alert), halts (service only). Page `/assistant` (tabs: Scanner, Risk,
+  Journal, Settings).
 - **Login:** the dashboard has none; the assistant does (a password gives a 12-hour signed, HttpOnly cookie). The
-  service uses a bearer secret.
+  service uses the existing `WORKER_RUN_SECRET`.
 - `assistant-worker/` (Python, its own Railway service with `assistant-worker/railway.json`): alerts every 15 s
   07:00-11:00 ET, fill import every 5 min 04:00-20:00 ET and once at 20:05, the trading-status stream. It calls only
   `/api/assistant/*`.
@@ -159,23 +159,23 @@ Friday Oct 30, 2026 unless Jose decides otherwise (decision A9).
   service never calls E's routes; the A1 refusals), `tests/assistant.test.mjs` (risk, round trips, R, limits,
   filters, EDGAR parsing, sessions), `tests/assistant_worker_test.py` (status mapping).
 
-### Environment variables (values set by Jose; never in chat)
-| Name | Where | What |
+### Environment variables (minimal; Jose, Oct 25: reuse what exists)
+**New: three names.**
+| Name | Where | Why it cannot be reused |
 |---|---|---|
-| `ALPACA_MANUAL_KEY`, `ALPACA_MANUAL_SECRET` | Vercel, Railway assistant service (and PowerShell for local runs) | The separate paper account's keys |
-| `ALPACA_MANUAL_BASE_URL` (optional) | Vercel | Defaults to `https://paper-api.alpaca.markets`; changing it to live is a separate decision |
-| `ASSISTANT_PASSWORD` | Vercel | 12+ characters |
-| `ASSISTANT_SESSION_SECRET` | Vercel | 32+ random characters |
-| `ASSISTANT_SERVICE_SECRET` | Vercel and the Railway assistant service | The same random value in both |
-| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Vercel | From `npx web-push generate-vapid-keys`; subject `mailto:` + Jose's email |
-| `SEC_USER_AGENT` | Vercel | "Name email", as on the laptop |
-| `VERCEL_APP_URL` | Railway assistant service | The app's https URL |
-| `ALPACA_STREAM_KEY` / `_SECRET` / `_FEED` (optional) | Railway assistant service | If the manual account's keys have no SIP stream; default the manual keys and `sip` |
+| `ALPACA_MANUAL_KEY`, `ALPACA_MANUAL_SECRET` | Vercel and the Railway assistant service (PowerShell for local runs) | Alpaca keys belong to one account; the separate paper account (A1) has its own pair, and E's keys cannot read it |
+| `ASSISTANT_PASSWORD` | Vercel | The dashboard has no login and the journal holds Jose's trades; the session cookie is signed with a key derived from it |
+
+**Reused, no new value:** `WORKER_RUN_SECRET` (the assistant service's bearer secret), `VERCEL_WORKER_URL` (the app URL for
+the assistant service), `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` and/or `NTFY_TOPIC_URL` (phone alerts, titled
+"[Assistant]"), `SEC_USER_AGENT` (the laptop's value, for the EDGAR column), the existing Alpaca data keys (market
+data only), FMP and Supabase keys. No VAPID keys, no browser push, no Finnhub.
 
 ### At the merge (after Oct 30, with Jose's go)
-1. Apply the migration. 2. Set the variables above. 3. Create the Railway service from this repo with config file
+1. Apply the migration. 2. Set the three new variables (Vercel; the manual pair also on the new Railway service, with the
+existing `WORKER_RUN_SECRET` and `VERCEL_WORKER_URL`). 3. Create the Railway service from this repo with config file
 `assistant-worker/railway.json`. 4. Check `/health` on it (the stream line says whether the status channel connected;
-if not, halts use the inferred status). 5. Sign in at `/assistant`, turn on push for each device, send a test push.
+if not, halts use the inferred status). 5. Sign in at `/assistant` and send a test alert from Settings.
 
 Sources checked Oct 25, 2026: Alpaca docs, Real-time Stock Data (trading status and LULD channels) and Account
 Activities (FILL activity fields and paging).

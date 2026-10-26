@@ -1,9 +1,0 @@
-{
-  "name": "AItrading Assistant",
-  "short_name": "Assistant",
-  "start_url": "/assistant",
-  "scope": "/",
-  "display": "standalone",
-  "background_color": "#070b13",
-  "theme_color": "#070b13"
-}

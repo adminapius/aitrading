@@ -30,16 +30,16 @@ HALT_CODES = {"H": "halted", "T": "resumed"}
 
 
 def base_url() -> str:
-    value = os.getenv("VERCEL_APP_URL", "https://hooyah-aitrading.vercel.app").strip().rstrip("/")
+    value = os.getenv("VERCEL_WORKER_URL", "https://hooyah-aitrading.vercel.app").strip().rstrip("/")  # existing name
     if not value.startswith("https://"):
-        raise RuntimeError("VERCEL_APP_URL must be an https URL")
+        raise RuntimeError("VERCEL_WORKER_URL must be an https URL")
     return value
 
 
 def headers() -> dict:
-    secret = os.getenv("ASSISTANT_SERVICE_SECRET", "").strip()
+    secret = os.getenv("WORKER_RUN_SECRET", "").strip()  # existing secret, reused
     if not secret:
-        raise RuntimeError("ASSISTANT_SERVICE_SECRET is not set")
+        raise RuntimeError("WORKER_RUN_SECRET is not set")
     return {"authorization": f"Bearer {secret}", "content-type": "application/json"}
 
 
@@ -101,9 +101,9 @@ async def import_loop():
 
 
 async def halt_stream():
-    key = os.getenv("ALPACA_STREAM_KEY", os.getenv("ALPACA_MANUAL_KEY", "")).strip()
-    secret = os.getenv("ALPACA_STREAM_SECRET", os.getenv("ALPACA_MANUAL_SECRET", "")).strip()
-    feed = os.getenv("ALPACA_STREAM_FEED", "sip").strip()
+    key = os.getenv("ALPACA_MANUAL_KEY", "").strip()
+    secret = os.getenv("ALPACA_MANUAL_SECRET", "").strip()
+    feed = "sip"
     if not key or not secret:
         state["stream"] = "no stream keys; halts fall back to the inferred status"
         return
@@ -148,5 +148,5 @@ async def start():
 
 @app.get("/health")
 async def health():
-    missing = [name for name in ("ASSISTANT_SERVICE_SECRET",) if not os.getenv(name, "").strip()]
+    missing = [name for name in ("WORKER_RUN_SECRET", "ALPACA_MANUAL_KEY", "ALPACA_MANUAL_SECRET") if not os.getenv(name, "").strip()]
     return JSONResponse({"ok": not missing, "service": "assistant-worker", "placesOrders": False, "missing": missing, **state}, status_code=200 if not missing else 503)

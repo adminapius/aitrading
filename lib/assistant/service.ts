@@ -141,7 +141,7 @@ export async function runAlerts(now = new Date()) {
   for (const row of matches) {
     const [prev] = await select<{ price: number }>('ait_assistant_alerts', { select: 'price', day: `eq.${day}`, symbol: `eq.${row.symbol}`, order: 'sent_at.desc', limit: '1' })
     if (!shouldAlert(prev ? { price: Number(prev.price) } : null, row, settings.filters)) continue
-    await pushAll({ ...alertText(row), url: '/assistant' })
+    await pushAll(alertText(row))
     await insert('ait_assistant_alerts', [{ day, symbol: row.symbol, price: row.price, payload: row }])
     sent.push(row.symbol)
   }
@@ -154,7 +154,7 @@ export async function limitPush(limits: { lossHit: boolean; tradesHit: boolean; 
   const symbol = limits.lossHit ? 'LIMIT:LOSS' : 'LIMIT:TRADES'
   const [prev] = await select<{ id: number }>('ait_assistant_alerts', { select: 'id', day: `eq.${limits.day}`, symbol: `eq.${symbol}`, limit: '1' })
   if (prev) return null
-  await pushAll({ title: limits.lossHit ? 'Daily max loss hit' : 'Max trades hit', body: 'Your daily limit for manual trades is reached. Assistant only; no order was sent.', url: '/assistant' })
+  await pushAll({ title: limits.lossHit ? 'Daily max loss hit' : 'Max trades hit', body: 'Your daily limit for manual trades is reached. Assistant only; no order was sent.' })
   await insert('ait_assistant_alerts', [{ day: limits.day, symbol, price: 0, payload: limits }])
   return symbol
 }

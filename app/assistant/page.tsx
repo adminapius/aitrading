@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react'
 import useSWR from 'swr'
 import { riskPlan } from '@/lib/assistant/risk'
 
-type Session = { ok: true; mode: 'paper' | 'live'; equity: number; dayStartEquity: number; buyingPower: number; vapidPublicKey: string | null }
+type Session = { ok: true; mode: 'paper' | 'live'; equity: number; dayStartEquity: number; buyingPower: number }
 type ApiError = Error & { status?: number; refused?: boolean }
 const fetcher = async <T,>(url: string): Promise<T> => {
   const r = await fetch(url, { cache: 'no-store' })
@@ -200,9 +200,8 @@ function JournalView({ journal, reload }: { journal: Journal | undefined; reload
 }
 
 type Settings = { filters: Record<string, number | boolean | null>; maxLossPct: number; maxTrades: number; setups: string[] }
-const urlB64 = (b64: string) => { const pad = '='.repeat((4 - (b64.length % 4)) % 4); const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(raw, (c) => c.charCodeAt(0)) }
 
-function SettingsView({ session, onSaved }: { session: Session; onSaved: () => void }) {
+function SettingsView({ onSaved }: { onSaved: () => void }) {
   const { data, mutate } = useSWR<Settings>('/api/assistant/settings', fetcher)
   const [draft, setDraft] = useState<Settings | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
@@ -211,16 +210,6 @@ function SettingsView({ session, onSaved }: { session: Session; onSaved: () => v
   const f = draft.filters
   const set = (k: string, v: number | boolean | null) => setDraft({ ...draft, filters: { ...f, [k]: v } })
   const field = (k: string, label: string, scale = 1) => <label className="text-xs">{label}<input className={input} inputMode="decimal" value={f[k] == null ? '' : String(Number(f[k]) / scale)} onChange={(e) => set(k, e.target.value === '' ? null : Number(e.target.value) * scale)} /></label>
-  const enablePush = async () => {
-    try {
-      if (!session.vapidPublicKey) throw new Error('VAPID_PUBLIC_KEY is not set yet.')
-      const reg = await navigator.serviceWorker.register('/assistant-sw.js')
-      if ((await Notification.requestPermission()) !== 'granted') throw new Error('Notifications were not allowed in this browser.')
-      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64(session.vapidPublicKey) })
-      await send('/api/assistant/push', 'POST', { subscription: sub.toJSON() })
-      setMsg('Push is on for this device.')
-    } catch (e) { setMsg((e as Error).message) }
-  }
   return (
     <section className={`${card} space-y-4`} aria-label="Settings">
       <h2 className="font-semibold">Alert filters (no orders are ever sent)</h2>
@@ -239,9 +228,8 @@ function SettingsView({ session, onSaved }: { session: Session; onSaved: () => v
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <button className={button} onClick={async () => { try { const s = await send('/api/assistant/settings', 'PUT', draft); setDraft(s); mutate(s); setMsg('Saved.'); onSaved() } catch (e) { setMsg((e as Error).message) } }}>Save settings</button>
-        <button className={button} onClick={enablePush}>Turn on push for this device</button>
-        <button className={button} onClick={async () => { try { const r = await send('/api/assistant/push', 'POST', { test: true }); setMsg(`Test sent to ${r.sent} of ${r.subscriptions} devices.`) } catch (e) { setMsg((e as Error).message) } }}>Send a test push</button>
-        <span className="text-xs text-muted-foreground">{msg ?? 'iPhone: add this page to the Home Screen first (iOS 16.4 or later).'}</span>
+        <button className={button} onClick={async () => { try { const r = await send('/api/assistant/push', 'POST'); setMsg(r.sent ? `Test alert sent (${r.channels.join(', ')}).` : 'No alert channel answered: check TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID or NTFY_TOPIC_URL.') } catch (e) { setMsg((e as Error).message) } }}>Send a test alert</button>
+        <span className="text-xs text-muted-foreground">{msg ?? 'Alerts go to your existing Telegram / ntfy channel, titled [Assistant].'}</span>
       </div>
     </section>
   )
@@ -271,7 +259,7 @@ export default function AssistantPage() {
       {tab === 'scanner' && <Scanner onPick={(symbol, price) => { setPick({ symbol, price }); setTab('risk') }} />}
       {tab === 'risk' && <RiskCalc session={session} pick={pick} setups={journal?.settings.setups ?? ['other']} limitHit={limitHit} />}
       {tab === 'journal' && <JournalView journal={journal} reload={() => reloadJournal()} />}
-      {tab === 'settings' && <SettingsView session={session} onSaved={() => reloadJournal()} />}
+      {tab === 'settings' && <SettingsView onSaved={() => reloadJournal()} />}
     </main>
   )
 }

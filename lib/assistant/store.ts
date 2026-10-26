@@ -5,7 +5,7 @@ import type { NextRequest } from 'next/server'
 import { ASSISTANT_ENV } from '@/lib/assistant/config'
 import { supabaseHeaders, tradingConfig } from '@/lib/trading-config'
 
-const ALLOWED = /^(ait_assistant_settings|ait_manual_fills|ait_trade_plans|ait_manual_trade_notes|ait_assistant_days|ait_assistant_alerts|ait_push_subscriptions|ait_assistant_halts|ait_edgar_daily)$/
+const ALLOWED = /^(ait_assistant_settings|ait_manual_fills|ait_trade_plans|ait_manual_trade_notes|ait_assistant_days|ait_assistant_alerts|ait_assistant_halts|ait_edgar_daily)$/
 
 async function rest<T>(method: string, table: string, params: Record<string, string> = {}, body?: unknown, prefer?: string): Promise<T> {
   if (!ALLOWED.test(table)) throw new Error(`assistant store: table ${table} is not an assistant table`)
@@ -38,12 +38,13 @@ export async function signedScreenshotUrl(path: string, seconds = 3600) {
 
 // ---------------- access control ----------------
 // The dashboard has no login; the assistant does: a password (ASSISTANT_PASSWORD) gives a signed, HttpOnly session
-// cookie for 12 hours. The assistant Railway service uses a bearer secret (ASSISTANT_SERVICE_SECRET).
+// cookie for 12 hours (signed with a key derived from the password, so no extra secret). The assistant Railway
+// service uses the existing WORKER_RUN_SECRET as its bearer secret.
 
 export const SESSION_COOKIE = 'assistant_session'
 const SESSION_HOURS = 12
 
-/** "<expiry ms>.<hmac>" signed with ASSISTANT_SESSION_SECRET. Pure given the secret. */
+/** "<expiry ms>.<hmac>" signed with the key derived from ASSISTANT_PASSWORD. Pure given the secret. */
 export function signSession(expiresAt: number, secret: string) {
   return `${expiresAt}.${createHmac('sha256', secret).update(String(expiresAt)).digest('base64url')}`
 }
@@ -56,7 +57,8 @@ export function verifySession(token: string | undefined, secret: string, now = D
   return a.length === b.length && timingSafeEqual(a, b)
 }
 export const newSession = (secret: string) => signSession(Date.now() + SESSION_HOURS * 3_600_000, secret)
-export const sessionSecret = () => process.env[ASSISTANT_ENV.sessionSecret]?.trim() ?? ''
+/** Session signing key derived from ASSISTANT_PASSWORD (changing the password signs everyone out). */
+export const sessionSecret = () => { const pw = process.env[ASSISTANT_ENV.password]?.trim() ?? ''; return pw ? createHmac('sha256', 'aitrading-assistant-session-v1').update(pw).digest('hex') : '' }
 
 export function passwordOk(supplied: string) {
   const expected = process.env[ASSISTANT_ENV.password]?.trim() ?? ''
