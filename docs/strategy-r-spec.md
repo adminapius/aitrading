@@ -260,3 +260,44 @@ line before the lock; fees are E's constants on top of R11's fill price.
 - EDGAR float misses new listings before their first 10-Q/20-F; recent IPOs, which Ross trades, are mostly not
   enterable [bias].
 - Inferred halts miss halts shorter than a bar gap and may read a no-trade gap as a halt.
+
+## 12. Result (LOCKED run, Jose's laptop, Oct 25, 2026, about 20:45 ET; ran once; `backtests/strategy-r/run/`)
+**VERDICT: FAIL on all three lines.** No line goes to a paper test. Per section 8, no rerun with changed rules,
+windows, lines or exits.
+
+Data: universe 14,140 + 1,101 U1 delisted entities (the 16 fewer than the probe are the trusts dropped by the U1
+filter fix of Oct 25; the pre-screen was identical: 3,128 symbols, 16,332 stock-days). **Float coverage passed the
+locked floor in every year**: 2024 84.7%, 2025 85.0%, 2026 83.7% (foreign filers excluded, R15; 55.0-66.0% with
+them). Median quoted spread at setups: 0.33% / 0.47% (tuning, pre-market / regular hours), 0.43% / 0.48% (holdout).
+
+| Line | Part | Trades | Win % | Expectancy | PF | Total R | Net $ |
+|---|---|---|---|---|---|---|---|
+| **H1** 07:00-11:00 | whole | 178 | 31.5 | **-0.142R** | 0.81 | -25.21 | **-$497.45** |
+| | tuning | 154 | 30.5 | -0.177R | 0.77 | -27.23 | -$526.98 |
+| | holdout | 24 | 37.5 | +0.084R | 1.13 | +2.02 | +$29.54 |
+| **H2** 07:00-09:30 | whole | 121 | 30.6 | **-0.164R** | 0.79 | -19.84 | **-$383.25** |
+| | tuning | 107 | 29.9 | -0.189R | 0.76 | -20.23 | -$392.33 |
+| | holdout | 14 | 35.7 | +0.027R | 1.04 | +0.38 | +$9.08 |
+| **H3** 09:45-11:00 | whole | 58 | 31.0 | **-0.157R** | 0.79 | -9.10 | **-$183.24** |
+| | tuning | 49 | 30.6 | -0.180R | 0.76 | -8.80 | -$176.74 |
+| | holdout | 9 | 33.3 | -0.033R | 0.95 | -0.30 | -$6.50 |
+
+Pass rule (whole window): every line passes condition 1 (at least 30 trades) and fails conditions 2-5
+(expectancy, PF, dollars, both parts positive).
+
+- End equity from $2,000: H1 $1,502.55 (max drawdown $805.09), H2 $1,616.75 ($627.91), H3 $1,816.76 ($307.60).
+- Exits: H1 target 54, stop 122, flatten 2; H2 target 37, stop 84; H3 target 16, stop 40, flatten 2. Halts while
+  open: 3 trades. Exit-quote fallbacks: 0.
+- Setups not taken (H1): stop more than 10% below the fill 99, no quote 32, spread over 3% 2. The trade counts match
+  the probe's estimates (178 / 121 / 58).
+- H1's pre-market entries are exactly H2's (121 trades, -19.84R); its regular-hours entries lost -5.37R on 57.
+- U1 delisted entities: 35 of H1's trades.
+- **Information line, no-quote setups filled at the median spread:** H1 198 trades, -0.115R, PF 0.85, -$471.47; H2
+  unchanged (no no-quote setups); H3 83 trades, -0.051R, PF 0.93, -$106.06. Filling them does not change any
+  verdict.
+
+Reading (facts only): at our fills, Ross-type stocks traded with a 1-minute first-pullback break, a pullback-low stop
+and a 2R target lost money in every line and window part except small, positive holdout parts for H1 and H2 (24 and
+14 trades). A 2R target breaks even before costs at a 33.3% win rate; the lines won 30.6-31.5%. The pre-market line
+(Ross's hours) lost the most per trade. This does not test Ross's execution (10-second charts, level 2, size), only
+the selection and a simple trigger, as section 11 says.
