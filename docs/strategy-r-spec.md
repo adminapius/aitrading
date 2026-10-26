@@ -2,7 +2,7 @@
 
 **Status: LOCKED by Jose on Oct 25, 2026 (about 17:20 PT), before any result.** R1-R14 approved as proposed with
 three additions (section 10); R15 and R16 decided (section 10); U1 merged (PR #114) and its results recorded in
-docs/backtest-known-issues.md. The run is not built or run yet; nothing below changes once it has run. Source: the Ross audit (`docs/ross-audit.md`), hypotheses H1
+docs/backtest-known-issues.md. The run is built (section 8b, branch `strategy-r-run`, unmerged) and not run yet; nothing below changes once it has run. Source: the Ross audit (`docs/ross-audit.md`), hypotheses H1
 (who) and H2 (when), plus H3 (Jose, Oct 25).
 
 Live Strategy E and its paper test are not touched.
@@ -117,6 +117,30 @@ Two candidates from the audit:
     stricter bar. **If more than one line passes, H1 goes to paper (R13, kept by Jose).**
   - A pass leads only to a locked 30-trade paper test with its own fill audit and its own pass rule, set before it
     starts; never straight to live money.
+
+### 8b. The run (built Oct 25, 2026 on branch `strategy-r-run`; not run yet)
+`npx tsx scripts/backtest/strategy-r-run.ts --run` writes `backtests/strategy-r/run/` (report.txt, summary.json,
+trades.csv, RUN-LOCK.json). It runs once. Pass A collects the setups' quoted spreads, pass B runs the full simulation
+and fetches the exit quotes it needs, with nothing shown or written; then the lock is written; pass C reruns the same
+simulation from the cache only and reports. A crash before the lock leaves no result and can be rerun. How the code
+reads the locked rules where they leave a detail open (fixed here before any result):
+- Each line is its own $2,000 account, compounding on realized P&L; the no-quote information line is a separate
+  account per line.
+- Within a minute, exits before entries; entries in alphabetical order of symbol.
+- A setup not taken (3 open, daily loss limit, no cash, a skip in section 7) does not use the symbol's one entry
+  for the day (R7); a later setup on that symbol can still enter.
+- No margin: open positions' cost plus the new one must be at most equity.
+- Daily loss limit: no new entries once the day's realized P&L is at or below -4% of the day's starting equity.
+- Target not checked on the entry bar (the stop only on a close at or below it), as in the rulebook fill model.
+- Stop and flatten fills use the NBBO quote at the start of the exit bar (within 120 s); with none, the entry's
+  spread is used, counted ("exit-quote fallbacks").
+- Flatten: the open of the first bar at or after 15:30; with no such bar, the last bar's close (counted).
+- No-quote line: the median spread is taken over all quoted setups (all lines, de-duplicated) in the same part and
+  session phase, before any account rule.
+- R13 edge case: if H2 or H3 passes but H1 does not, the report says so and Jose decides before any paper test.
+- The report: coverage by year against the floor; each line's whole window, tuning part and holdout part (trades,
+  win %, expectancy, PF, total R, $), end equity, max drawdown in $, exits by reason, setups not taken by reason,
+  pre-market vs regular-hours entries, U1 trades; the same for the no-quote line; the five conditions per line.
 
 ## 9. Probe first (counts only: no exits, no returns)
 `npx tsx scripts/backtest/strategy-r.ts --probe` (built Oct 25, 2026; needs the U1 code, so it runs from a branch
