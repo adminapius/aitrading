@@ -1,7 +1,7 @@
 # Assistant mode: a trading assistant for Jose's manual trades - DESIGN (Oct 25, 2026)
 
-**Status: DRAFT for Jose's review. Nothing is built.** Open decisions with defaults are in section 9. Build starts
-only after Jose's go. Strategy E, its paper test (counting from Mon Oct 26, 2026), shadow A and the Friday report
+**Status: APPROVED by Jose (Oct 25, 2026) with the decisions in section 9; built on branch `assistant-mode`
+(section 10); NOT merged. Merge after Friday Oct 30, 2026, after 16:00 ET, with Jose's go (A9).** Strategy E, its paper test (counting from Mon Oct 26, 2026), shadow A and the Friday report
 are not touched.
 
 ## 0. Principles (non-negotiable)
@@ -81,21 +81,25 @@ A table of live gainers, refreshed every 15 s (the Railway scheduler's cadence),
   10 minutes before the first fill; otherwise Jose enters the stop in the journal. Trades with no stop are listed
   but left out of R statistics, counted. Fees: SEC and FINRA TAF estimated with E's constants unless Alpaca reports
   them.
+- **Every trade shows "paper" or "live"** (from the manual account's host: `paper-api.alpaca.markets` = paper). Paper and
+  live trades are never mixed in a statistic: each group is labelled with its account mode.
 - **Per trade:** setup tag (Jose's editable list; default tags: first pullback, pre-market high break, news
   continuation, other), entry and exit time, shares, R, $, notes, a screenshot slot (Supabase Storage, up to 2 MB an
   image), "alerted before entry", "after a limit was hit".
 - **Stats:** overall and by setup, by time of day (before 09:45, 09:45-11:00, after 11:00, the same split as E), by
   price band ($2-5, $5-10, $10-20, over $20): trades, win %, expectancy R, PF, total R, $, average win and loss R.
-- **Edge readout:** at 30+ trades with R, the same yardstick as E's test (expectancy > +0.10R and PF > 1.3) for
-  reference. Slices under 30 trades are shown greyed as "too few to judge"; with many slices, one will look good by
+- **Edge readout (Jose, Oct 25):** the 30-trade yardstick is judged on **paper trades only, before any live money**: at
+  30+ paper trades with R, the same rule as E's test (expectancy > +0.10R and PF > 1.3). Live trades are shown, never
+  counted toward it. Slices under 30 trades are shown greyed as "too few to judge"; with many slices, one will look good by
   chance, so only the overall line and slices fixed in advance count.
 
 ## 6. Data flow and storage
-- New tables: `ait_assistant_settings`, `ait_assistant_alerts`, `ait_manual_fills`, `ait_manual_trades`,
-  `ait_trade_plans`, `ait_push_subscriptions`, `ait_edgar_float_daily`, `ait_dilution_filings`; one storage bucket
-  for screenshots. Row-level security as on the existing tables; the service key stays server-side.
-- New routes: `/api/assistant/scanner`, `/api/assistant/journal`, `/api/assistant/settings`, `/api/assistant/push`.
-- New Railway service: `assistant-worker` (alerts, fill import, EDGAR and dilution refresh once a day before 07:00).
+- Tables (as built): `ait_assistant_settings`, `ait_manual_fills` (raw fills, with account id and paper/live),
+  `ait_trade_plans`, `ait_manual_trade_notes` (Jose's setup, notes, stop and screenshot per round trip; the round trips
+  themselves are rebuilt from the fills), `ait_assistant_days` (each day's starting equity), `ait_assistant_alerts`,
+  `ait_push_subscriptions`, `ait_assistant_halts`, `ait_edgar_daily` (float and dilution per symbol per day); one private
+  storage bucket for screenshots. Row-level security as on the existing tables; the service key stays server-side.
+- Routes and the Railway service: section 10.
 
 ## 7. Monthly cost estimate (incremental; Jose's plans unknown, so ranges)
 | Feature | Calls | Paid service | Estimated extra cost |
@@ -121,17 +125,57 @@ version at $0.
 Timing: by Jose's rule for E's test week (merges after 16:00 ET, only safety or broken fixes), the build merges after
 Friday Oct 30, 2026 unless Jose decides otherwise (decision A9).
 
-## 9. Open decisions (defaults proposed)
-- **A1 Manual trading account:** a separate Alpaca account (live, or a second paper account while practising), with
-  its own keys. Default: required; the assistant refuses to start with E's keys.
-- **A2 Alert channel:** Web Push (browser and phone). Alternative: email.
-- **A3 Limits:** daily max loss 3% of the day's starting equity; max 4 round trips a day. Jose sets both.
+## 9. Decisions (Jose, Oct 25, 2026)
+- **A1 Manual trading account:** a new, separate Alpaca **paper** account, created by Jose, with its own keys. The
+  assistant refuses to start with E's keys (same key, or the keys reach E's account id or account number).
+- **A2 Alerts:** push notifications (Web Push: browser and phone).
+- **A3 Limits:** max loss 3% of the day's starting equity; 4 trades a day (editable in settings).
 - **A4 Dilution lookback:** S-1/F-1/S-3/F-3/424B in 90 days; at-the-market mentions in 180 days.
 - **A5 Float display:** EDGAR shares outstanding primary; FMP's current float greyed next to it.
-- **A6 Halt source:** Alpaca's status stream; inferred from bars if unavailable.
+- **A6 Halt source:** Alpaca's trading-status stream; inferred from no trade for 5+ min in regular hours otherwise.
 - **A7 Scanner universe:** top 50 gainers, at least +10%, at least $1.
-- **A8 Journal R:** stop from the saved plan, else entered by hand; trades without a stop excluded from R stats.
-- **A9 Timing:** build on a branch now, merge after Friday Oct 30.
+- **A8 Journal R:** stop from the saved plan (within 10 minutes before the first fill), else entered by hand; trades
+  without a stop excluded from R stats, counted.
+- **A9 Timing:** built on `assistant-mode`; merged after Friday Oct 30, 2026, after 16:00 ET, with Jose's go.
+- Added by Jose: every journal trade shows "paper" or "live"; the 30-trade yardstick is judged on paper trades only,
+  before any live money.
+
+## 10. What is built (branch `assistant-mode`, Oct 25, 2026)
+- `lib/assistant/`: `config.ts` (names, defaults, the A1 checks), `alpaca-read.ts` (GET-only client for the manual
+  account; E's keys only for market-data GETs and E's account id), `risk.ts`, `journal.ts` (round trips, plans, R,
+  stats, limits, the paper yardstick), `scanner.ts` (rows, filters, halts, alert text), `edgar.ts` (live EDGAR float
+  and dilution), `service.ts`, `push.ts`, `store.ts` (assistant tables only, login), `http.ts`.
+- Routes `app/api/assistant/*`: login, logout, session (runs the A1 guard), journal, import, trade, screenshot, plan,
+  settings, scanner, alerts (service only), push, halts (service only). Page `/assistant` (tabs: Scanner, Risk,
+  Journal, Settings), `public/assistant-sw.js`, `public/assistant.webmanifest` (Home Screen app for iPhone push).
+- **Login:** the dashboard has none; the assistant does (a password gives a 12-hour signed, HttpOnly cookie). The
+  service uses a bearer secret.
+- `assistant-worker/` (Python, its own Railway service with `assistant-worker/railway.json`): alerts every 15 s
+  07:00-11:00 ET, fill import every 5 min 04:00-20:00 ET and once at 20:05, the trading-status stream. It calls only
+  `/api/assistant/*`.
+- Migration `supabase/migrations/20261031090000_assistant_mode.sql` (assistant tables + private screenshot bucket);
+  **not applied** until the merge.
+- Tests: `tests/assistant-guard.test.mjs` (no order code or order endpoint in any assistant file; GET-only client; the
+  service never calls E's routes; the A1 refusals), `tests/assistant.test.mjs` (risk, round trips, R, limits,
+  filters, EDGAR parsing, sessions), `tests/assistant_worker_test.py` (status mapping).
+
+### Environment variables (values set by Jose; never in chat)
+| Name | Where | What |
+|---|---|---|
+| `ALPACA_MANUAL_KEY`, `ALPACA_MANUAL_SECRET` | Vercel, Railway assistant service (and PowerShell for local runs) | The separate paper account's keys |
+| `ALPACA_MANUAL_BASE_URL` (optional) | Vercel | Defaults to `https://paper-api.alpaca.markets`; changing it to live is a separate decision |
+| `ASSISTANT_PASSWORD` | Vercel | 12+ characters |
+| `ASSISTANT_SESSION_SECRET` | Vercel | 32+ random characters |
+| `ASSISTANT_SERVICE_SECRET` | Vercel and the Railway assistant service | The same random value in both |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Vercel | From `npx web-push generate-vapid-keys`; subject `mailto:` + Jose's email |
+| `SEC_USER_AGENT` | Vercel | "Name email", as on the laptop |
+| `VERCEL_APP_URL` | Railway assistant service | The app's https URL |
+| `ALPACA_STREAM_KEY` / `_SECRET` / `_FEED` (optional) | Railway assistant service | If the manual account's keys have no SIP stream; default the manual keys and `sip` |
+
+### At the merge (after Oct 30, with Jose's go)
+1. Apply the migration. 2. Set the variables above. 3. Create the Railway service from this repo with config file
+`assistant-worker/railway.json`. 4. Check `/health` on it (the stream line says whether the status channel connected;
+if not, halts use the inferred status). 5. Sign in at `/assistant`, turn on push for each device, send a test push.
 
 Sources checked Oct 25, 2026: Alpaca docs, Real-time Stock Data (trading status and LULD channels) and Account
 Activities (FILL activity fields and paging).
