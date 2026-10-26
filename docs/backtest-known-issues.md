@@ -11,7 +11,33 @@ strategies). Not built; fix before any future backtest that needs a clean univer
 - FMP's delisted list (listed exchanges, window Oct 14, 2021 - Oct 11, 2024): 3,302 symbols; 280 in the universe
   under the same symbol; 3,022 missing (515 / 1,407 / 1,100 by year). The FMP list includes preferreds, units,
   warrants and some funds, so the common-stock gap is smaller, but after Oct 2022 almost no delisting is present.
-- **Fix U1 (proposed, not built):** add FMP's delisted common stocks (drop preferreds `-P*`, units, warrants,
+- **Fix U1 - built Oct 25, 2026 (opt-in; `scripts/backtest/u1-delisted.ts`, tests `tests/u1-delisted.test.mjs`).** No existing
+  script turns it on, so the locked runs and their caches are unchanged. Probe: `npx tsx scripts/backtest/u1-delisted.ts --probe`
+  (counts: FMP delisted commons, Alpaca bars under the old ticker with `asof`, EDGAR CIK by old name; writes
+  `backtests/u1/entities.csv`, `renames.csv`, `probe.json`). Also added: FMP symbol changes, so an old ticker used
+  before a rename resolves to the new symbol (Alpaca keeps the history under the new one). First user: the Ross audit
+  (`ross-audit.ts --u1 --only=q1q2`).
+- **U1 results (Jose's laptop, Oct 25, 2026; history Aug 18, 2024 - Oct 16, 2026, the E replays' history):**
+  - FMP delisted, listed exchange, inside the history: 2,632. Dropped as preferred / unit / warrant / right / note /
+    fund: 1,384; duplicates 27; already in the universe under the same ticker 37. **To add: 1,184 commons; 1,117
+    added with Alpaca daily bars under the old ticker; 67 with no Alpaca data** (mostly OTC-style or renamed
+    symbols, e.g. EMI, RAN, FSLUF, LAZY). Universe 14,140 -> 15,257 symbols; 1,073 added entities trade on or after
+    Oct 14, 2024 (delisted 2024: 185, 2025: 469, 2026: 463). FMP symbol changes in the history: 779.
+  - EDGAR company by old name (SEC cik-lookup-data, former names included): 885 unique name match, 124 shared name
+    resolved by filing dates, 24 ambiguous, 84 no name match (1,093 of 1,117 = 97.9% with a CIK, 885 + 124 = 1,009
+    resolved to one).
+  - The first probe showed mutual funds (5-letter X), Nasdaq preferreds (5th letter M/N/O/P) and FMP's class-share
+    spelling (CWEN-A) slipping through; fixed before the second probe (numbers above). The second probe's entity
+    list still held 19 closed-end and ETF trusts named without "Fund" (e.g. "MFS High Income Municipal Trust",
+    "Bitwise Funds Trust") and a few exchange-listed notes (e.g. OPINL); the names are now dropped too (Oct 25).
+    None of them can reach a +20% day, so no R or Ross-audit count changes; the counts above are the second probe's.
+  - **Ross audit Q1/Q2 rerun with U1 (cache only):** of the 34 sampled Ross ticker-days missing from today's
+    universe, **26 are now found as delisted entities, 0 through a rename, 8 still missing** (3 of them low-confidence
+    caption tickers: SAI?, TN?, JELS?; plus FOXO, BSLK, NVVE, ONCS, JTI). E still trades none of Ross's 110
+    ticker-days; for the 26 newly found, E's first blockers are the same as before (not in the top 25 at its scan
+    5, RVOL baseline unreliable 4, no trades yet at the scan 3, float over 10M or unknown 3, Ross entry time unknown
+    3, others 8). Details: docs/ross-audit.md, "U1 rerun".
+- Original proposal: add FMP's delisted common stocks (drop preferreds `-P*`, units, warrants,
   rights, funds) to the universe as delisted; load their daily and minute bars from Alpaca under the old ticker
   and count those with no Alpaca data; map each to its EDGAR company by the old company name (SEC's
   cik-lookup-data / former names), not today's ticker map, so reused tickers resolve to the right company. A probe

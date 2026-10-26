@@ -61,6 +61,23 @@ export function hashKey(values: string[]) {
   return createHash('sha1').update(values.join(',')).digest('hex').slice(0, 16)
 }
 
+// U1 (delisted stocks, docs/backtest-known-issues.md): an entity added to the universe under an internal key
+// such as "ABCD@2025-03-13" is fetched from Alpaca as its old ticker with `asof` = that date, so Alpaca maps the
+// ticker to the company that used it then. Nothing is registered unless a script opts in (U1 off = unchanged).
+export type Alias = { ticker: string; asof: string }
+const aliases = new Map<string, Alias>()
+export function registerAliases(entries: Iterable<[string, Alias]>) { for (const [key, alias] of entries) aliases.set(key, alias) }
+export const aliasOf = (key: string) => aliases.get(key)
+function splitAliased(symbols: string[]) {
+  const plain: string[] = [], byAsof = new Map<string, string[]>()
+  for (const s of symbols) {
+    const a = aliases.get(s)
+    if (!a) plain.push(s)
+    else byAsof.set(a.asof, [...(byAsof.get(a.asof) ?? []), s])
+  }
+  return { plain, byAsof }
+}
+
 const MAX_CONCURRENCY = 16
 let active = 0
 const waiting: Array<() => void> = []
@@ -237,24 +254,67 @@ export async function getDailyBarsSplitAdjusted(symbols: string[], start: string
 }
 
 export async function getMinuteBarsForDay(day: string, symbols: string[], startIso: string, endIso: string) {
-  const sorted = [...new Set(symbols)].sort()
+  const { plain, byAsof } = splitAliased([...new Set(symbols)].sort())
   const batches: string[][] = []
-  for (let index = 0; index < sorted.length; index += 100) batches.push(sorted.slice(index, index + 100))
+  for (let index = 0; index < plain.length; index += 100) batches.push(plain.slice(index, index + 100))
   const results = await Promise.all(batches.map((batch) =>
     cached(`minute/${day}/${hashKey(batch)}`, 'alpaca', () => pagedMultiSymbolBars(batch, { timeframe: '1Min', start: startIso, end: endIso }, 'minute-bars'))))
+  for (const [asof, keys] of byAsof) for (let index = 0; index < keys.length; index += 100) {
+    const batch = keys.slice(index, index + 100)
+    results.push(await cached(`minute-asof/${day}/${asof}/${hashKey(batch)}`, 'alpaca', async () => {
+      const bars = await pagedMultiSymbolBars(batch.map((k) => aliases.get(k)!.ticker), { timeframe: '1Min', start: startIso, end: endIso, asof }, 'minute-bars-asof')
+      return Object.fromEntries(batch.map((k) => [k, bars[aliases.get(k)!.ticker] ?? []]))
+    }))
+  }
   return Object.assign({}, ...results) as Record<string, RawBar[]>
 }
 
+/** Daily bars for old tickers as Alpaca mapped them on `asof` (U1); keyed by ticker. Cached per asof date. */
+export async function getDailyBarsAsof(tickers: string[], start: string, end: string, asof: string, adjustment: 'raw' | 'split' = 'raw') {
+  const sorted = [...new Set(tickers)].sort()
+  const out: Record<string, RawBar[]> = {}
+  for (let index = 0; index < sorted.length; index += 200) {
+    const batch = sorted.slice(index, index + 200)
+    Object.assign(out, await cached(`daily-asof${adjustment === 'raw' ? '' : `-${adjustment}`}/${start}_${end}_${asof}_${hashKey(batch)}`, 'alpaca', () =>
+      pagedMultiSymbolBars(batch, { timeframe: '1Day', start, end, asof, adjustment }, 'daily-bars-asof')))
+  }
+  return out
+}
+
 export async function getFifteenMinuteBars(symbol: string, start: string, end: string) {
+  const alias = aliases.get(symbol)
+  if (alias) return cached(`fifteen-asof/${symbol.replace(/[^A-Z0-9@-]/g, '_')}_${start}_${end}`, 'alpaca', async () => {
+    const out = await pagedBars(`/v2/stocks/${encodeURIComponent(alias.ticker)}/bars`, { timeframe: '15Min', start, end, asof: alias.asof }, 'fifteen-minute-bars-asof')
+    return out[alias.ticker] ?? Object.values(out)[0] ?? []
+  })
   return cached(`fifteen/${symbol.replace(/[^A-Z0-9]/g, '_')}_${start}_${end}`, 'alpaca', async () =>
     (await pagedBars(`/v2/stocks/${encodeURIComponent(symbol)}/bars`, { timeframe: '15Min', start, end }, 'fifteen-minute-bars'))[symbol] ?? [])
 }
 
 export async function getNewsForDay(day: string, symbols: string[], startIso: string, endIso: string) {
-  const sorted = [...new Set(symbols)].sort()
+  const { plain, byAsof } = splitAliased([...new Set(symbols)].sort())
+  const base = await newsForDay(day, plain, startIso, endIso, 'news')
+  const aliased = [...byAsof.values()].flat()
+  if (!aliased.length) return base
+  // News is tagged with the ticker in use when it was published, so an old ticker is queried as is; each story is
+  // then also tagged with the internal key of the entity that used that ticker.
+  const byTicker = new Map<string, string[]>()
+  for (const k of aliased) { const t = aliases.get(k)!.ticker; byTicker.set(t, [...(byTicker.get(t) ?? []), k]) }
+  const extra = await newsForDay(day, [...byTicker.keys()].sort(), startIso, endIso, 'news-asof')
+  const merged = new Map(base.map((story) => [story.id, story]))
+  for (const story of extra) {
+    const keys = (story.symbols ?? []).flatMap((t) => byTicker.get(t) ?? [])
+    const prior = merged.get(story.id)
+    merged.set(story.id, { ...(prior ?? story), symbols: [...new Set([...(prior?.symbols ?? story.symbols ?? []), ...keys])] })
+  }
+  return [...merged.values()]
+}
+
+async function newsForDay(day: string, symbols: string[], startIso: string, endIso: string, folder: string) {
+  const sorted = symbols
   const batches: string[][] = []
   for (let index = 0; index < sorted.length; index += 40) batches.push(sorted.slice(index, index + 40))
-  const results = await Promise.all(batches.map((batch) => cached(`news/${day}/${hashKey(batch)}`, 'alpaca', async () => {
+  const results = await Promise.all(batches.map((batch) => cached(`${folder}/${day}/${hashKey(batch)}`, 'alpaca', async () => {
     const stories: NewsStory[] = []
     let token: string | undefined
     do {
@@ -290,14 +350,16 @@ export async function getLatestQuote(day: string, symbol: string, at: Date, look
     return memory.get(key)!
   }
   if (cacheOnly) throw new Error(`Cache miss for quote ${key} in --cache-only mode`)
+  const alias = aliases.get(symbol)
   const search = new URLSearchParams({
     start: new Date(at.getTime() - lookbackSeconds * 1_000).toISOString(),
     end: at.toISOString(),
     limit: '1',
     sort: 'desc',
     feed: HISTORICAL_FEED,
+    ...(alias ? { asof: alias.asof } : {}),
   })
-  const payload = await fetchJson<{ quotes?: Array<{ t: string; bp: number; ap: number }> }>(`${DATA_URL}/v2/stocks/${encodeURIComponent(symbol)}/quotes?${search}`, 'quotes')
+  const payload = await fetchJson<{ quotes?: Array<{ t: string; bp: number; ap: number }> }>(`${DATA_URL}/v2/stocks/${encodeURIComponent(alias?.ticker ?? symbol)}/quotes?${search}`, 'quotes')
   const quote = payload.quotes?.[0]
   const value = quote ? { t: quote.t, bp: quote.bp, ap: quote.ap } : null
   memory.set(key, value)

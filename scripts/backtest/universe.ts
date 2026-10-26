@@ -20,6 +20,10 @@ export type Universe = {
   freeFloatPct?: Record<string, number>
   /** When set, the ONLY float source (no fallback): undefined = no float on that day, so not enterable. */
   floatOverride?: (symbol: string, day: string) => number | undefined
+  /** U1 (opt-in): delisted entities added under "TICKER@ASOF" keys and FMP renames; see u1-delisted.ts. */
+  u1?: { entities: import('./u1-delisted').U1Entity[]; renames?: import('./u1-delisted').Rename[] }
+  /** U1 (opt-in): float for an added delisted entity (EDGAR point-in-time); never used for other symbols. */
+  u1Float?: (key: string, day: string) => number | undefined
 }
 
 export type FloatMode = 'current' | 'quarterly' | 'daily'
@@ -52,6 +56,7 @@ function dailyFloatOn(universe: Universe, symbol: string, day: string) {
 
 export function floatOn(universe: Universe, symbol: string, day: string): number | undefined {
   if (universe.floatOverride) return universe.floatOverride(symbol, day)
+  if (universe.u1Float && symbol.includes('@')) return universe.u1Float(symbol, day)
   if (universe.dailyShares) {
     const daily = dailyFloatOn(universe, symbol, day)
     if (daily != null) {
