@@ -1,9 +1,9 @@
-# Strategy R ("Ross-type"): H1, H2, H3 - DRAFT (Oct 25, 2026)
+# Strategy R ("Ross-type"): H1, H2, H3 - LOCKED (Oct 25, 2026)
 
-**Status: DRAFT. Nothing is locked, built or run. R is not locked until U1 (PR #114) is merged and its results
-are recorded in docs/backtest-known-issues.md (Jose, Oct 25, 2026).** Open decisions are listed with a default (section 10); Jose
-approves or changes them, then the spec is locked before any result is seen. Source: the Ross audit
-(`docs/ross-audit.md`), hypotheses H1 (who) and H2 (when), plus H3 (Jose, Oct 25).
+**Status: LOCKED by Jose on Oct 25, 2026 (about 17:20 PT), before any result.** R1-R14 approved as proposed with
+three additions (section 10); R15 and R16 decided (section 10); U1 merged (PR #114) and its results recorded in
+docs/backtest-known-issues.md. The run is not built or run yet; nothing below changes once it has run. Source: the Ross audit (`docs/ross-audit.md`), hypotheses H1
+(who) and H2 (when), plus H3 (Jose, Oct 25).
 
 Live Strategy E and its paper test are not touched.
 
@@ -27,7 +27,8 @@ Live Strategy E and its paper test are not touched.
 - **Float coverage (LOCKED Oct 25, 2026 by Jose, before any result):** the run reports EDGAR float coverage by
   calendar year for R's candidate stock-days (section 3's filters other than float, U1 included): found / no value,
   with the reasons (foreign, new listing, stale, no CIK, other). Stocks without a float value are excluded and
-  counted. **If coverage is under 75% in any calendar year of the tuning or holdout window, the run is reported as
+  counted (coverage base: covered / (candidate stock-days - foreign filers), R15). **If coverage is under 75% in any
+  calendar year of the window, the run is reported as
   information only and cannot pass.** Coverage was under 90% before (61.6-69.9% of E's enterable stock-days by
   year, docs/backtest-known-issues.md issue 2). The probe (section 9) reports the same numbers first.
 - 1-minute SIP bars (04:00-16:00), SIP NBBO quotes, Alpaca news, all cached; a probe (section 9) first.
@@ -81,32 +82,111 @@ Two candidates from the audit:
 - **Target sell:** the target, on a trade-through by $0.01; no slippage (limit).
 - **Flatten 15:30:** the 15:30 bar's open - half spread - $0.01.
 - Volume caps as in E: shares <= 1% of the volume so far and <= 10% of the fill bar's volume.
-- Fees: SEC $20.60 per $1M sold, FINRA TAF $0.000195 per share sold (max $9.79), commission $0.
+- Fees: E's constants (`RULEBOOK.costs`): SEC $20.60 per $1M sold, FINRA TAF $0.000195 per share sold (max
+  $9.79), commission $0, on top of the fill prices above (Jose, Oct 25).
 
 ## 8. Account, windows, pass rule
 - $2,000 start, compounding; risk 1% of equity per trade; at most 25% of equity per position; at most 3 open
   positions; 4% daily loss limit; no margin; no overnight holds; flat by 15:30 ET. The PDT rule no longer applies
   at Alpaca (`docs/strategy-c-spec.md` section 7).
-- **Windows: tuning Oct 14, 2024 - Jul 31, 2026; holdout Aug 1 - Oct 16, 2026.** Each runs once with a lock, tuning
-  first. No parameter is tuned: tuning is reported, the verdict is the holdout.
-- **Pass rule: the same as E's.** On the holdout, per line: at least 30 trades, expectancy > +0.10R and profit factor
-  > 1.3 (R from the model fills above; there is no paper/model gap in a backtest). **[R12]**
+- **Window (R16, Jose, Oct 25): each line is judged on the whole window, Oct 14, 2024 - Oct 16, 2026, run once**
+  with a run-once lock. Its two parts are reported separately: the tuning part (Oct 14, 2024 - Jul 31, 2026) and the
+  holdout part (Aug 1 - Oct 16, 2026). No parameter is tuned.
+- **Pass rule (LOCKED, Jose, Oct 25), per line, on the whole window; every condition must hold:**
+  1. at least 30 trades;
+  2. expectancy > **+0.15R**;
+  3. profit factor > **1.4**;
+  4. positive dollars (total net P&L > 0, after fees);
+  5. positive expectancy in the tuning part **and** in the holdout part, each reported separately.
+  R per trade = net P&L (after fees) / initial risk in dollars (shares x (fill - stop)); PF = sum of positive R /
+  |sum of negative R|. There is no paper/model gap in a backtest.
+- **Why the bar is stricter than E's (+0.10R, PF 1.3), recorded honestly:** the rules were set from Ross's entry
+  features observed in this same window (the Ross audit sampled his days from Oct 2024 to Oct 2026), so the window is
+  not fully unseen by the rule design. The holdout part alone is too short to judge (probe: 24 / 14 / 9 trades). For
+  the same reason a pass is not evidence enough for live money: **a locked 30-trade paper test is required before
+  any live money.**
+- **Information only (not judged; Jose, Oct 25):** each line's results with and without the setups skipped for "no
+  quote within 120 s" (71 in the probe, all lines and both parts). "Without the skip" fills them at max(trigger, bar
+  open) + half the median quoted spread of the quoted setups in the same part and session phase (pre-market or
+  regular hours) + $0.01, with the same stop, size and exit rules.
 - **How the three lines are judged and compared:**
   - Each line is judged alone against the pass rule; each passes or fails on its own.
   - They are not independent (H2 and H3 are parts of H1's day), so a side-by-side table (trades, expectancy, PF,
     R, $, win %) is reported, but **no line wins by beating another**.
-  - Three tries raise the chance that one passes by luck. Default guard: a line counts as passed only if it also
-    has positive expectancy in tuning. If more than one passes, all are recorded; the one taken to a paper test is
-    decided by Jose before the run, default H1 (most trades). **[R13]**
-  - A pass leads only to a locked paper test with its own fill audit, never straight to live money.
+  - Three tries raise the chance that one passes by luck: the guard is condition 5 (positive in both parts) and the
+    stricter bar. **If more than one line passes, H1 goes to paper (R13, kept by Jose).**
+  - A pass leads only to a locked 30-trade paper test with its own fill audit and its own pass rule, set before it
+    starts; never straight to live money.
 
-## 9. Probe first (counts only, no returns)
-Before the lock: per window and line, trading days; U1 entities in the candidate set; candidate stock-days passing
-section 3; triggers found; halts inferred; quote coverage and median pre-market spread; EDGAR float coverage
-(found / foreign / no value / stale) by calendar year, against the 75% floor (section 2); expected trade count. If the holdout cannot reach 30 trades on a line, that
-is decided before any result **[R14]**.
+## 9. Probe first (counts only: no exits, no returns)
+`npx tsx scripts/backtest/strategy-r.ts --probe` (built Oct 25, 2026; needs the U1 code, so it runs from a branch
+that includes it). It also caches the data the run needs. It reports, per window:
+- trading days; pre-screened stock-days (daily high >= +20%, $2-20 touched, >= 500k shares); **candidate stock-days**
+  (section 3 except float holds at some bar close 07:00-11:00), and how many of them are U1 delisted entities;
+  inferred halts on candidate days.
+- **Float coverage by calendar year** for the candidate stock-days against the 75% floor (section 2), with the
+  **foreign filers excluded by R2 counted by year** (Jose's R2 addition), misses by reason, the share <= 5M, and U1
+  coverage.
+- Per line (H1, H2, H3): breaks found; why a break was not a setup (window, price, gain, volume, news, foreign, no
+  float, float over 5M); setups; skipped setups by reason; **setups skipped for a spread over 3%, by hour**, with a
+  **flag if more than half of H2's setups are skipped** (Jose's R11 addition; the rule does not change); median
+  quoted spread pre-market and in regular hours; quote coverage.
+- **Estimated trades per line** (Jose's R12/R14 addition): setups that would fill, as a range: upper = every fill
+  (no position cap), lower = at most 3 a day (the position cap). Sizing at $2,000 with no P&L (the probe computes
+  none), so the 4% daily loss limit and compounding are not in the estimate. A holdout line whose upper count is
+  under 30 is flagged for R14 before the lock; one whose range straddles 30 is flagged too, and its count in the
+  run decides.
+- The trigger and filters run exactly as in sections 3-7; the probe stops at the entry (no stop, target or exit is
+  simulated). Files: `backtests/strategy-r/probe/report.txt`, `probe.json`, `setups.csv` (one row per setup: the
+  decision, never an outcome).
+
+### 9b. Probe result (Jose's laptop, Oct 25, 2026; counts only; 35.9 min, SEC 2,382 and Alpaca 5,763 requests)
+Universe 14,140 symbols + 1,117 U1 delisted entities (U1 merged Oct 25, PR #114). Daily pre-screen: 3,128 symbols,
+16,332 stock-days (536 of the symbols are U1 entities).
+
+| Window | Trading days | Pre-screened stock-days | Candidate stock-days | of them U1 | Inferred halts on candidate days |
+|---|---|---|---|---|---|
+| Tuning Oct 14, 2024 - Jul 31, 2026 | 450 | 14,667 | 3,349 | 536 | 424 |
+| Holdout Aug 1 - Oct 16, 2026 | 54 | 1,665 | 384 | 4 | 80 |
+
+**Float coverage (locked floor 75%; gate = covered / (candidates - foreign), see R15): passes in every year.**
+
+| Window, year | Candidates | Foreign (R2) | Covered | Coverage | Incl. foreign | <= 5M of covered | U1 covered |
+|---|---|---|---|---|---|---|---|
+| Tuning 2024 | 418 | 92 (22.0%) | 276 | 84.7% | 66.0% | 34.8% | 64 of 102 |
+| Tuning 2025 | 1,894 | 492 (26.0%) | 1,191 | 85.0% | 62.9% | 31.9% | 247 of 369 |
+| Tuning 2026 | 1,037 | 357 (34.4%) | 568 | 83.5% | 54.8% | 32.2% | 35 of 65 |
+| Holdout 2026 | 384 | 131 (34.1%) | 213 | 84.2% | 55.5% | 47.4% | 1 of 4 |
+
+Missing (tuning, all years): no value 121, stale 113, no CIK 69, none filed before 36, no split data 25, name
+mismatch 9. **Counting foreign filers as not covered would put every year under 75% (54.8-66.0%).**
+
+**Setups and estimated trades (sizing at $2,000, no P&L; upper = every fill, lower = at most 3 a day; no day had
+more than 3, so the range is one number):**
+
+| Line | Tuning setups / would fill | Holdout setups / would fill | Holdout estimate vs 30 |
+|---|---|---|---|
+| H1 07:00-11:00 | 263 / 154 | 48 / 24 | **24: under 30** |
+| H2 07:00-09:30 | 161 / 107 | 24 / 14 | **14: under 30** |
+| H3 09:45-11:00 | 114 / 49 | 23 / 9 | **9: under 30** |
+
+- Why breaks were not setups (tuning H1, 25,909 breaks): gain under 20% at that bar 16,145; no news within 120 min
+  3,332; price outside $2-20 2,978; volume under 500k 1,667; float over 5M 864; foreign filer 430; no float value 230.
+- Skipped setups (tuning H1): risk over 10% of price 80 (30% of setups); no quote within 120 s 27; spread over 3% 2.
+- **R11: spread over 3% skipped 2 of 263 H1 setups, 0 of 161 H2, 1 of 114 H3; no H2 flag.** Median quoted spread at
+  setups 0.36% pre-market, 0.49-0.55% after the open (tuning); 0.48% / 0.43% (holdout). 71 of 633 quote look-ups
+  (11.2%) found no quote in the 120 s before the fill bar.
+- **R14 is triggered on all three lines**: the holdout cannot reach 30 trades on any of them (24 / 14 / 9), before
+  the position cap and the daily loss limit, which can only lower the count. With the approved default, every line's
+  backtest verdict is information only, and a paper test happens only by Jose's decision. Decision R16 below.
 
 ## 10. Open decisions (defaults proposed)
+Approved by Jose as proposed (Oct 25, 2026), with three additions: **R2** also reports the candidate stock-days
+excluded as foreign filers, by year (Ross trades many Cayman and Chinese names; this shows what the exclusion
+costs). **R11** reports setups skipped for a spread over 3%, by line and by hour; if more than half of H2's setups
+are skipped, the report flags it; the rule does not change. **R12/R14** the probe estimates holdout trade counts per
+line before the lock; fees are E's constants on top of R11's fill price.
+
 - **R1** U1 universe required. Default: yes; the U1 probe and the Ross Q1/Q2 rerun come first. (Locked by Jose,
   Oct 25: U1 merged and its results in before R is locked.)
 - **R2** Foreign filers (20-F / 40-F; ADR share counts are not comparable, known issue 3). Default: excluded, counted.
@@ -128,6 +208,26 @@ is decided before any result **[R14]**.
   H1 preferred.
 - **R14** If the probe says the holdout cannot reach 30 trades on a line. Default: that line is reported as
   information only for the backtest and goes straight to a locked paper test only by Jose's decision.
+
+- **R12 / R14 superseded by R16** (whole-window verdict; a line with fewer than 30 trades in the run fails condition 1).
+- **R13** kept: if more than one line passes, H1 goes to paper.
+
+**Decided by Jose (Oct 25, 2026, before any result):**
+- **R15 Coverage base - DECIDED: the default.** The coverage denominator excludes foreign filers, consistent with
+  R2. The locked 75% floor needs a denominator. Default: covered / (candidate stock-days - foreign
+  filers), because R2 excludes foreign filers by rule, not for missing data; the share including foreign filers is
+  reported next to it. Alternative: count foreign filers as not covered (stricter; with many Cayman and Chinese
+  names it may push a year under 75%). **Probe (Oct 25): with the default every year passes (83.5-85.0%); with the
+  alternative every year fails (54.8-66.0%).**
+- **R16 Holdout too short for every line - DECIDED: option (b)**, with a stricter bar and the conditions in section 8. Holdout estimates 24 / 14 / 9 trades, all under 30.
+  Options, to decide before the lock:
+  - (a) Default, as approved in R14: run both windows once; every line's backtest is information only; a locked
+    paper test only if Jose decides it from the results.
+  - (b) Judge each line on the whole window, Oct 14, 2024 - Oct 16, 2026 (estimates H1 178, H2 121, H3 58), since R
+    tunes no parameter. Against it: the rules came from the Ross audit, whose sampled days span that whole window,
+    so no part of it is unseen by the rule design; the tuning-positive guard (R13) would no longer be separate.
+  - (c) Add an older holdout (for example Oct 2022 - Oct 2024): needs U1 and EDGAR float extended back, a new probe,
+    and E's earlier EDGAR coverage there was 66-70% (issue 2), so it may fail the 75% floor.
 
 ## 11. Caveats
 - Ross's edge may be his execution (direct-access routing, hotkeys, level 2 and tape reading, 10-second charts) and
