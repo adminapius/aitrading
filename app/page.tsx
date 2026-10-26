@@ -4,7 +4,6 @@ import useSWR from 'swr'
 import { useEffect, useRef, useState } from 'react'
 import { Activity, Search, Sparkles } from 'lucide-react'
 import LiveEventLog from '@/components/live-event-log'
-import ElliottWaveDashboard from '@/components/elliott-wave-dashboard'
 import StrategyComparisonCard from '@/components/strategy-comparison-card'
 
 type Stock = { symbol: string; price: number; changePercent: number | null; volume: number; bid: number; ask: number; score?: number }
@@ -208,7 +207,6 @@ export default function Home() {
         </aside>
       </div>
       <StrategyComparisonCard />
-      <ElliottWaveDashboard />
     </main>
   )
 }

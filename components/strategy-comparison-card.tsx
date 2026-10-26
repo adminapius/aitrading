@@ -15,6 +15,8 @@ const fetcher = async (url: string): Promise<ComparisonData> => {
 }
 
 const easternToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date())
+/** First session of E's locked paper test (docs/strategy-e-paper-run.md): the card defaults to counted trades only. */
+const COUNT_START = '2026-10-26'
 const money = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
 function Row({ label, note, metric }: { label: string; note: string; metric: Metric }) {
@@ -31,8 +33,8 @@ function Row({ label, note, metric }: { label: string; note: string; metric: Met
 
 export default function StrategyComparisonCard() {
   const today = easternToday()
-  const [from, setFrom] = useState(today)
-  const [to, setTo] = useState(today)
+  const [from, setFrom] = useState(COUNT_START)
+  const [to, setTo] = useState(today < COUNT_START ? COUNT_START : today)
   const { data, error, isLoading } = useSWR<ComparisonData>(`/api/strategy/comparison?${new URLSearchParams({ from, to })}`, fetcher, { refreshInterval: 30_000 })
 
   return (
@@ -41,7 +43,7 @@ export default function StrategyComparisonCard() {
         <div>
           <div className="elliott-kicker"><GitCompareArrows aria-hidden="true" /> LIVE VS SHADOW</div>
           <h2 id="strategy-comparison-title">Strategy {data?.live.strategy ?? 'E'} vs shadow {data?.shadow?.strategy ?? 'A'}</h2>
-          <p>Closed paper trades from the live strategy next to simulated outcomes of the shadow strategy on the same scans.</p>
+          <p>Closed paper trades from the live strategy next to simulated outcomes of the shadow strategy on the same scans. Defaults to the counted trades since Oct 26, 2026.</p>
         </div>
         <div className="elliott-filters">
           <label>From<input aria-label="Comparison from date" type="date" value={from} max={to} onChange={(event) => setFrom(event.target.value)} /></label>
