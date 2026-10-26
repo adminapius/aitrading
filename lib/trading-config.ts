@@ -46,8 +46,6 @@ export function configuredServices() {
     railway: Boolean(tradingConfig.railwayServiceUrl),
     telegram: Boolean(process.env.TELEGRAM_BOT_TOKEN?.trim() && process.env.TELEGRAM_CHAT_ID?.trim()),
     ntfy: Boolean(process.env.NTFY_TOPIC_URL?.trim()),
-    aiPrimary: Boolean(process.env.GEMINI_API_KEY?.trim()),
-    aiFallback: Boolean(process.env.ANTHROPIC_API_KEY?.trim()),
   }
 }
 

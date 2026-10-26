@@ -1,6 +1,4 @@
-import { generateText } from 'ai'
 import { NextRequest, NextResponse } from 'next/server'
-import { recordAiError } from '@/lib/ai-events'
 import { alpacaHeaders, tradingConfig } from '@/lib/trading-config'
 
 export const dynamic = 'force-dynamic'
@@ -67,52 +65,9 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const fallback = rulesFallback(changePercent, price, vwap)
-  let result = fallback
-  let modelUsed: string | null = null
-  let aiErrorMessage: string | null = null
-  let aiErrorDetails: string | undefined
-  try {
-    const { text } = await generateText({
-      model: 'google/gemini-2.5-flash',
-      prompt: [
-        'You are an informational market-momentum analyst, not a trading agent.',
-        `Analyze ${symbol} using only these current facts: price=${price || 'unavailable'}, changePercent=${changePercent == null ? 'unavailable' : changePercent.toFixed(2)}, volume=${volume}, vwap=${vwap || 'unavailable'}, headline=${headline?.title ?? 'none available'}.`,
-        'Return exactly two lines. Line one must be WATCH, HOLD, or CAUTION. Line two is one factual rationale of at most 20 words. Do not predict returns or recommend placing orders.',
-      ].join('\n'),
-      // Gemini 2.5 spends output tokens on hidden reasoning; without a budget cap the 2-line answer gets truncated to nothing.
-      maxOutputTokens: 400,
-      providerOptions: { google: { thinkingConfig: { thinkingBudget: 0 } } },
-      abortSignal: AbortSignal.timeout(9000),
-    })
-    const cleaned = text.replace(/[*_`#]/g, '').trim()
-    const signal = cleaned.match(/\b(WATCH|HOLD|CAUTION)\b/i)?.[1]?.toUpperCase()
-    const rationale = signal ? cleaned.replace(new RegExp(`^.*?\\b${signal}\\b[\\s:.\\-–—]*`, 'is'), '').replace(/\s+/g, ' ').trim() : ''
-    if (signal && rationale) {
-      result = { signal, rationale: rationale.slice(0, 240) }
-      modelUsed = 'google/gemini-2.5-flash'
-    } else {
-      aiErrorMessage = `Gemini-AI returned an unreadable signal for ${symbol}; rules engine used.`
-    }
-  } catch (error) {
-    result = fallback
-    aiErrorMessage = `Gemini-AI analysis failed for ${symbol}; rules engine used.`
-    aiErrorDetails = error instanceof Error ? error.message.slice(0, 180) : 'Unknown model error'
-  }
-
-  if (aiErrorMessage) {
-    await recordAiError({
-      provider: 'Gemini-AI',
-      symbol,
-      message: aiErrorMessage,
-      payload: {
-        model: 'google/gemini-2.5-flash',
-        route: 'insight',
-        fallback: 'rules-engine',
-        ...(aiErrorDetails ? { error: aiErrorDetails } : {}),
-      },
-    })
-  }
+  // Rule-based signal only (AI cost audit, Oct 25, 2026): the dashboard signal is informational and nothing in
+  // Strategy E, shadow A or the reports uses it.
+  const result = rulesFallback(changePercent, price, vwap)
 
   return NextResponse.json({
     symbol,
@@ -121,6 +76,6 @@ export async function GET(request: NextRequest) {
     signal: result.signal,
     rationale: result.rationale,
     headline,
-    analysisSource: modelUsed ? 'Gemini-AI' : 'rules-engine',
+    analysisSource: 'rules-engine',
   })
 }
