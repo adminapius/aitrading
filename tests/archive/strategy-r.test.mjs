@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { addCoverage, cov, coverageShare, filterAt, findBreaks, haltResumes, planEntry, prefilter, R, tradeRange } from '../scripts/backtest/strategy-r'
+import { addCoverage, cov, coverageShare, filterAt, findBreaks, haltResumes, planEntry, prefilter, R, tradeRange } from '../../scripts/backtest/archive/strategy-r'
 
 const MID = Date.parse('2025-03-03T05:00:00Z') // ET midnight (EST)
 const at = (h, m) => MID + (h * 60 + m) * 60_000

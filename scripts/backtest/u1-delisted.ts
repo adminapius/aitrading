@@ -18,7 +18,7 @@ import { pathToFileURL } from 'node:url'
 import { fetchJson, getDailyBarsAsof, hashKey, readCache, registerAliases, writeCache, type Alias, type RawBar } from './data'
 import { sec } from './rulebook/edgar-earnings'
 import { buildUniverse, toEasternDay, type Universe } from './universe'
-import { EJW } from './strategy-ej'
+import { EJW } from './windows'
 
 export type FmpDelisted = { symbol?: string; companyName?: string; exchange?: string; ipoDate?: string; delistedDate?: string }
 export type FmpSymbolChange = { date?: string; companyName?: string; oldSymbol?: string; newSymbol?: string }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { exitOnBar, paperPick, sellFees, sellPrice, simulateDay, verdict } from '../scripts/backtest/strategy-r-run'
+import { exitOnBar, paperPick, sellFees, sellPrice, simulateDay, verdict } from '../../scripts/backtest/archive/strategy-r-run'
 
 const DAY = '2025-03-03'
 const MID = Date.parse('2025-03-03T05:00:00Z')

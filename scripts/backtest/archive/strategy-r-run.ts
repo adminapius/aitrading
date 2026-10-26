@@ -1,3 +1,4 @@
+// ARCHIVED Oct 25, 2026 (parked; FAIL or parked verdict in its spec). Kept for the record; not run by anything.
 // Strategy R ("Ross-type": H1 / H2 / H3) - the LOCKED run. BACKTEST ONLY. Spec (LOCKED Oct 25, 2026):
 // docs/strategy-r-spec.md
 //
@@ -14,11 +15,11 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { apiStats, flushQuoteCache, getLatestQuote, getMinuteBarsForDay, getNewsForDay, setCacheOnly, type RawBar } from './data'
-import { easternMidnight } from './market'
-import { RULEBOOK } from './rulebook/config'
+import { apiStats, flushQuoteCache, getLatestQuote, getMinuteBarsForDay, getNewsForDay, setCacheOnly, type RawBar } from '../data'
+import { easternMidnight } from '../market'
+import { RULEBOOK } from '../rulebook/config'
 import { addCoverage, cov, coverageShare, filterAt, findBreaks, haltResumes, loadR, minuteOf, planEntry, R, type Bar, type Break, type Cov, type LineName } from './strategy-r'
-import type { FloatResult } from './edgar-float'
+import type { FloatResult } from '../edgar-float'
 
 export const RR = {
   window: ['2024-10-14', '2026-10-16'] as [string, string],
@@ -31,26 +32,11 @@ export const RR = {
 const C = RULEBOOK.costs
 export const sellFees = (price: number, shares: number) => price * shares * C.secFeePerDollar + Math.min(shares * C.finraTafPerShare, C.finraTafMaxPerTrade)
 export const partOf = (day: string) => (day <= RR.parts.tuning[1] ? 'tuning' : 'holdout') as 'tuning' | 'holdout'
+export { exitOnBar, sellPrice } from '../fill-halt-models'
+import { exitOnBar, sellPrice } from '../fill-halt-models'
 export const phaseOf = (minute: number) => (minute < R.rthOpen ? 'pre' : 'rth') as 'pre' | 'rth'
 
 // ---------------- pure helpers (tested) ----------------
-
-/**
- * Section 5-6 exit check on one bar (not the 15:30 flatten). Stop before target. On the entry bar only the stop, and
- * only if the bar closes at or below it. On a bar after a halt: an open at or below the stop fills there (the gap is
- * taken in full); an open at or above the target fills at the target. Returns the base price before the half spread
- * and slippage (stop) or the limit price (target). Pure.
- */
-export function exitOnBar(p: { stop: number; target: number }, bar: Bar, o: { entryBar?: boolean; resume?: boolean } = {}): { reason: 'stop' | 'target'; base: number } | null {
-  if (o.entryBar) return bar.c <= p.stop ? { reason: 'stop', base: p.stop } : null
-  if (o.resume && bar.o >= p.target) return { reason: 'target', base: p.target }
-  if (bar.l <= p.stop) return { reason: 'stop', base: Math.min(p.stop, bar.o) }
-  if (bar.h >= p.target + R.tick - 1e-9) return { reason: 'target', base: p.target }
-  return null
-}
-
-/** Sell price: a target is a limit (no slippage); a stop or a flatten pays half the spread and $0.01. Pure. */
-export const sellPrice = (reason: string, base: number, halfSpread: number) => (reason === 'target' ? base : Math.max(0.01, base - halfSpread - R.slippage))
 
 export type Trade = {
   line: LineName; variant: string; part: 'tuning' | 'holdout'; day: string; symbol: string; u1: boolean; entryMinute: number; fill: number; stop: number; target: number

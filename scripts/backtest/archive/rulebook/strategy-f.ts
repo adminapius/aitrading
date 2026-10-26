@@ -1,3 +1,4 @@
+// ARCHIVED Oct 25, 2026 (parked; FAIL or parked verdict in its spec). Kept for the record; not run by anything.
 // Strategy F: opening-range reversal + FVG - BACKTEST ONLY. Spec (LOCKED Oct 19, 2026): docs/strategy-f-spec.md
 //
 //   $env:NODE_OPTIONS="--max-old-space-size=8192"
@@ -16,13 +17,13 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { easternMidnight } from '../market'
-import { getDailyBars, getDailyBarsSplitAdjusted, type RawBar } from '../data'
-import { toEasternDay, type DailyRow } from '../universe'
-import { RULEBOOK } from './config'
-import { getDayBars, loadReference, strategySPCandidates, type Reference } from './data'
-import { atr, isBearishEngulfing, isBullishEngulfing, isHammer, isShootingStar, type Bar } from './indicators'
-import { addDays, parseArgs } from './runner'
+import { easternMidnight } from '../../market'
+import { getDailyBars, getDailyBarsSplitAdjusted, type RawBar } from '../../data'
+import { toEasternDay, type DailyRow } from '../../universe'
+import { RULEBOOK } from '../../rulebook/config'
+import { getDayBars, loadReference, strategySPCandidates, type Reference } from '../../rulebook/data'
+import { atr, isBearishEngulfing, isBullishEngulfing, isHammer, isShootingStar, type Bar } from '../../rulebook/indicators'
+import { addDays, parseArgs } from '../../rulebook/runner'
 import { topByDollarVolume } from './strategy-f-probe'
 
 export const F = {

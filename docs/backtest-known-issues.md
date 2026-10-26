@@ -66,6 +66,12 @@ strategies). Not built; fix before any future backtest that needs a clean univer
 - Some SEC companyconcept responses are `units: {shares: {}}` (an empty object): read as no data.
 
 ## Parked strategies (failed their locked tests; no paper test; any follow-up is a new locked spec)
+Code archived Oct 25, 2026 (not deleted): runners in `scripts/backtest/archive/` (C, R, E-J, E-J $3-10) and
+`scripts/backtest/archive/rulebook/` (F, SW, H v2 `swing-v2`); their tests in `tests/archive/` (not part of `npm test`;
+run with `npx tsx --test tests/archive/*.test.mjs`). Shared tools stay in place: U1, EDGAR float, the fill and halt
+models (`scripts/backtest/fill-halt-models.ts`), the E-J/E replay engine (`ej-engine.ts`), the fill audit
+(`rulebook/audit.ts`), and the shared windows (`scripts/backtest/windows.ts`). Run-lock files on the laptop
+(`backtests/*/RUN-LOCK.json`) are untouched.
 - **R (Ross-type H1 / H2 / H3), FAIL and final, Oct 25, 2026** (docs/strategy-r-spec.md, section 12): Ross-type
   selection plus a 1-minute pullback trigger: win rate 31% vs 33% needed for 2R; pre-market worst.
 - C (rest-of-day momentum, SPY), FAIL and final, Oct 25, 2026: docs/strategy-c-spec.md, section 12.

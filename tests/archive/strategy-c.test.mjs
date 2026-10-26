@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { C, closerTo, closingPrint, dividendFactor, isHalfDay } from '../scripts/backtest/strategy-c'
+import { C, closerTo, closingPrint, dividendFactor, isHalfDay } from '../../scripts/backtest/archive/strategy-c'
 
 test('closingPrint: primary-exchange official close (M) first, else the largest closing print (6); other exchanges ignored', () => {
   const trades = [
@@ -47,7 +47,7 @@ test('dividendFactor: rounding noise in the adjusted closes is not a dividend', 
 })
 
 // ---------------- run: pure simulation ----------------
-import { BASE, FEES, holdLine, lineStats, maxDrawdown, passRule, runLine, sellFees, sharpe, tenMonthFilter, tStat } from '../scripts/backtest/strategy-c'
+import { BASE, FEES, holdLine, lineStats, maxDrawdown, passRule, runLine, sellFees, sharpe, tenMonthFilter, tStat } from '../../scripts/backtest/archive/strategy-c'
 
 const day = (date, x = {}) => ({ date, half: false, c1529: 101, o1530: 101.05, o1531: 101.1, prevClose: 100, close: 102, closeSrc: 'print', prevSrc: 'print', divFactor: 1, ...x })
 

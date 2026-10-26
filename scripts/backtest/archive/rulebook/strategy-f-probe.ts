@@ -1,3 +1,4 @@
+// ARCHIVED Oct 25, 2026 (parked; FAIL or parked verdict in its spec). Kept for the record; not run by anything.
 // Strategy F data probe - BACKTEST ONLY. Data size and cost facts, no trades, no results.
 //
 //   npx tsx scripts/backtest/rulebook/strategy-f-probe.ts                 (counts + a 6-day sample download)
@@ -15,12 +16,12 @@
 import { existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { apiStats, CACHE_ROOT, fetchJson, getDailyBars, getDailyBarsSplitAdjusted, type RawBar } from '../data'
-import { toEasternDay, type DailyRow } from '../universe'
-import { RULEBOOK } from './config'
-import { getDayBars, isCommonStock, loadReference, minuteOfDay, strategySPCandidates } from './data'
-import { atr, type Bar } from './indicators'
-import { addDays, parseArgs } from './runner'
+import { apiStats, CACHE_ROOT, fetchJson, getDailyBars, getDailyBarsSplitAdjusted, type RawBar } from '../../data'
+import { toEasternDay, type DailyRow } from '../../universe'
+import { RULEBOOK } from '../../rulebook/config'
+import { getDayBars, isCommonStock, loadReference, minuteOfDay, strategySPCandidates } from '../../rulebook/data'
+import { atr, type Bar } from '../../rulebook/indicators'
+import { addDays, parseArgs } from '../../rulebook/runner'
 
 export const F_PROBE = {
   holdoutEnd: '2026-10-16',

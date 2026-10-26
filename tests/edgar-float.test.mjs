@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { EDGAR_FLOAT, edgarFloatOn, filerType, namesMatch, pointBefore, sharePoints, splitAdjustShares, splitRatio } from '../scripts/backtest/edgar-float'
-import { enterableDays } from '../scripts/backtest/strategy-ej-310'
 
 const units = [
   { end: '2022-04-30', val: 8_000_000, accn: 'A1', form: '10-Q', filed: '2022-05-12' },
@@ -61,19 +60,6 @@ test('edgarFloatOn: value, filer type and every reason for no value', () => {
   const stale = new Date(Date.parse('2022-08-10T00:00:00Z') + (EDGAR_FLOAT.maxAgeDays + 1) * 86_400_000).toISOString().slice(0, 10)
   assert.equal(edgarFloatOn(company('10-K'), stale).miss, 'stale')
   assert.equal(filerType({ cik: '1', record: null, nameOk: true, annual: [] }, '2022-09-01'), 'unknown')
-})
-
-test('enterableDays: day high >= +20% over the prior close, high >= $3, enough volume, inside the window', () => {
-  const rows = [
-    { day: '2022-01-03', o: 2, h: 2, l: 2, c: 2.6, v: 1e6 },
-    { day: '2022-01-04', o: 2.7, h: 3.2, l: 2.6, c: 3, v: 1e6 }, // +23%, high 3.2 -> yes
-    { day: '2022-01-05', o: 3, h: 3.5, l: 3, c: 3.1, v: 1e6 }, // +16.7% -> no
-    { day: '2022-01-06', o: 3.1, h: 4, l: 3, c: 3.5, v: 10 }, // +29% but tiny volume -> no
-  ]
-  const low = [{ day: '2022-01-03', o: 1, h: 1, l: 1, c: 1, v: 1e6 }, { day: '2022-01-04', o: 1, h: 2, l: 1, c: 2, v: 1e6 }] // +100% but under $3
-  const out = enterableDays({ daily: new Map([['AAA', rows], ['BBB', low]]) }, '2022-01-01', '2022-12-31')
-  assert.deepEqual([...out], [['AAA', ['2022-01-04']]])
-  assert.equal(enterableDays({ daily: new Map([['AAA', rows]]) }, '2022-01-05', '2022-12-31').size, 0)
 })
 
 // Real SEC companyconcept rows (CIK 1321834, dei:EntityCommonStockSharesOutstanding), scraped Oct 24, 2026.
