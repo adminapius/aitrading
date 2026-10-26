@@ -1,3 +1,4 @@
+// ARCHIVED Oct 25, 2026 (parked; FAIL or parked verdict in its spec). Kept for the record; not run by anything.
 // Strategy SW: swing trading by the course - BACKTEST ONLY. Spec (LOCKED Oct 24, 2026): docs/strategy-sw-spec.md
 //
 //   $env:ALPACA_API_KEY / $env:ALPACA_API_SECRET / $env:FMP_API_KEY / $env:SEC_USER_AGENT="Your Name you@example.com"
@@ -11,13 +12,13 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { getAssets, getDailyBars, getDailyBarsSplitAdjusted, type RawBar } from '../data'
-import { toEasternDay } from '../universe'
-import { RULEBOOK } from './config'
-import { isCommonStock } from './data'
-import { cikFor3, edgarStats, fmpProfile3, isForeignFiler, secCompany, type AnnualForm, type EarningsFiling } from './edgar-earnings'
-import { atr, ema, isBullishEngulfing, isHammer, isMorningStar, macd, sma, type Bar } from './indicators'
-import { parseArgs } from './runner'
+import { getAssets, getDailyBars, getDailyBarsSplitAdjusted, type RawBar } from '../../data'
+import { toEasternDay } from '../../universe'
+import { RULEBOOK } from '../../rulebook/config'
+import { isCommonStock } from '../../rulebook/data'
+import { cikFor3, edgarStats, fmpProfile3, isForeignFiler, secCompany, type AnnualForm, type EarningsFiling } from '../../rulebook/edgar-earnings'
+import { atr, ema, isBullishEngulfing, isHammer, isMorningStar, macd, sma, type Bar } from '../../rulebook/indicators'
+import { parseArgs } from '../../rulebook/runner'
 import { universeMembers } from './strategy-sw-prefetch'
 
 export const SW = {

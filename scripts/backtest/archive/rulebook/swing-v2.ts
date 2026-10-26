@@ -1,3 +1,4 @@
+// ARCHIVED Oct 25, 2026 (parked; FAIL or parked verdict in its spec). Kept for the record; not run by anything.
 // H v2 - daily swing, course rules. BACKTEST ONLY. Locked spec: docs/h-v2-spec.md (approved Oct 19, 2026).
 //
 //   1) earnings probe:  npx tsx scripts/backtest/rulebook/swing-v2.ts --earnings-probe
@@ -9,16 +10,16 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { getDailyBarsSplitAdjusted, readCache, writeCache, type RawBar } from '../data'
-import { easternMidnight } from '../market'
-import { toEasternDay } from '../universe'
-import { RULEBOOK } from './config'
-import { isCommonStock, loadReference, setFifteenWindow, type Reference } from './data'
-import { atr, ema, isBullishEngulfing, isHammer, isMorningStar, sma, type Bar } from './indicators'
-import { buildRunReport, metrics, passFail, writeOutputs } from './report'
-import type { TradeRecord } from './engine'
-import { runSwing } from './swing'
-import { addDays, parseArgs } from './runner'
+import { getDailyBarsSplitAdjusted, readCache, writeCache, type RawBar } from '../../data'
+import { easternMidnight } from '../../market'
+import { toEasternDay } from '../../universe'
+import { RULEBOOK } from '../../rulebook/config'
+import { isCommonStock, loadReference, setFifteenWindow, type Reference } from '../../rulebook/data'
+import { atr, ema, isBullishEngulfing, isHammer, isMorningStar, sma, type Bar } from '../../rulebook/indicators'
+import { buildRunReport, metrics, passFail, writeOutputs } from '../../rulebook/report'
+import type { TradeRecord } from '../../rulebook/engine'
+import { runSwing } from '../../rulebook/swing'
+import { addDays, parseArgs } from '../../rulebook/runner'
 
 const H = RULEBOOK.H
 const MIN = 60_000

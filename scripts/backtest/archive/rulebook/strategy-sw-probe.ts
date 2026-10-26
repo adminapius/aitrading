@@ -1,3 +1,4 @@
+// ARCHIVED Oct 25, 2026 (parked; FAIL or parked verdict in its spec). Kept for the record; not run by anything.
 // Strategy SW (swing) data probe - BACKTEST ONLY. Data size and coverage facts, no trades, no results.
 //
 //   npx tsx scripts/backtest/rulebook/strategy-sw-probe.ts                (default sample of 150 stocks)
@@ -12,10 +13,10 @@
 //   4. FMP earnings calendar depth: one week in 2016, 2019, 2022 and 2025 (rows, share with a report time).
 //   5. FMP sector coverage for part of the sample (sector is current/last known, not point in time).
 import { pathToFileURL } from 'node:url'
-import { apiStats, fetchJson, getAssets, getDailyBars, getDailyBarsSplitAdjusted, type RawBar } from '../data'
-import { toEasternDay } from '../universe'
-import { isCommonStock } from './data'
-import { addDays, parseArgs } from './runner'
+import { apiStats, fetchJson, getAssets, getDailyBars, getDailyBarsSplitAdjusted, type RawBar } from '../../data'
+import { toEasternDay } from '../../universe'
+import { isCommonStock } from '../../rulebook/data'
+import { addDays, parseArgs } from '../../rulebook/runner'
 import { loadEarnings } from './swing-v2'
 
 export const SW_PROBE = { start: '2016-01-01', end: '2026-10-16', sample: 150, sectorSample: 40, seed: 20261023 } as const

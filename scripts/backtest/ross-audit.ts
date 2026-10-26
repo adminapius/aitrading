@@ -32,7 +32,7 @@ import { extendUniverse, resolveTicker, type U1Result } from './u1-delisted'
 import { toEasternDay } from './universe'
 import { daySymbolSets, easternMidnight, loadDay, MINUTE, setFifteenMinuteWindow, type DayMarket, type MinuteBar } from './market'
 import { buildUniverse, dailyIndex, floatOn, type Universe } from './universe'
-import { EJW, SCAN_MINUTES } from './strategy-ej'
+import { EJW, SCAN_MINUTES } from './windows'
 
 export const Q5 = { gain: 0.5, volume: 10_000_000, byMinute: 10 * 60 } as const
 const OPEN = 9 * 60 + 30

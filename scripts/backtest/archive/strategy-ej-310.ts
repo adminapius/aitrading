@@ -1,3 +1,4 @@
+// ARCHIVED Oct 25, 2026 (parked; FAIL or parked verdict in its spec). Kept for the record; not run by anything.
 // Strategy E-J $3-10 - BACKTEST ONLY. Spec (LOCKED Oct 24, 2026): docs/strategy-ej-310-spec.md
 //
 //   $env:ALPACA_API_KEY / $env:ALPACA_API_SECRET / $env:FMP_API_KEY / $env:SEC_USER_AGENT="Your Name you@example.com"
@@ -8,13 +9,13 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { scanConfig } from '../../lib/scan-config'
-import { CLEAN_MOMENTUM_MIN_PRICE } from '../../lib/strategies/clean-momentum'
-import { apiStats, CACHE_ROOT, fetchJson, getDailyBars, getDailyBarsSplitAdjusted, hashKey, readCache, writeCache } from './data'
-import { daySymbolSets, loadDay, prefetchDay, setFifteenMinuteWindow } from './market'
-import { buildUniverse, toEasternDay, type Universe } from './universe'
-import { edgarStats } from './rulebook/edgar-earnings'
-import { EDGAR_FLOAT, edgarFloatOn, edgarIssues, loadEdgarFloat, type FilerType, type FloatMiss } from './edgar-float'
+import { scanConfig } from '../../../lib/scan-config'
+import { CLEAN_MOMENTUM_MIN_PRICE } from '../../../lib/strategies/clean-momentum'
+import { apiStats, CACHE_ROOT, fetchJson, getDailyBars, getDailyBarsSplitAdjusted, hashKey, readCache, writeCache } from '../data'
+import { daySymbolSets, loadDay, prefetchDay, setFifteenMinuteWindow } from '../market'
+import { buildUniverse, toEasternDay, type Universe } from '../universe'
+import { edgarStats } from '../rulebook/edgar-earnings'
+import { EDGAR_FLOAT, edgarFloatOn, edgarIssues, loadEdgarFloat, type FilerType, type FloatMiss } from '../edgar-float'
 
 export const EJ310 = {
   fresh: ['2021-10-14', '2024-10-11'] as [string, string],

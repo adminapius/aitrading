@@ -1,3 +1,4 @@
+// ARCHIVED Oct 25, 2026 (parked; FAIL or parked verdict in its spec). Kept for the record; not run by anything.
 // Strategy SW: EDGAR earnings-date coverage probe - BACKTEST ONLY, no trades, no results.
 //
 //   $env:SEC_USER_AGENT="Your Name you@example.com"
@@ -9,11 +10,11 @@
 //   - report timing: before the open / after the close / during the session
 //   - cross-check vs the FMP earnings calendar 2022+ (dates within 3 calendar days)
 import { pathToFileURL } from 'node:url'
-import { getAssets, getDailyBars, type RawBar } from '../data'
-import { toEasternDay } from '../universe'
-import { isCommonStock } from './data'
-import { cikFor, earningsFilings, edgarStats, type EarningsFiling } from './edgar-earnings'
-import { addDays } from './runner'
+import { getAssets, getDailyBars, type RawBar } from '../../data'
+import { toEasternDay } from '../../universe'
+import { isCommonStock } from '../../rulebook/data'
+import { cikFor, earningsFilings, edgarStats, type EarningsFiling } from '../../rulebook/edgar-earnings'
+import { addDays } from '../../rulebook/runner'
 import { KNOWN_DELISTED, seededSample, SW_PROBE } from './strategy-sw-probe'
 import { loadEarnings } from './swing-v2'
 

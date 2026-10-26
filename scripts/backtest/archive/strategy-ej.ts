@@ -1,3 +1,4 @@
+// ARCHIVED Oct 25, 2026 (parked; FAIL or parked verdict in its spec). Kept for the record; not run by anything.
 // Strategy E-J backtest - BACKTEST ONLY. Spec (LOCKED Oct 24, 2026): docs/strategy-ej-spec.md
 //
 //   $env:ALPACA_API_KEY / $env:ALPACA_API_SECRET / $env:FMP_API_KEY ; $env:NODE_OPTIONS="--max-old-space-size=8192"
@@ -12,27 +13,16 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { decideEntry, simulatedMarginBuyingPower, strategyGuardrails, strategyRegime } from '../../lib/strategy'
-import { cleanMomentumBlockReason } from '../../lib/strategies/clean-momentum'
-import { scanConfig } from '../../lib/scan-config'
-import { apiStats, CACHE_ROOT, flushQuoteCache, getLatestQuote, hashKey } from './data'
-import { daySymbolSets, loadDay, MINUTE, prefetchDay, setFifteenMinuteWindow, type DayMarket, type MinuteCandidate } from './market'
-import { buildUniverse } from './universe'
-import { EJ, sellFees, simulateTrade, slipAt, type Entry, type Mode, type TradeResult } from './ej-engine'
+import { decideEntry, simulatedMarginBuyingPower, strategyGuardrails, strategyRegime } from '../../../lib/strategy'
+import { cleanMomentumBlockReason } from '../../../lib/strategies/clean-momentum'
+import { scanConfig } from '../../../lib/scan-config'
+import { apiStats, CACHE_ROOT, flushQuoteCache, getLatestQuote, hashKey } from '../data'
+import { daySymbolSets, loadDay, MINUTE, prefetchDay, setFifteenMinuteWindow, type DayMarket, type MinuteCandidate } from '../market'
+import { buildUniverse } from '../universe'
+import { EJ, sellFees, simulateTrade, slipAt, type Entry, type Mode, type TradeResult } from '../ej-engine'
 
-export const EJW = {
-  start: '2024-10-14',
-  end: '2026-10-16',
-  windows: { tuning: ['2024-10-14', '2026-07-31'], holdout: ['2026-08-01', '2026-10-16'] } as Record<string, [string, string]>,
-  historyLookbackDays: 57,
-  entryEnd: 11 * 60, // trading control: entries 07:00-11:00
-  flatE: 15 * 60 + 55, // E-current as live (D1)
-  flat1530: 15 * 60 + 30,
-  equity: 2000,
-} as const
-
-/** Scan times: 7:00, 7:15, 7:30, 7:45, then every 5 minutes from 8:00 (only those before 11:00 can enter). */
-export const SCAN_MINUTES = [420, 435, 450, 465, ...Array.from({ length: (EJW.entryEnd - 480) / 5 }, (_, k) => 480 + 5 * k)]
+export { EJW, SCAN_MINUTES } from '../windows'
+import { EJW, SCAN_MINUTES } from '../windows'
 
 type Mark = { bid: number; ask: number; mid: number; spreadPct: number }
 async function executableQuote(market: DayMarket, candidate: MinuteCandidate, now: number): Promise<Mark | null> {

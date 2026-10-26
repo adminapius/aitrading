@@ -1,7 +1,8 @@
+// E's and E-J's replay engine (scripts/backtest/ej-engine.ts; kept: it models E-current's exits). Split from the
+// archived strategy-ej test on Oct 25, 2026.
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { EJ, rvol5Above, simulateTrade, vwapAt } from '../scripts/backtest/ej-engine'
-import { SCAN_MINUTES, passCheck } from '../scripts/backtest/strategy-ej'
 
 const MIDNIGHT = Date.parse('2026-05-04T00:00:00-04:00')
 const at = (minute) => MIDNIGHT + minute * 60_000
@@ -90,14 +91,4 @@ test('E-J add: after scale-out 2, new high, close above VWAP and rising volume -
   assert.equal(r.adds, 1)
   const none = simulateTrade('EJ-noadd', day(bars), MIDNIGHT, entry({ minute: 570 }), 930)
   assert.equal(none.adds, 0)
-})
-
-test('scan times and the holdout pass rule', () => {
-  assert.deepEqual(SCAN_MINUTES.slice(0, 6), [420, 435, 450, 465, 480, 485])
-  assert.equal(SCAN_MINUTES.at(-1), 655)
-  const t = (r, pnl) => ({ r, pnl })
-  const ej = [...Array(20).fill(t(1, 10)), ...Array(12).fill(t(-1, -10))]
-  const ec = Array(32).fill(t(0, 0))
-  assert.equal(passCheck(ej, ec).pass, true)
-  assert.equal(passCheck(ej.slice(0, 29), ec).pass, false) // under 30 trades
 })

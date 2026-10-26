@@ -1,3 +1,4 @@
+// ARCHIVED Oct 25, 2026 (parked; FAIL or parked verdict in its spec). Kept for the record; not run by anything.
 // Strategy SW data prefetch - BACKTEST ONLY. Downloads and caches every input the SW backtest will need.
 // No strategy logic, no trades, no results: the spec is not locked yet. Safe to run overnight; reruns are cache hits.
 //
@@ -14,10 +15,10 @@
 //   5. FMP earnings calendar 2022+ (cross-check).
 //   6. Coverage report: earnings 8-Ks per universe stock-year, report timing, sector coverage, FMP agreement.
 import { pathToFileURL } from 'node:url'
-import { apiStats, getAssets, getDailyBars, getDailyBarsSplitAdjusted, type RawBar } from '../data'
-import { toEasternDay } from '../universe'
-import { isCommonStock } from './data'
-import { cikFor, earningsFilings, edgarStats, fmpProfile, type EarningsFiling } from './edgar-earnings'
+import { apiStats, getAssets, getDailyBars, getDailyBarsSplitAdjusted, type RawBar } from '../../data'
+import { toEasternDay } from '../../universe'
+import { isCommonStock } from '../../rulebook/data'
+import { cikFor, earningsFilings, edgarStats, fmpProfile, type EarningsFiling } from '../../rulebook/edgar-earnings'
 import { matchRate } from './strategy-sw-edgar-probe'
 import { loadEarnings } from './swing-v2'
 

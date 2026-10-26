@@ -1,3 +1,4 @@
+// ARCHIVED Oct 25, 2026 (parked; FAIL or parked verdict in its spec). Kept for the record; not run by anything.
 // Strategy C (rest-of-day momentum, SPY) - BACKTEST ONLY. Spec (LOCKED Oct 24, 2026): docs/strategy-c-spec.md
 //
 //   $env:ALPACA_API_KEY / $env:ALPACA_API_SECRET / $env:FMP_API_KEY
@@ -10,9 +11,9 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { ALPACA_DATA_URL, ALPACA_TRADING_URL, apiStats, fetchJson, getDailyBars, getDailyBarsAdjusted, HISTORICAL_FEED, readCache, writeCache, type RawBar } from './data'
-import { easternMidnight } from './market'
-import { toEasternDay } from './universe'
+import { ALPACA_DATA_URL, ALPACA_TRADING_URL, apiStats, fetchJson, getDailyBars, getDailyBarsAdjusted, HISTORICAL_FEED, readCache, writeCache, type RawBar } from '../data'
+import { easternMidnight } from '../market'
+import { toEasternDay } from '../universe'
 
 export const C = {
   symbols: ['SPY', 'QQQ', 'IWM', 'DIA'] as const,
