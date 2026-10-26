@@ -175,11 +175,8 @@ const pct = (a: number, b: number) => (b ? `${((100 * a) / b).toFixed(1)}%` : 'n
 
 // ---------------- probe ----------------
 
-async function probe(out: string) {
-  const t0 = Date.now()
-  const mins = () => `${((Date.now() - t0) / 60_000).toFixed(1)} min`
-  const log: string[] = []
-  const say = (s = '') => { console.log(s); log.push(s) }
+/** Universe (with U1), the daily pre-screen and point-in-time EDGAR float: shared by the probe and the run. */
+export async function loadR(say: (s?: string) => void, mins: () => string, label: string) {
   // Same history and end as the E replays and the Ross audit's U1 rerun, so their caches are reused.
   const historyStart = new Date(Date.parse(`${EJW.start}T00:00:00Z`) - EJW.historyLookbackDays * 86_400_000).toISOString().slice(0, 10)
   const end = R.windows.holdout[1]
@@ -187,7 +184,7 @@ async function probe(out: string) {
   const base = universe.symbols.length
   const u1 = await extendUniverse(universe, { historyStart, end }, { edgar: true })
   const entities = new Map(u1.entities.filter((e) => e.bars > 0).map((e) => [e.key, e]))
-  say(`[r] PROBE (counts only: no exits, no returns). Universe ${base} symbols + U1 ${entities.size} delisted entities (${mins()})`)
+  say(`[r] ${label}. Universe ${base} symbols + U1 ${entities.size} delisted entities (${mins()})`)
 
   // 1. daily pre-screen
   const pre = new Map<string, Array<{ day: string; prevClose: number }>>()
@@ -224,6 +221,17 @@ async function probe(out: string) {
   const floatAt = (symbol: string, day: string) => edgarFloatOn(edgar.get(symbol), day, ratios.get(symbol))
   say(`[r] EDGAR loaded (${mins()}; SEC ${edgarStats.secRequests}; companies with a SEC data error: ${edgarIssues.errors}, not cached)`)
 
+  const tradingDays = universe.tradingDays.filter((d) => d >= R.windows.tuning[0] && d <= end)
+  return { universe, u1, entities, byDay, floatAt, tradingDays, end }
+}
+
+async function probe(out: string) {
+  const t0 = Date.now()
+  const mins = () => `${((Date.now() - t0) / 60_000).toFixed(1)} min`
+  const log: string[] = []
+  const say = (s = '') => { console.log(s); log.push(s) }
+  const { u1, byDay, floatAt, tradingDays, end } = await loadR(say, mins, 'PROBE (counts only: no exits, no returns)')
+
   // 3. minute bars, news, triggers, quotes - day by day
   type LineCount = { breaks: number; filterFail: Record<string, number>; setups: number; skips: Record<string, number>; spreadByHour: Record<string, number>; setupsByHour: Record<string, number>; fills: number; fillsByDay: Map<string, number>; spreads: { pre: number[]; rth: number[] } }
   const lineCount = (): LineCount => ({ breaks: 0, filterFail: {}, setups: 0, skips: {}, spreadByHour: {}, setupsByHour: {}, fills: 0, fillsByDay: new Map(), spreads: { pre: [], rth: [] } })
@@ -233,7 +241,6 @@ async function probe(out: string) {
   const win = { tuning: { days: 0, candidateDays: 0, u1Days: 0, halts: 0, minuteSymbolDays: 0, noMinuteBars: 0 }, holdout: { days: 0, candidateDays: 0, u1Days: 0, halts: 0, minuteSymbolDays: 0, noMinuteBars: 0 } }
   const quotes = { asked: 0, none: 0 }
   const rows: string[] = ['window,line,day,symbol,u1,break_et,trigger,pullback_low,pullback_bars,float,filer,decision,spread_pct']
-  const tradingDays = universe.tradingDays.filter((d) => d >= R.windows.tuning[0] && d <= end)
   const lines = Object.keys(R.lines) as LineName[]
   let n = 0
   for (const day of tradingDays) {
