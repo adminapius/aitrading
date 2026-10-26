@@ -1,4 +1,4 @@
-# Strategy R ("Ross-type"): H1, H2, H3 - LOCKED (Oct 25, 2026)
+# Strategy R ("Ross-type"): H1, H2, H3 - LOCKED (Oct 25, 2026); FAIL and final on all three lines; PARKED
 
 **Status: LOCKED by Jose on Oct 25, 2026 (about 17:20 PT), before any result.** R1-R14 approved as proposed with
 three additions (section 10); R15 and R16 decided (section 10); U1 merged (PR #114) and its results recorded in
@@ -262,7 +262,7 @@ line before the lock; fees are E's constants on top of R11's fill price.
 - Inferred halts miss halts shorter than a bar gap and may read a no-trade gap as a halt.
 
 ## 12. Result (LOCKED run, Jose's laptop, Oct 25, 2026, about 20:45 ET; ran once; `backtests/strategy-r/run/`)
-**VERDICT: FAIL on all three lines.** No line goes to a paper test. Per section 8, no rerun with changed rules,
+**VERDICT: FAIL on all three lines. FAIL and final (Jose, Oct 25, 2026); no paper test; parked.** No line goes to a paper test. Per section 8, no rerun with changed rules,
 windows, lines or exits.
 
 Data: universe 14,140 + 1,101 U1 delisted entities (the 16 fewer than the probe are the trusts dropped by the U1

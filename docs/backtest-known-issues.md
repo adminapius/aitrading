@@ -64,3 +64,13 @@ strategies). Not built; fix before any future backtest that needs a clean univer
 - 08:00 ET premarket flush: real prints on exchange D; the backtest fills a stop on any touch (worst case), live E
   checks the bid every 15 s (docs/strategy-ej-spec.md, section 11).
 - Some SEC companyconcept responses are `units: {shares: {}}` (an empty object): read as no data.
+
+## Parked strategies (failed their locked tests; no paper test; any follow-up is a new locked spec)
+- **R (Ross-type H1 / H2 / H3), FAIL and final, Oct 25, 2026** (docs/strategy-r-spec.md, section 12): Ross-type
+  selection plus a 1-minute pullback trigger: win rate 31% vs 33% needed for 2R; pre-market worst.
+- C (rest-of-day momentum, SPY), FAIL and final, Oct 25, 2026: docs/strategy-c-spec.md, section 12.
+- E-J, holdout FAIL, Oct 24, 2026: docs/strategy-ej-spec.md.
+- E-J $3-10, parked Oct 24, 2026 (no clean out-of-sample data): docs/strategy-ej-310-spec.md.
+- SW, holdout FAIL, Oct 24, 2026: docs/strategy-sw-spec.md, section 13.
+- H v2, FAIL, Oct 19, 2026: docs/h-v2-spec.md.
+- F, FAIL, Oct 19, 2026: docs/strategy-f-spec.md, section 13.
